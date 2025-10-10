@@ -1,31 +1,32 @@
 module.exports = {
   'GET /api/currentUser': {
     data: {
-      name: 'Serati Ma',
+      name: 'Felix', // 用户名 admin
       avatar:
-        'https://gw.alipayobjects.com/zos/rmsportal/BiazfanxmamNRoxxVxka.png',
+        'https://gw.alipayobjects.com/zos/antfincdn/XAosXuNZyF/BiazfanxmamNRoxxVxka.png', // 可以换成你的LOGO或头像
       userid: '00000001',
-      email: 'antdesign@alipay.com',
-      signature: '海纳百川，有容乃大',
-      title: '交互专家',
-      group: '蚂蚁金服－某某某事业群－某某平台部－某某技术部－UED',
+      email: 'felix@aidoc.com',
+      signature: '智能文档助手，让工作更高效',
+      title: 'AI 助手',
+      group: 'AI 文档助手团队',
       tags: [
-        { key: '0', label: '很有想法的' },
-        { key: '1', label: '专注设计' },
-        { key: '2', label: '辣~' },
-        { key: '3', label: '大长腿' },
-        { key: '4', label: '川妹子' },
-        { key: '5', label: '海纳百川' },
+        { key: '0', label: '智能化' },
+        { key: '1', label: '高效' },
+        { key: '2', label: '精准' },
+        { key: '3', label: '文档管理' },
+        { key: '4', label: '知识库' },
+        { key: '5', label: '协作' },
       ],
       notifyCount: 12,
       unreadCount: 11,
       country: 'China',
       geographic: {
-        province: { label: '浙江省', key: '330000' },
-        city: { label: '杭州市', key: '330100' },
+        province: { label: '陕西省', key: '610000' },
+        city: { label: '西安市', key: '610100' },
       },
-      address: '西湖区工专路 77 号',
-      phone: '0752-268888888',
+      address: '西安交通大学',
+      phone: '029-88888888',
+      access: 'admin', // 默认为 admin，可结合登录接口动态返回
     },
   },
   'GET /api/rule': {

@@ -116,7 +116,7 @@ const Welcome: React.FC = () => {
               color: token.colorTextHeading,
             }}
           >
-            欢迎使用 Ant Design Pro
+            欢迎使用 AI 文档助手
           </div>
           <p
             style={{
@@ -128,8 +128,8 @@ const Welcome: React.FC = () => {
               width: '65%',
             }}
           >
-            Ant Design Pro 是一个整合了 umi，Ant Design 和 ProComponents
-            的脚手架方案。致力于在设计规范和基础组件的基础上，继续向上构建，提炼出典型模板/业务组件/配套设计资源，进一步提升企业级中后台产品设计研发过程中的『用户』和『设计者』的体验。
+            AI 文档助手是一个专为企业和个人打造的智能文档管理与处理工具。它整合了人工智能技术与高效的文档管理方案，
+            支持文档快速检索、智能摘要、内容生成和协作编辑，让用户能够更便捷地创建、管理和共享文档，提高工作效率。
           </p>
           <div
             style={{
@@ -140,21 +140,21 @@ const Welcome: React.FC = () => {
           >
             <InfoCard
               index={1}
-              href="https://umijs.org/docs/introduce/introduce"
-              title="了解 umi"
-              desc="umi 是一个可扩展的企业级前端应用框架,umi 以路由为基础的，同时支持配置式路由和约定式路由，保证路由的功能完备，并以此进行功能扩展。"
+              href="https://example.com/docs/write"
+              title="AI 文档书写"
+              desc="智能文档编辑与书写功能，支持快速创建、格式优化和内容补全，让写作更高效。"
             />
             <InfoCard
               index={2}
-              title="了解 ant design"
-              href="https://ant.design"
-              desc="antd 是基于 Ant Design 设计体系的 React UI 组件库，主要用于研发企业级中后台产品。"
+              title="AI 翻译"
+              href="https://example.com/docs/translate"
+              desc="内置 AI 翻译功能，支持多语言文档互译，帮助跨语言团队高效沟通。"
             />
             <InfoCard
               index={3}
-              title="了解 Pro Components"
-              href="https://procomponents.ant.design"
-              desc="ProComponents 是一个基于 Ant Design 做了更高抽象的模板组件，以 一个组件就是一个页面为开发理念，为中后台开发带来更好的体验。"
+              title="AI 会议助手"
+              href="https://example.com/docs/meeting"
+              desc="智能会议助手，支持会议记录、自动生成会议纪要和任务分配，让会议更高效。"
             />
           </div>
         </div>

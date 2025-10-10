@@ -10,6 +10,7 @@
  * @param icon 配置路由的图标，取值参考 https://ant.design/components/icon-cn， 注意去除风格后缀和大小写，如想要配置图标为 <StepBackwardOutlined /> 则取值应为 stepBackward 或 StepBackward，如想要配置图标为 <UserOutlined /> 则取值应为 user 或者 User
  * @doc https://umijs.org/docs/guides/routes
  */
+
 export default [
   {
     path: '/user',
@@ -27,6 +28,13 @@ export default [
     name: 'welcome',
     icon: 'smile',
     component: './Welcome',
+  },
+  {
+    path: '/user-info',
+    name: '用户信息',
+    icon: 'bug',
+    component: './UserInfo',
+    // 👆 不设置 access，所有人都能访问
   },
   {
     path: '/admin',
@@ -50,6 +58,35 @@ export default [
     icon: 'table',
     path: '/list',
     component: './table-list',
+  },
+  {
+    path: '/AI/calendar',
+    icon: 'calendar',
+    name: '日程管理',
+    component: './AI/Calendar', // 指向你的 CalendarManagement 页面
+  },
+  // ==================== 新增 AI 模块路由 ====================
+  {
+    path: '/AI',
+    name: 'AI',
+    icon: 'robot', // 可以换成你喜欢的图标
+    routes: [
+      {
+        path: '/AI/document-writer',
+        name: 'AI 公文生成器',
+        component: './AI/DocumentWriter',
+      },
+      {
+        path: '/AI/translator',
+        name: 'AI 翻译',
+        component: './AI/Translator',
+      },
+      {
+        path: '/AI/meeting-assistant',
+        name: 'AI 会议助手',
+        component: './AI/MeetingAssistant',
+      },
+    ],
   },
   {
     path: '/',

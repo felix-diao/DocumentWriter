@@ -15,191 +15,202 @@ async function getFakeCaptcha(_req: Request, res: Response) {
 
 const { ANT_DESIGN_PRO_ONLY_DO_NOT_USE_IN_YOUR_PRODUCTION } = process.env;
 
-/**
- * 当前用户的权限，如果为空代表没登录
- * current user access， if is '', user need login
- * 如果是 pro 的预览，默认是有权限的
- */
 let access =
   ANT_DESIGN_PRO_ONLY_DO_NOT_USE_IN_YOUR_PRODUCTION === 'site' ? 'admin' : '';
 
-const getAccess = () => {
-  return access;
+const getAccess = () => access;
+
+// ============= 登录账号配置 =============
+const LOGIN_ACCOUNTS = {
+  // felix 管理员账号
+  felix: {
+    username: 'felix',
+    password: '123456',
+    access: 'admin',
+    name: 'Felix',
+    avatar: 'https://gw.alipayobjects.com/zos/antfincdn/XAosXuNZyF/BiazfanxmamNRoxxVxka.png',
+    userid: '00000001',
+    email: 'felix@aidoc.com',
+    signature: '专注 AI 文档助手开发',
+    title: 'AI 文档专家',
+    group: 'AI 文档助手团队',
+  },
+  // 普通用户账号
+  user: {
+    username: 'user',
+    password: '123456',
+    access: 'user',
+    name: '普通用户',
+    avatar: 'https://gw.alipayobjects.com/zos/antfincdn/XAosXuNZyF/BiazfanxmamNRoxxVxka.png',
+    userid: '00000002',
+    email: 'user@aidoc.com',
+    signature: 'AI 文档助手用户',
+    title: '文档编辑者',
+    group: 'AI 文档助手团队',
+  },
+  // 访客账号
+  guest: {
+    username: 'guest',
+    password: '123456',
+    access: 'guest',
+    name: '访客',
+    avatar: 'https://gw.alipayobjects.com/zos/antfincdn/XAosXuNZyF/BiazfanxmamNRoxxVxka.png',
+    userid: '00000003',
+    email: 'guest@aidoc.com',
+    signature: '访客用户',
+    title: '访客',
+    group: 'AI 文档助手团队',
+  },
 };
 
-// 代码中会兼容本地 service mock 以及部署站点的静态数据
 export default {
-  // 支持值为 Object 和 Array
+  // 当前登录用户信息
   'GET /api/currentUser': (_req: Request, res: Response) => {
     if (!getAccess()) {
       res.status(401).send({
-        data: {
-          isLogin: false,
-        },
+        data: { isLogin: false },
         errorCode: '401',
         errorMessage: '请先登录！',
         success: true,
       });
       return;
     }
-    res.send({
-      success: true,
-      data: {
-        name: 'Serati Ma',
-        avatar:
-          'https://gw.alipayobjects.com/zos/antfincdn/XAosXuNZyF/BiazfanxmamNRoxxVxka.png',
-        userid: '00000001',
-        email: 'antdesign@alipay.com',
-        signature: '海纳百川，有容乃大',
-        title: '交互专家',
-        group: '蚂蚁金服－某某某事业群－某某平台部－某某技术部－UED',
-        tags: [
-          {
-            key: '0',
-            label: '很有想法的',
-          },
-          {
-            key: '1',
-            label: '专注设计',
-          },
-          {
-            key: '2',
-            label: '辣~',
-          },
-          {
-            key: '3',
-            label: '大长腿',
-          },
-          {
-            key: '4',
-            label: '川妹子',
-          },
-          {
-            key: '5',
-            label: '海纳百川',
-          },
-        ],
-        notifyCount: 12,
-        unreadCount: 11,
-        country: 'China',
-        access: getAccess(),
-        geographic: {
-          province: {
-            label: '浙江省',
-            key: '330000',
-          },
-          city: {
-            label: '杭州市',
-            key: '330100',
-          },
-        },
-        address: '西湖区工专路 77 号',
-        phone: '0752-268888888',
-      },
-    });
-  },
-  // GET POST 可省略
-  'GET /api/users': [
-    {
-      key: '1',
-      name: 'John Brown',
-      age: 32,
-      address: 'New York No. 1 Lake Park',
-    },
-    {
-      key: '2',
-      name: 'Jim Green',
-      age: 42,
-      address: 'London No. 1 Lake Park',
-    },
-    {
-      key: '3',
-      name: 'Joe Black',
-      age: 32,
-      address: 'Sidney No. 1 Lake Park',
-    },
-  ],
-  'POST /api/login/account': async (req: Request, res: Response) => {
-    const { password, username, type } = req.body;
-    await waitTime(2000);
-    if (password === 'ant.design' && username === 'admin') {
-      res.send({
-        status: 'ok',
-        type,
-        currentAuthority: 'admin',
+
+    // 根据当前权限返回对应用户信息
+    const currentAccount = Object.values(LOGIN_ACCOUNTS).find(
+      (account) => account.access === getAccess()
+    );
+
+    if (!currentAccount) {
+      res.status(401).send({
+        data: { isLogin: false },
+        errorCode: '401',
+        errorMessage: '用户信息异常',
+        success: true,
       });
-      access = 'admin';
-      return;
-    }
-    if (password === 'ant.design' && username === 'user') {
-      res.send({
-        status: 'ok',
-        type,
-        currentAuthority: 'user',
-      });
-      access = 'user';
-      return;
-    }
-    if (type === 'mobile') {
-      res.send({
-        status: 'ok',
-        type,
-        currentAuthority: 'admin',
-      });
-      access = 'admin';
       return;
     }
 
     res.send({
+      success: true,
+      data: {
+        name: currentAccount.name,
+        avatar: currentAccount.avatar,
+        userid: currentAccount.userid,
+        email: currentAccount.email,
+        signature: currentAccount.signature,
+        title: currentAccount.title,
+        group: currentAccount.group,
+        tags: [
+          { key: '0', label: '热爱技术' },
+          { key: '1', label: '专注文档' },
+          { key: '2', label: '高效' },
+        ],
+        notifyCount: 5,
+        unreadCount: 2,
+        country: 'China',
+        access: getAccess(),
+        geographic: {
+          province: { label: '陕西省', key: '610000' },
+          city: { label: '西安市', key: '610100' },
+        },
+        address: '陕西省西安市西安交通大学',
+        phone: '029-12345678',
+      },
+    });
+  },
+
+  // 用户列表示例
+  'GET /api/users': [
+    { key: '1', name: 'Felix', age: 32, address: '陕西省西安市西安交通大学' },
+    { key: '2', name: '普通用户', age: 28, address: '北京海淀区 XXX' },
+    { key: '3', name: '测试用户', age: 30, address: '上海浦东 XXX' },
+  ],
+
+  // 登录接口
+  'POST /api/login/account': async (req: Request, res: Response) => {
+    const { password, username, type } = req.body;
+    await waitTime(2000);
+
+    // 遍历所有账号进行验证
+    for (const account of Object.values(LOGIN_ACCOUNTS)) {
+      if (username === account.username && password === account.password) {
+        res.send({
+          status: 'ok',
+          type,
+          currentAuthority: account.access,
+        });
+        access = account.access;
+        return;
+      }
+    }
+
+    // 手机号登录（保留原逻辑）
+    if (type === 'mobile') {
+      res.send({ status: 'ok', type, currentAuthority: 'admin' });
+      access = 'admin';
+      return;
+    }
+
+    // 登录失败
+    res.send({
       status: 'error',
       type,
       currentAuthority: 'guest',
+      message: '用户名或密码错误',
     });
-    access = 'guest';
+    access = '';
   },
+
+  // 退出登录
   'POST /api/login/outLogin': (_req: Request, res: Response) => {
     access = '';
     res.send({ data: {}, success: true });
   },
+
+  // 注册接口
   'POST /api/register': (_req: Request, res: Response) => {
     res.send({ status: 'ok', currentAuthority: 'user', success: true });
   },
+
+  // 错误接口示例
   'GET /api/500': (_req: Request, res: Response) => {
     res.status(500).send({
-      timestamp: 1513932555104,
+      timestamp: Date.now(),
       status: 500,
-      error: 'error',
-      message: 'error',
+      error: '系统错误',
+      message: '系统内部错误，请稍后重试',
       path: '/base/category/list',
     });
   },
   'GET /api/404': (_req: Request, res: Response) => {
     res.status(404).send({
-      timestamp: 1513932643431,
+      timestamp: Date.now(),
       status: 404,
-      error: 'Not Found',
-      message: 'No message available',
+      error: '未找到',
+      message: '请求资源不存在',
       path: '/base/category/list/2121212',
     });
   },
   'GET /api/403': (_req: Request, res: Response) => {
     res.status(403).send({
-      timestamp: 1513932555104,
+      timestamp: Date.now(),
       status: 403,
-      error: 'Forbidden',
-      message: 'Forbidden',
+      error: '禁止访问',
+      message: '无权限访问该资源',
       path: '/base/category/list',
     });
   },
   'GET /api/401': (_req: Request, res: Response) => {
     res.status(401).send({
-      timestamp: 1513932555104,
+      timestamp: Date.now(),
       status: 401,
-      error: 'Unauthorized',
-      message: 'Unauthorized',
+      error: '未授权',
+      message: '请先登录',
       path: '/base/category/list',
     });
   },
 
+  // 获取验证码
   'GET  /api/login/captcha': getFakeCaptcha,
 };
