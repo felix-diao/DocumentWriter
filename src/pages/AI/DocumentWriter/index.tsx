@@ -9,14 +9,19 @@ import {
   DownloadOutlined,
   EditOutlined,
   FileTextOutlined,
+  FontColorsOutlined,
+  HighlightOutlined,
   ItalicOutlined,
-  //SettingOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
+  LeftOutlined,
+  LinkOutlined,
   OrderedListOutlined,
+  RedoOutlined,
   ReloadOutlined,
+  RightOutlined,
   StrikethroughOutlined,
+  TableOutlined,
   UnderlineOutlined,
+  UndoOutlined,
   UnorderedListOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
@@ -33,9 +38,9 @@ import {
   Select,
   Space,
   Spin,
+  Tooltip,
   Typography,
   Upload,
-  //Drawer,
 } from 'antd';
 import React, { useState } from 'react';
 import { aiOptimizeDocument, aiWriteDocument } from '@/services/ai';
@@ -109,15 +114,15 @@ const DocumentWriter: React.FC = () => {
           const level = (line.match(/^#+/) || [''])[0].length;
           const content = trimmed.replace(/^#+\s*/, '');
           if (level === 1) {
-            return `<h1 style="text-align: center; font-size: 22px; font-weight: bold; margin: 20px 0;">${content}</h1>`;
+            return `<h1 style="text-align: center; font-size: 22px; font-weight: bold; margin: 24px 0 20px 0; color: #000; font-family: '黑体', 'SimHei', sans-serif;">${content}</h1>`;
           } else if (level === 2) {
-            return `<h2 style="font-size: 18px; font-weight: bold; margin: 16px 0 8px 0;">${content}</h2>`;
+            return `<h2 style="font-size: 18px; font-weight: bold; margin: 20px 0 12px 0; color: #000; font-family: '黑体', 'SimHei', sans-serif;">${content}</h2>`;
           } else {
-            return `<h3 style="font-size: 16px; font-weight: bold; margin: 12px 0 6px 0;">${content}</h3>`;
+            return `<h3 style="font-size: 16px; font-weight: bold; margin: 16px 0 10px 0; color: #000; font-family: '黑体', 'SimHei', sans-serif;">${content}</h3>`;
           }
         }
 
-        return `<p style="text-indent: 2em; line-height: 2; margin: 8px 0;">${trimmed}</p>`;
+        return `<p style="text-indent: 2em; line-height: 1.75; margin: 8px 0; font-size: 16px; color: #000;">${trimmed}</p>`;
       })
       .join('');
   };
@@ -270,380 +275,508 @@ const DocumentWriter: React.FC = () => {
     setContent(text);
   };
 
+  const insertTable = () => {
+    const table =
+      '<table border="1" style="border-collapse: collapse; width: 100%; margin: 12px 0; border: 1px solid #000;"><tr><td style="padding: 8px; border: 1px solid #000;">单元格1</td><td style="padding: 8px; border: 1px solid #000;">单元格2</td></tr><tr><td style="padding: 8px; border: 1px solid #000;">单元格3</td><td style="padding: 8px; border: 1px solid #000;">单元格4</td></tr></table>';
+    execCommand('insertHTML', table);
+  };
+
   return (
     <PageContainer
       header={{
         title: 'AI 公文生成器',
-        subTitle: '根据公文类型和场景快速生成、优化文档，支持云端存储',
-        extra: [
-          <Button
-            key="toggle"
-            icon={
-              settingsPanelOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />
-            }
-            onClick={() => setSettingsPanelOpen(!settingsPanelOpen)}
-          >
-            {settingsPanelOpen ? '收起设置面板' : '展开设置面板'}
-          </Button>,
-        ],
+        subTitle: '智能写作，高效办公',
       }}
     >
-      <Row gutter={[16, 16]}>
-        {/* 中间和左侧：文档编辑器 - 占据主要空间 */}
-        <Col xs={24} lg={settingsPanelOpen ? 16 : 24}>
-          <ProCard bordered>
-            <Spin spinning={loading}>
-              <Space
-                direction="vertical"
-                style={{ width: '100%' }}
-                size="middle"
-              >
-                {/* Word风格工具栏 */}
-                <div
-                  style={{
-                    background: '#fafafa',
-                    padding: '10px',
-                    borderRadius: '4px',
-                    border: '1px solid #e8e8e8',
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '8px',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Select
-                    defaultValue="16px"
-                    style={{ width: 90 }}
-                    size="small"
-                    onChange={(val) => execCommand('fontSize', val)}
-                    options={[
-                      { label: '12px', value: '2' },
-                      { label: '14px', value: '3' },
-                      { label: '16px', value: '4' },
-                      { label: '18px', value: '5' },
-                      { label: '20px', value: '6' },
-                      { label: '24px', value: '7' },
-                    ]}
-                  />
-
-                  <div
-                    style={{ borderLeft: '1px solid #d9d9d9', height: '24px' }}
-                  />
-
-                  <Button
-                    size="small"
-                    icon={<BoldOutlined />}
-                    onClick={() => execCommand('bold')}
-                    title="粗体 (Ctrl+B)"
-                  />
-                  <Button
-                    size="small"
-                    icon={<ItalicOutlined />}
-                    onClick={() => execCommand('italic')}
-                    title="斜体 (Ctrl+I)"
-                  />
-                  <Button
-                    size="small"
-                    icon={<UnderlineOutlined />}
-                    onClick={() => execCommand('underline')}
-                    title="下划线 (Ctrl+U)"
-                  />
-                  <Button
-                    size="small"
-                    icon={<StrikethroughOutlined />}
-                    onClick={() => execCommand('strikeThrough')}
-                    title="删除线"
-                  />
-
-                  <div
-                    style={{ borderLeft: '1px solid #d9d9d9', height: '24px' }}
-                  />
-
-                  <Button
-                    size="small"
-                    icon={<AlignLeftOutlined />}
-                    onClick={() => execCommand('justifyLeft')}
-                    title="左对齐"
-                  />
-                  <Button
-                    size="small"
-                    icon={<AlignCenterOutlined />}
-                    onClick={() => execCommand('justifyCenter')}
-                    title="居中对齐"
-                  />
-                  <Button
-                    size="small"
-                    icon={<AlignRightOutlined />}
-                    onClick={() => execCommand('justifyRight')}
-                    title="右对齐"
-                  />
-
-                  <div
-                    style={{ borderLeft: '1px solid #d9d9d9', height: '24px' }}
-                  />
-
-                  <Button
-                    size="small"
-                    icon={<OrderedListOutlined />}
-                    onClick={() => execCommand('insertOrderedList')}
-                    title="编号列表"
-                  />
-                  <Button
-                    size="small"
-                    icon={<UnorderedListOutlined />}
-                    onClick={() => execCommand('insertUnorderedList')}
-                    title="项目符号"
-                  />
-
-                  <div style={{ flex: 1 }} />
-
-                  <Space>
-                    <Button
-                      icon={<ReloadOutlined />}
-                      onClick={handleOptimize}
-                      disabled={!content}
-                      size="small"
-                    >
-                      优化
-                    </Button>
-                    <Button
-                      icon={<CopyOutlined />}
-                      onClick={handleCopy}
-                      disabled={!content}
-                      size="small"
-                    >
-                      复制
-                    </Button>
-                    <Button
-                      icon={<CloudUploadOutlined />}
-                      onClick={handleSaveToCloud}
-                      disabled={!content}
-                      type="primary"
-                      size="small"
-                    >
-                      保存
-                    </Button>
-                  </Space>
-                </div>
-
-                {/* Word风格编辑器 */}
-                <div
-                  style={{
-                    background: '#f0f0f0',
-                    padding: '20px',
-                    borderRadius: '4px',
-                    minHeight: '75vh',
-                  }}
-                >
-                  <div
-                    id="word-editor"
-                    contentEditable
-                    // biome-ignore lint/security/noDangerouslySetInnerHtml: Content is sanitized
-                    dangerouslySetInnerHTML={{ __html: htmlContent }}
-                    onInput={handleInput}
-                    style={{
-                      minHeight: settingsPanelOpen ? '700px' : '75vh',
-                      background: 'white',
-                      padding: '2.54cm 3.18cm',
-                      boxShadow: '0 0 10px rgba(0,0,0,0.1)',
-                      fontSize: '16px',
-                      lineHeight: '2',
-                      fontFamily: '仿宋, FangSong, STFangsong, serif',
-                      color: '#333',
-                      outline: 'none',
-                      overflowY: 'auto',
-                      maxHeight: '75vh',
-                    }}
-                  />
-                </div>
-              </Space>
-            </Spin>
-          </ProCard>
-        </Col>
-
-        {/* 右侧：设置面板 - 可收起 */}
-        {settingsPanelOpen && (
-          <Col xs={24} lg={8}>
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
-              {/* 输入设置 */}
-              <ProCard title="文档设置" bordered>
+      <div style={{ position: 'relative' }}>
+        <Row gutter={[16, 16]}>
+          {/* 左侧：文档编辑器 */}
+          <Col xs={24} lg={settingsPanelOpen ? 16 : 24}>
+            <ProCard bordered>
+              <Spin spinning={loading}>
                 <Space
                   direction="vertical"
                   style={{ width: '100%' }}
                   size="middle"
                 >
-                  <div>
-                    <Title level={5}>公文类型</Title>
-                    <Select
-                      value={documentType}
-                      onChange={(val) => {
-                        setDocumentType(val);
-                        setScenario('');
-                      }}
-                      style={{ width: '100%' }}
-                      options={[
-                        { label: '演讲稿', value: 'speech' },
-                        { label: '通知', value: 'notice' },
-                        { label: '工作报告', value: 'report' },
-                        { label: '调研报告', value: 'research' },
-                        { label: '意见建议', value: 'suggestion' },
-                      ]}
-                    />
-                  </div>
-
-                  <div>
-                    <Title level={5}>写作场景</Title>
-                    <Select
-                      value={scenario}
-                      onChange={setScenario}
-                      style={{ width: '100%' }}
-                      options={scenarioOptions[documentType] || []}
-                    />
-                  </div>
-
-                  <div>
-                    <Title level={5}>公文标题</Title>
-                    <Input
-                      value={titleInput}
-                      onChange={(e) => setTitleInput(e.target.value)}
-                      placeholder="请输入公文标题"
-                      maxLength={100}
-                    />
-                  </div>
-
-                  <div>
-                    <Title level={5}>字数</Title>
-                    <Select
-                      value={lengthOption}
-                      onChange={setLengthOption}
-                      style={{ width: '100%' }}
-                      options={[
-                        { label: '短 (500字左右)', value: 'short' },
-                        { label: '中 (1000字左右)', value: 'medium' },
-                        { label: '长 (2000字以上)', value: 'long' },
-                      ]}
-                    />
-                  </div>
-
-                  <div>
-                    <Title level={5}>写作素材（可选）</Title>
-                    <Upload
-                      beforeUpload={(file) => {
-                        setUploadedFiles([...uploadedFiles, file]);
-                        return false;
-                      }}
-                      multiple
-                      fileList={uploadedFiles.map((f, idx) => ({
-                        uid: `${f.name}-${idx}`,
-                        name: f.name,
-                        status: 'done' as const,
-                      }))}
-                      onRemove={(file) => {
-                        const idx = uploadedFiles.findIndex(
-                          (f, i) => `${f.name}-${i}` === file.uid,
-                        );
-                        if (idx > -1) {
-                          const newFiles = [...uploadedFiles];
-                          newFiles.splice(idx, 1);
-                          setUploadedFiles(newFiles);
-                        }
-                      }}
-                    >
-                      <Button icon={<UploadOutlined />} block>
-                        添加文件
-                      </Button>
-                    </Upload>
-                  </div>
-
-                  <div>
-                    <Title level={5}>文档描述</Title>
-                    <TextArea
-                      value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
-                      placeholder="请输入文档主题或详细描述..."
-                      rows={4}
-                      maxLength={2000}
-                      showCount
-                    />
-                  </div>
-
-                  <Button
-                    type="primary"
-                    icon={<EditOutlined />}
-                    onClick={handleGenerate}
-                    loading={loading}
-                    block
-                    size="large"
+                  {/* Word 风格工具栏 */}
+                  <div
+                    style={{
+                      background: '#f3f4f6',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid #e5e7eb',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '6px',
+                      alignItems: 'center',
+                    }}
                   >
-                    生成文档
-                  </Button>
-                </Space>
-              </ProCard>
-
-              {/* 已保存文档列表 */}
-              <ProCard title="已保存的文档" bordered>
-                <List
-                  dataSource={savedDocs}
-                  locale={{ emptyText: '暂无保存的文档' }}
-                  renderItem={(doc) => (
-                    <List.Item
-                      actions={[
-                        <Button
-                          key="load"
-                          type="link"
-                          size="small"
-                          onClick={() => handleLoadDocument(doc)}
-                        >
-                          加载
-                        </Button>,
-                        <Button
-                          key="download"
-                          type="link"
-                          size="small"
-                          icon={<DownloadOutlined />}
-                          onClick={() => handleDownload(doc)}
-                        />,
-                        <Button
-                          key="delete"
-                          type="link"
-                          size="small"
-                          danger
-                          icon={<DeleteOutlined />}
-                          onClick={() => handleDelete(doc.id)}
-                        />,
+                    <Select
+                      defaultValue="16px"
+                      style={{ width: 85 }}
+                      size="small"
+                      onChange={(val) => execCommand('fontSize', val)}
+                      options={[
+                        { label: '12px', value: '2' },
+                        { label: '14px', value: '3' },
+                        { label: '16px', value: '4' },
+                        { label: '18px', value: '5' },
+                        { label: '20px', value: '6' },
                       ]}
-                    >
-                      <List.Item.Meta
-                        avatar={
-                          <FileTextOutlined
-                            style={{ fontSize: 24, color: '#1890ff' }}
-                          />
-                        }
-                        title={doc.title}
-                        description={
-                          <Space direction="vertical" size={0}>
-                            <span style={{ fontSize: '12px' }}>
-                              类型: {doc.type}
-                            </span>
-                            {doc.scenario && (
-                              <span style={{ fontSize: '12px' }}>
-                                场景: {doc.scenario}
-                              </span>
-                            )}
-                            <span style={{ fontSize: '12px' }}>
-                              {doc.createdAt.toLocaleDateString('zh-CN')}
-                            </span>
-                          </Space>
-                        }
+                    />
+
+                    <div
+                      style={{
+                        borderLeft: '1px solid #d1d5db',
+                        height: '20px',
+                        margin: '0 4px',
+                      }}
+                    />
+
+                    <Tooltip title="粗体">
+                      <Button
+                        size="small"
+                        icon={<BoldOutlined />}
+                        onClick={() => execCommand('bold')}
                       />
-                    </List.Item>
-                  )}
-                />
-              </ProCard>
-            </Space>
+                    </Tooltip>
+                    <Tooltip title="斜体">
+                      <Button
+                        size="small"
+                        icon={<ItalicOutlined />}
+                        onClick={() => execCommand('italic')}
+                      />
+                    </Tooltip>
+                    <Tooltip title="下划线">
+                      <Button
+                        size="small"
+                        icon={<UnderlineOutlined />}
+                        onClick={() => execCommand('underline')}
+                      />
+                    </Tooltip>
+                    <Tooltip title="删除线">
+                      <Button
+                        size="small"
+                        icon={<StrikethroughOutlined />}
+                        onClick={() => execCommand('strikeThrough')}
+                      />
+                    </Tooltip>
+
+                    <div
+                      style={{
+                        borderLeft: '1px solid #d1d5db',
+                        height: '20px',
+                        margin: '0 4px',
+                      }}
+                    />
+
+                    <Tooltip title="字体颜色">
+                      <Button
+                        size="small"
+                        icon={<FontColorsOutlined />}
+                        onClick={() => {
+                          const color = window.prompt(
+                            '请输入颜色（如：red 或 #ff0000）',
+                            '#000000',
+                          );
+                          if (color) execCommand('foreColor', color);
+                        }}
+                      />
+                    </Tooltip>
+                    <Tooltip title="高亮">
+                      <Button
+                        size="small"
+                        icon={<HighlightOutlined />}
+                        onClick={() => execCommand('backColor', '#ffff00')}
+                      />
+                    </Tooltip>
+
+                    <div
+                      style={{
+                        borderLeft: '1px solid #d1d5db',
+                        height: '20px',
+                        margin: '0 4px',
+                      }}
+                    />
+
+                    <Tooltip title="左对齐">
+                      <Button
+                        size="small"
+                        icon={<AlignLeftOutlined />}
+                        onClick={() => execCommand('justifyLeft')}
+                      />
+                    </Tooltip>
+                    <Tooltip title="居中">
+                      <Button
+                        size="small"
+                        icon={<AlignCenterOutlined />}
+                        onClick={() => execCommand('justifyCenter')}
+                      />
+                    </Tooltip>
+                    <Tooltip title="右对齐">
+                      <Button
+                        size="small"
+                        icon={<AlignRightOutlined />}
+                        onClick={() => execCommand('justifyRight')}
+                      />
+                    </Tooltip>
+
+                    <div
+                      style={{
+                        borderLeft: '1px solid #d1d5db',
+                        height: '20px',
+                        margin: '0 4px',
+                      }}
+                    />
+
+                    <Tooltip title="编号">
+                      <Button
+                        size="small"
+                        icon={<OrderedListOutlined />}
+                        onClick={() => execCommand('insertOrderedList')}
+                      />
+                    </Tooltip>
+                    <Tooltip title="符号">
+                      <Button
+                        size="small"
+                        icon={<UnorderedListOutlined />}
+                        onClick={() => execCommand('insertUnorderedList')}
+                      />
+                    </Tooltip>
+                    <Tooltip title="表格">
+                      <Button
+                        size="small"
+                        icon={<TableOutlined />}
+                        onClick={insertTable}
+                      />
+                    </Tooltip>
+                    <Tooltip title="链接">
+                      <Button
+                        size="small"
+                        icon={<LinkOutlined />}
+                        onClick={() => {
+                          const url = window.prompt('请输入链接地址:');
+                          if (url) execCommand('createLink', url);
+                        }}
+                      />
+                    </Tooltip>
+
+                    <div
+                      style={{
+                        borderLeft: '1px solid #d1d5db',
+                        height: '20px',
+                        margin: '0 4px',
+                      }}
+                    />
+
+                    <Tooltip title="撤销">
+                      <Button
+                        size="small"
+                        icon={<UndoOutlined />}
+                        onClick={() => execCommand('undo')}
+                      />
+                    </Tooltip>
+                    <Tooltip title="重做">
+                      <Button
+                        size="small"
+                        icon={<RedoOutlined />}
+                        onClick={() => execCommand('redo')}
+                      />
+                    </Tooltip>
+
+                    <div style={{ flex: 1 }} />
+
+                    <Space size="small">
+                      <Button
+                        size="small"
+                        icon={<ReloadOutlined />}
+                        onClick={handleOptimize}
+                        disabled={!content}
+                      >
+                        优化
+                      </Button>
+                      <Button
+                        size="small"
+                        icon={<CopyOutlined />}
+                        onClick={handleCopy}
+                        disabled={!content}
+                      >
+                        复制
+                      </Button>
+                      <Button
+                        size="small"
+                        type="primary"
+                        icon={<CloudUploadOutlined />}
+                        onClick={handleSaveToCloud}
+                        disabled={!content}
+                      >
+                        保存
+                      </Button>
+                    </Space>
+                  </div>
+
+                  {/* 标准 A4 Word 编辑器 */}
+                  <div
+                    style={{
+                      background: '#e5e5e5',
+                      padding: '40px 20px',
+                      borderRadius: '4px',
+                      minHeight: '900px',
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    <div
+                      id="word-editor"
+                      contentEditable
+                      // biome-ignore lint/security/noDangerouslySetInnerHtml: 需要渲染富文本编辑器内容
+                      dangerouslySetInnerHTML={{ __html: htmlContent }}
+                      onInput={handleInput}
+                      style={{
+                        width: '21cm',
+                        minHeight: '29.7cm',
+                        background: '#ffffff',
+                        padding: '2.54cm 3.18cm',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                        fontSize: '16px',
+                        lineHeight: '1.75',
+                        fontFamily:
+                          '"Times New Roman", "仿宋", "FangSong", "SimSun", serif',
+                        color: '#000',
+                        outline: 'none',
+                        wordWrap: 'break-word',
+                        overflowWrap: 'break-word',
+                      }}
+                    />
+                  </div>
+                </Space>
+              </Spin>
+            </ProCard>
           </Col>
-        )}
-      </Row>
+
+          {/* 右侧：设置面板 */}
+          {settingsPanelOpen && (
+            <Col xs={24} lg={8}>
+              <Space
+                direction="vertical"
+                style={{ width: '100%' }}
+                size="middle"
+              >
+                {/* 文档设置 */}
+                <ProCard title="文档设置" bordered>
+                  <Space
+                    direction="vertical"
+                    style={{ width: '100%' }}
+                    size="middle"
+                  >
+                    <div>
+                      <Title level={5}>公文类型</Title>
+                      <Select
+                        value={documentType}
+                        onChange={(val) => {
+                          setDocumentType(val);
+                          setScenario('');
+                        }}
+                        style={{ width: '100%' }}
+                        options={[
+                          { label: '演讲稿', value: 'speech' },
+                          { label: '通知', value: 'notice' },
+                          { label: '工作报告', value: 'report' },
+                          { label: '调研报告', value: 'research' },
+                          { label: '意见建议', value: 'suggestion' },
+                        ]}
+                      />
+                    </div>
+
+                    <div>
+                      <Title level={5}>写作场景</Title>
+                      <Select
+                        value={scenario}
+                        onChange={setScenario}
+                        style={{ width: '100%' }}
+                        placeholder="选择场景"
+                        options={scenarioOptions[documentType] || []}
+                      />
+                    </div>
+
+                    <div>
+                      <Title level={5}>公文标题</Title>
+                      <Input
+                        value={titleInput}
+                        onChange={(e) => setTitleInput(e.target.value)}
+                        placeholder="请输入公文标题"
+                        maxLength={100}
+                      />
+                    </div>
+
+                    <div>
+                      <Title level={5}>字数</Title>
+                      <Select
+                        value={lengthOption}
+                        onChange={setLengthOption}
+                        style={{ width: '100%' }}
+                        options={[
+                          { label: '短 (500字左右)', value: 'short' },
+                          { label: '中 (1000字左右)', value: 'medium' },
+                          { label: '长 (2000字以上)', value: 'long' },
+                        ]}
+                      />
+                    </div>
+
+                    <div>
+                      <Title level={5}>写作素材（可选）</Title>
+                      <Upload
+                        beforeUpload={(file) => {
+                          setUploadedFiles([...uploadedFiles, file]);
+                          return false;
+                        }}
+                        multiple
+                        fileList={uploadedFiles.map((f, idx) => ({
+                          uid: `${f.name}-${idx}`,
+                          name: f.name,
+                          status: 'done' as const,
+                        }))}
+                        onRemove={(file) => {
+                          const idx = uploadedFiles.findIndex(
+                            (f, i) => `${f.name}-${i}` === file.uid,
+                          );
+                          if (idx > -1) {
+                            const newFiles = [...uploadedFiles];
+                            newFiles.splice(idx, 1);
+                            setUploadedFiles(newFiles);
+                          }
+                        }}
+                      >
+                        <Button icon={<UploadOutlined />} block size="small">
+                          添加文件
+                        </Button>
+                      </Upload>
+                    </div>
+
+                    <div>
+                      <Title level={5}>文档描述</Title>
+                      <TextArea
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        placeholder="请输入文档主题或详细描述..."
+                        rows={5}
+                        maxLength={2000}
+                        showCount
+                      />
+                    </div>
+
+                    <Button
+                      type="primary"
+                      icon={<EditOutlined />}
+                      onClick={handleGenerate}
+                      loading={loading}
+                      block
+                      size="large"
+                    >
+                      生成文档
+                    </Button>
+                  </Space>
+                </ProCard>
+
+                {/* 已保存文档列表 */}
+                <ProCard title="已保存的文档" bordered>
+                  <List
+                    dataSource={savedDocs}
+                    locale={{ emptyText: '暂无保存的文档' }}
+                    renderItem={(doc) => (
+                      <List.Item
+                        actions={[
+                          <Button
+                            key="load"
+                            type="link"
+                            size="small"
+                            onClick={() => handleLoadDocument(doc)}
+                          >
+                            加载
+                          </Button>,
+                          <Button
+                            key="download"
+                            type="link"
+                            size="small"
+                            icon={<DownloadOutlined />}
+                            onClick={() => handleDownload(doc)}
+                          />,
+                          <Button
+                            key="delete"
+                            type="link"
+                            size="small"
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => handleDelete(doc.id)}
+                          />,
+                        ]}
+                      >
+                        <List.Item.Meta
+                          avatar={
+                            <FileTextOutlined
+                              style={{ fontSize: 20, color: '#1890ff' }}
+                            />
+                          }
+                          title={doc.title}
+                          description={
+                            <Space direction="vertical" size={0}>
+                              <span style={{ fontSize: '12px' }}>
+                                类型: {doc.type}
+                              </span>
+                              {doc.scenario && (
+                                <span style={{ fontSize: '12px' }}>
+                                  场景: {doc.scenario}
+                                </span>
+                              )}
+                              <span style={{ fontSize: '12px' }}>
+                                {doc.createdAt.toLocaleDateString('zh-CN')}
+                              </span>
+                            </Space>
+                          }
+                        />
+                      </List.Item>
+                    )}
+                  />
+                </ProCard>
+              </Space>
+            </Col>
+          )}
+        </Row>
+
+        {/* 侧边收起按钮 */}
+        <div
+          style={{
+            position: 'fixed',
+            right: settingsPanelOpen
+              ? 'calc((100vw - 1200px) / 2 + 400px + 16px)'
+              : '20px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            zIndex: 999,
+            transition: 'right 0.3s ease',
+          }}
+        >
+          <Tooltip
+            title={settingsPanelOpen ? '收起面板' : '展开面板'}
+            placement="left"
+          >
+            <Button
+              type="primary"
+              shape="circle"
+              size="large"
+              icon={settingsPanelOpen ? <RightOutlined /> : <LeftOutlined />}
+              onClick={() => setSettingsPanelOpen(!settingsPanelOpen)}
+              style={{
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                width: '48px',
+                height: '48px',
+              }}
+            />
+          </Tooltip>
+        </div>
+      </div>
 
       <Modal
         title="保存文档到云端"
