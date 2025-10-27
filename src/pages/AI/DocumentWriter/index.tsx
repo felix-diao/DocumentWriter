@@ -8,6 +8,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
+  EyeOutlined,
   FileTextOutlined,
   FontColorsOutlined,
   HighlightOutlined,
@@ -18,6 +19,7 @@ import {
   RedoOutlined,
   ReloadOutlined,
   RightOutlined,
+  SettingOutlined,
   StrikethroughOutlined,
   TableOutlined,
   UnderlineOutlined,
@@ -28,7 +30,10 @@ import {
 import { PageContainer, ProCard } from '@ant-design/pro-components';
 import {
   Button,
+  Checkbox,
   Col,
+  Collapse,
+  Empty,
   Input,
   List,
   Modal,
@@ -38,13 +43,16 @@ import {
   Select,
   Space,
   Spin,
+  Tag,
   Tooltip,
   Typography,
   Upload,
 } from 'antd';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { aiOptimizeDocument, aiWriteDocument } from '@/services/ai';
 import { ossStorageService } from '@/services/ossStorage';
+import type { PromptTemplate } from '@/services/prompt';
+import { getPrompts } from '@/services/prompt';
 
 const { TextArea } = Input;
 const { Title } = Typography;
@@ -77,6 +85,16 @@ const DocumentWriter: React.FC = () => {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(true);
 
+  // Prompt 模板相关状态
+  const [availablePrompts, setAvailablePrompts] = useState<PromptTemplate[]>(
+    [],
+  );
+  const [selectedPromptIds, setSelectedPromptIds] = useState<string[]>([]);
+  const [promptPreviewVisible, setPromptPreviewVisible] = useState(false);
+  const [previewingPrompt, setPreviewingPrompt] =
+    useState<PromptTemplate | null>(null);
+  const [promptsLoading, setPromptsLoading] = useState(false);
+
   const scenarioOptions: Record<string, { label: string; value: string }[]> = {
     speech: [
       { label: '开场演讲', value: 'opening' },
@@ -99,6 +117,27 @@ const DocumentWriter: React.FC = () => {
       { label: '政策建议', value: 'policy' },
       { label: '管理建议', value: 'management' },
     ],
+  };
+
+  // 加载 Prompt 模板
+  useEffect(() => {
+    loadPrompts();
+  }, [documentType]);
+
+  const loadPrompts = async () => {
+    setPromptsLoading(true);
+    try {
+      const response = await getPrompts({
+        category: documentType,
+        isActive: true,
+        pageSize: 100,
+      });
+      setAvailablePrompts(response.data || []);
+    } catch (error) {
+      console.error('加载 Prompt 模板失败:', error);
+    } finally {
+      setPromptsLoading(false);
+    }
   };
 
   const formatContentToHTML = (text: string) => {
@@ -134,11 +173,22 @@ const DocumentWriter: React.FC = () => {
     }
     setLoading(true);
     try {
+      // 合并选中的 Prompt 模板
+      const selectedPrompts = availablePrompts.filter((p) =>
+        selectedPromptIds.includes(p.id),
+      );
+      const promptsContent = selectedPrompts
+        .map((p) => `\n[模板: ${p.name}]\n${p.content}`)
+        .join('\n\n');
+
       const filesContent = uploadedFiles
         .map((f) => `\n[附加素材: ${f.name}]`)
         .join('');
+
+      const finalPrompt = `${promptsContent ? promptsContent + '\n\n' : ''}${prompt}\n类型: ${documentType}\n场景: ${scenario}\n字数: ${lengthOption}${filesContent}`;
+
       const response = await aiWriteDocument({
-        prompt: `${prompt}\n类型: ${documentType}\n场景: ${scenario}\n字数: ${lengthOption}${filesContent}`,
+        prompt: finalPrompt,
         documentType: documentType as any,
         tone: 'formal',
         language: 'zh-CN',
@@ -656,6 +706,91 @@ const DocumentWriter: React.FC = () => {
                     </div>
 
                     <div>
+                      <Title level={5}>Prompt 模板（可选）</Title>
+                      <Spin spinning={promptsLoading}>
+                        {availablePrompts.length > 0 ? (
+                          <Checkbox.Group
+                            value={selectedPromptIds}
+                            onChange={(values) =>
+                              setSelectedPromptIds(values as string[])
+                            }
+                            style={{ width: '100%' }}
+                          >
+                            <Space
+                              direction="vertical"
+                              style={{ width: '100%' }}
+                              size="small"
+                            >
+                              {availablePrompts.map((prompt) => (
+                                <div
+                                  key={prompt.id}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    padding: '8px',
+                                    background: '#f5f5f5',
+                                    borderRadius: '4px',
+                                  }}
+                                >
+                                  <Checkbox value={prompt.id}>
+                                    <Space direction="vertical" size={0}>
+                                      <span style={{ fontWeight: 500 }}>
+                                        {prompt.name}
+                                      </span>
+                                      {prompt.description && (
+                                        <span
+                                          style={{
+                                            fontSize: '12px',
+                                            color: '#666',
+                                          }}
+                                        >
+                                          {prompt.description}
+                                        </span>
+                                      )}
+                                    </Space>
+                                  </Checkbox>
+                                  <Tooltip title="预览">
+                                    <Button
+                                      type="text"
+                                      size="small"
+                                      icon={<EyeOutlined />}
+                                      style={{ marginLeft: 'auto' }}
+                                      onClick={() => {
+                                        setPreviewingPrompt(prompt);
+                                        setPromptPreviewVisible(true);
+                                      }}
+                                    />
+                                  </Tooltip>
+                                </div>
+                              ))}
+                            </Space>
+                          </Checkbox.Group>
+                        ) : (
+                          <Empty
+                            description="暂无可用的 Prompt 模板"
+                            image={Empty.PRESENTED_IMAGE_SIMPLE}
+                          >
+                            <Button
+                              type="link"
+                              onClick={() =>
+                                window.open('/AI/prompt-manager', '_blank')
+                              }
+                            >
+                              去创建
+                            </Button>
+                          </Empty>
+                        )}
+                      </Spin>
+                      {selectedPromptIds.length > 0 && (
+                        <div style={{ marginTop: '8px' }}>
+                          <Tag color="blue">
+                            已选择 {selectedPromptIds.length} 个模板
+                          </Tag>
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
                       <Title level={5}>文档描述</Title>
                       <TextArea
                         value={prompt}
@@ -802,6 +937,62 @@ const DocumentWriter: React.FC = () => {
             <Progress percent={uploadProgress} status="active" />
           )}
         </Space>
+      </Modal>
+
+      {/* Prompt 预览对话框 */}
+      <Modal
+        title="Prompt 模板预览"
+        open={promptPreviewVisible}
+        onCancel={() => setPromptPreviewVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setPromptPreviewVisible(false)}>
+            关闭
+          </Button>,
+        ]}
+        width={700}
+      >
+        {previewingPrompt && (
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <div>
+              <strong>模板名称：</strong>
+              {previewingPrompt.name}
+            </div>
+            {previewingPrompt.description && (
+              <div>
+                <strong>描述：</strong>
+                {previewingPrompt.description}
+              </div>
+            )}
+            {previewingPrompt.variables &&
+              previewingPrompt.variables.length > 0 && (
+                <div>
+                  <strong>变量：</strong>
+                  {previewingPrompt.variables.map((v) => (
+                    <Tag key={v} color="blue">
+                      {`{${v}}`}
+                    </Tag>
+                  ))}
+                </div>
+              )}
+            <div>
+              <strong>Prompt 内容：</strong>
+              <div
+                style={{
+                  marginTop: '8px',
+                  padding: '12px',
+                  background: '#f5f5f5',
+                  borderRadius: '4px',
+                  whiteSpace: 'pre-wrap',
+                  fontFamily: 'monospace',
+                  maxHeight: '400px',
+                  overflow: 'auto',
+                }}
+              >
+                {previewingPrompt.content}
+              </div>
+            </div>
+          </Space>
+        )}
       </Modal>
     </PageContainer>
   );
