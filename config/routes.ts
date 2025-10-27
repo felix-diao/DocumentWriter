@@ -86,6 +86,12 @@ export default [
         name: 'AI 会议助手',
         component: './AI/MeetingAssistant',
       },
+      {
+        path: '/AI/prompt-manager',
+        name: 'Prompt 管理',
+        icon: 'file-text',
+        component: './AI/PromptManager',
+      },
     ],
   },
   {
