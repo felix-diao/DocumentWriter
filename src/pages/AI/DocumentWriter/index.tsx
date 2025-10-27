@@ -36,7 +36,6 @@ import {
   Button,
   Checkbox,
   Col,
-  Collapse,
   Dropdown,
   Empty,
   Input,
@@ -107,6 +106,23 @@ const DocumentWriter: React.FC = () => {
 
   // 导出相关状态
   const [exporting, setExporting] = useState(false);
+
+  // 优化相关状态
+  const [optimizeModalVisible, setOptimizeModalVisible] = useState(false);
+  const [optimizeInstruction, setOptimizeInstruction] = useState('');
+  const [selectedOptimizeTypes, setSelectedOptimizeTypes] = useState<string[]>([
+    'all',
+  ]);
+  const [optimizeHistory, setOptimizeHistory] = useState<
+    Array<{
+      id: string;
+      instruction: string;
+      types: string[];
+      originalContent: string;
+      optimizedContent: string;
+      timestamp: Date;
+    }>
+  >([]);
 
   const scenarioOptions: Record<string, { label: string; value: string }[]> = {
     speech: [
@@ -218,27 +234,129 @@ const DocumentWriter: React.FC = () => {
     }
   };
 
+  // 打开优化对话框
+  const handleOpenOptimizeModal = () => {
+    if (!content.trim()) {
+      message.warning('请先生成文档内容');
+      return;
+    }
+    setOptimizeModalVisible(true);
+  };
+
+  // 执行优化
   const handleOptimize = async () => {
     if (!content.trim()) {
       message.warning('请先生成文档内容');
       return;
     }
+
     setLoading(true);
+    setOptimizeModalVisible(false);
+
     try {
+      const originalContent = content;
       const response = await aiOptimizeDocument({
         content,
-        optimizationType: 'all',
+        optimizationType: selectedOptimizeTypes.includes('all')
+          ? 'all'
+          : (selectedOptimizeTypes[0] as any),
+        customInstruction: optimizeInstruction,
+        context: `文档类型: ${documentType}, 场景: ${scenario}`,
       });
+
       const optimizedContent = response.data?.content || '';
       setContent(optimizedContent);
       setHtmlContent(formatContentToHTML(optimizedContent));
+
+      // 保存到优化历史
+      const historyItem = {
+        id: Date.now().toString(),
+        instruction: optimizeInstruction || '智能优化',
+        types: selectedOptimizeTypes,
+        originalContent,
+        optimizedContent,
+        timestamp: new Date(),
+      };
+      setOptimizeHistory([historyItem, ...optimizeHistory.slice(0, 9)]); // 只保留最近10条
+
       message.success('文档优化成功');
+      setOptimizeInstruction(''); // 清空输入
     } catch (error) {
       message.error('优化失败，请重试');
       console.error(error);
     } finally {
       setLoading(false);
     }
+  };
+
+  // 撤销优化（恢复到上一个版本）
+  const handleUndoOptimize = () => {
+    if (optimizeHistory.length === 0) {
+      message.warning('没有可撤销的优化记录');
+      return;
+    }
+
+    const lastHistory = optimizeHistory[0];
+    setContent(lastHistory.originalContent);
+    setHtmlContent(formatContentToHTML(lastHistory.originalContent));
+    setOptimizeHistory(optimizeHistory.slice(1));
+    message.success('已撤销优化');
+  };
+
+  // 查看优化对比
+  const handleCompareOptimize = (historyItem: (typeof optimizeHistory)[0]) => {
+    Modal.info({
+      title: '优化对比',
+      width: 800,
+      content: (
+        <div>
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <div>
+              <strong>优化指令：</strong>
+              {historyItem.instruction}
+            </div>
+            <div>
+              <strong>优化类型：</strong>
+              {historyItem.types.map((t) => (
+                <Tag key={t} color="blue">
+                  {t}
+                </Tag>
+              ))}
+            </div>
+            <div>
+              <strong>优化前：</strong>
+              <div
+                style={{
+                  maxHeight: '200px',
+                  overflow: 'auto',
+                  background: '#f5f5f5',
+                  padding: '8px',
+                  borderRadius: '4px',
+                  marginTop: '8px',
+                }}
+              >
+                {historyItem.originalContent}
+              </div>
+            </div>
+            <div>
+              <strong>优化后：</strong>
+              <div
+                style={{
+                  maxHeight: '200px',
+                  overflow: 'auto',
+                  background: '#e6f7ff',
+                  padding: '8px',
+                  borderRadius: '4px',
+                  marginTop: '8px',
+                }}
+              >
+                {historyItem.optimizedContent}
+              </div>
+            </div>
+          </Space>
+        </div>
+      ),
+    });
   };
 
   const handleCopy = () => {
@@ -675,14 +793,6 @@ const DocumentWriter: React.FC = () => {
                     <Space size="small">
                       <Button
                         size="small"
-                        icon={<ReloadOutlined />}
-                        onClick={handleOptimize}
-                        disabled={!content}
-                      >
-                        优化
-                      </Button>
-                      <Button
-                        size="small"
                         icon={<CopyOutlined />}
                         onClick={handleCopy}
                         disabled={!content}
@@ -961,8 +1071,128 @@ const DocumentWriter: React.FC = () => {
                     >
                       生成文档
                     </Button>
+
+                    {/* AI 智能优化按钮 */}
+                    <div
+                      style={{
+                        marginTop: '16px',
+                        padding: '16px',
+                        background:
+                          'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+                        borderRadius: '8px',
+                        border: '2px solid #667eea',
+                      }}
+                    >
+                      <Space
+                        direction="vertical"
+                        style={{ width: '100%' }}
+                        size="small"
+                      >
+                        <div
+                          style={{
+                            fontSize: '13px',
+                            color: '#667eea',
+                            fontWeight: 500,
+                          }}
+                        >
+                          ✨ AI 智能优化
+                        </div>
+                        <Button
+                          type="primary"
+                          icon={<ReloadOutlined />}
+                          onClick={handleOpenOptimizeModal}
+                          disabled={!content}
+                          loading={loading}
+                          block
+                          size="large"
+                          style={{
+                            background:
+                              'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            border: 'none',
+                            height: '44px',
+                            fontWeight: 500,
+                          }}
+                        >
+                          智能优化文档
+                        </Button>
+                        {optimizeHistory.length > 0 && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              paddingTop: '4px',
+                            }}
+                          >
+                            <span style={{ fontSize: '12px', color: '#666' }}>
+                              已优化 {optimizeHistory.length} 次
+                            </span>
+                            <Button
+                              type="link"
+                              size="small"
+                              onClick={handleUndoOptimize}
+                              icon={<UndoOutlined />}
+                              style={{ padding: 0, height: 'auto' }}
+                            >
+                              撤销
+                            </Button>
+                          </div>
+                        )}
+                      </Space>
+                    </div>
                   </Space>
                 </ProCard>
+
+                {/* 优化历史记录 */}
+                {optimizeHistory.length > 0 && (
+                  <ProCard title="优化历史" bordered>
+                    <List
+                      dataSource={optimizeHistory}
+                      locale={{ emptyText: '暂无优化记录' }}
+                      renderItem={(item, index) => (
+                        <List.Item
+                          actions={[
+                            <Button
+                              key="compare"
+                              type="link"
+                              size="small"
+                              icon={<EyeOutlined />}
+                              onClick={() => handleCompareOptimize(item)}
+                            >
+                              对比
+                            </Button>,
+                          ]}
+                        >
+                          <List.Item.Meta
+                            avatar={
+                              <ReloadOutlined
+                                style={{ fontSize: 18, color: '#667eea' }}
+                              />
+                            }
+                            title={
+                              <Space>
+                                <span>{item.instruction}</span>
+                                {index === 0 && <Tag color="green">最新</Tag>}
+                              </Space>
+                            }
+                            description={
+                              <Space direction="vertical" size={0}>
+                                <span style={{ fontSize: '12px' }}>
+                                  类型: {item.types.join(', ')}
+                                </span>
+                                <span
+                                  style={{ fontSize: '12px', color: '#999' }}
+                                >
+                                  {item.timestamp.toLocaleString('zh-CN')}
+                                </span>
+                              </Space>
+                            }
+                          />
+                        </List.Item>
+                      )}
+                    />
+                  </ProCard>
+                )}
 
                 {/* 已保存文档列表 */}
                 <ProCard title="已保存的文档" bordered>
@@ -1033,9 +1263,7 @@ const DocumentWriter: React.FC = () => {
         <div
           style={{
             position: 'fixed',
-            right: settingsPanelOpen
-              ? 'calc((100vw - 1200px) / 2 + 400px + 16px)'
-              : '20px',
+            right: settingsPanelOpen ? 'calc(33.33% - 24px)' : '20px',
             top: '50%',
             transform: 'translateY(-50%)',
             zIndex: 999,
@@ -1084,6 +1312,116 @@ const DocumentWriter: React.FC = () => {
           </div>
           {uploadProgress > 0 && (
             <Progress percent={uploadProgress} status="active" />
+          )}
+        </Space>
+      </Modal>
+
+      {/* AI 优化对话框 */}
+      <Modal
+        title={
+          <Space>
+            <ReloadOutlined style={{ color: '#667eea' }} />
+            <span>AI 智能优化</span>
+          </Space>
+        }
+        open={optimizeModalVisible}
+        onOk={handleOptimize}
+        onCancel={() => setOptimizeModalVisible(false)}
+        confirmLoading={loading}
+        width={700}
+        okText="开始优化"
+        cancelText="取消"
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <div
+            style={{
+              padding: '12px',
+              background:
+                'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+              borderRadius: '8px',
+              border: '1px solid #667eea30',
+            }}
+          >
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <div style={{ fontWeight: 500, color: '#667eea' }}>
+                💡 优化提示
+              </div>
+              <div style={{ fontSize: '13px', color: '#666' }}>
+                • 选择优化类型，或输入自定义优化要求
+                <br />• 支持多维度优化：语法、风格、逻辑、格式、语气等
+                <br />• 可以随时撤销优化，查看历史对比
+              </div>
+            </Space>
+          </div>
+
+          <div>
+            <Title level={5}>优化类型</Title>
+            <Checkbox.Group
+              value={selectedOptimizeTypes}
+              onChange={setSelectedOptimizeTypes}
+              style={{ width: '100%' }}
+            >
+              <Row gutter={[16, 16]}>
+                <Col span={12}>
+                  <Checkbox value="all">
+                    <Space>
+                      <span>智能优化（全面）</span>
+                      <Tag color="blue">推荐</Tag>
+                    </Space>
+                  </Checkbox>
+                </Col>
+                <Col span={12}>
+                  <Checkbox value="grammar">语法纠正</Checkbox>
+                </Col>
+                <Col span={12}>
+                  <Checkbox value="style">文风优化</Checkbox>
+                </Col>
+                <Col span={12}>
+                  <Checkbox value="logic">逻辑梳理</Checkbox>
+                </Col>
+                <Col span={12}>
+                  <Checkbox value="clarity">表达清晰化</Checkbox>
+                </Col>
+                <Col span={12}>
+                  <Checkbox value="format">格式规范</Checkbox>
+                </Col>
+                <Col span={12}>
+                  <Checkbox value="tone">语气调整</Checkbox>
+                </Col>
+              </Row>
+            </Checkbox.Group>
+          </div>
+
+          <div>
+            <Title level={5}>自定义优化要求（可选）</Title>
+            <TextArea
+              value={optimizeInstruction}
+              onChange={(e) => setOptimizeInstruction(e.target.value)}
+              placeholder="例如：&#10;- 使用更正式的表达方式&#10;- 增强说服力&#10;- 突出重点内容&#10;- 简化冗长句子&#10;- 增加具体数据支撑"
+              rows={6}
+              maxLength={500}
+              showCount
+              style={{ fontFamily: 'inherit' }}
+            />
+          </div>
+
+          {optimizeHistory.length > 0 && (
+            <div
+              style={{
+                padding: '8px 12px',
+                background: '#f0f0f0',
+                borderRadius: '4px',
+                fontSize: '13px',
+                color: '#666',
+              }}
+            >
+              <Space>
+                <ReloadOutlined />
+                <span>
+                  已有 {optimizeHistory.length} 条优化记录，优化后可撤销或对比
+                </span>
+              </Space>
+            </div>
           )}
         </Space>
       </Modal>

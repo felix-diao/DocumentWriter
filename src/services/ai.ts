@@ -19,7 +19,9 @@ export async function aiWriteDocument(params: {
 // 文档优化接口
 export async function aiOptimizeDocument(params: {
     content: string;
-    optimizationType: 'grammar' | 'style' | 'clarity' | 'all';
+    optimizationType: 'grammar' | 'style' | 'clarity' | 'logic' | 'format' | 'tone' | 'all';
+    customInstruction?: string; // 用户自定义优化指令
+    context?: string; // 文档上下文信息
 }) {
     return request(`${AI_API_BASE}/document/optimize`, {
         method: 'POST',

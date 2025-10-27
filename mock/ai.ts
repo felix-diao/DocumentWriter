@@ -81,12 +81,68 @@ export default {
     },
     'POST /api/ai/document/optimize': async (req: Request, res: Response) => {
         await delay(1500);
-        const { content } = req.body;
+        const { content, optimizationType, customInstruction, context } = req.body;
+
+        let optimizedContent = content;
+        let optimizationNote = '';
+
+        // 根据优化类型进行模拟优化
+        if (customInstruction) {
+            optimizationNote = `已根据您的要求进行优化：${customInstruction}`;
+            // 模拟根据自定义指令优化
+            optimizedContent = content.replace(/。/g, '。\n');
+        } else {
+            switch (optimizationType) {
+                case 'grammar':
+                    optimizationNote = '已纠正语法错误和标点使用';
+                    optimizedContent = content.replace(/，+/g, '，').replace(/。+/g, '。');
+                    break;
+                case 'style':
+                    optimizationNote = '已优化文风，使表达更加流畅';
+                    optimizedContent = content
+                        .replace(/很好/g, '卓有成效')
+                        .replace(/不错/g, '良好');
+                    break;
+                case 'logic':
+                    optimizationNote = '已梳理逻辑，增强条理性';
+                    break;
+                case 'clarity':
+                    optimizationNote = '已清晰化表达，避免歧义';
+                    break;
+                case 'format':
+                    optimizationNote = '已规范格式，符合公文标准';
+                    break;
+                case 'tone':
+                    optimizationNote = '已调整语气，更加正式庄重';
+                    optimizedContent = content
+                        .replace(/做好/g, '切实做好')
+                        .replace(/要/g, '务必');
+                    break;
+                case 'all':
+                default:
+                    optimizationNote = '已进行全面智能优化';
+                    optimizedContent = content
+                        .replace(/很好/g, '卓有成效')
+                        .replace(/做好/g, '切实做好')
+                        .replace(/要/g, '务必')
+                        .replace(/问题/g, '有待改进的问题')
+                        .replace(/完成/g, '圆满完成');
+                    break;
+            }
+        }
+
+        console.log('[Mock AI Optimize]', {
+            optimizationType,
+            customInstruction,
+            context,
+            note: optimizationNote,
+        });
 
         res.json({
             success: true,
             data: {
-                content: `${content}\n\n[已优化：改进了语法、提升了可读性、调整了文档结构]`,
+                content: optimizedContent,
+                optimizationNote,
             },
         });
     },
