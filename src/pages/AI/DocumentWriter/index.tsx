@@ -8,8 +8,11 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
+  ExportOutlined,
   EyeOutlined,
+  FilePdfOutlined,
   FileTextOutlined,
+  FileWordOutlined,
   FontColorsOutlined,
   HighlightOutlined,
   ItalicOutlined,
@@ -28,11 +31,13 @@ import {
   UploadOutlined,
 } from '@ant-design/icons';
 import { PageContainer, ProCard } from '@ant-design/pro-components';
+import type { MenuProps } from 'antd';
 import {
   Button,
   Checkbox,
   Col,
   Collapse,
+  Dropdown,
   Empty,
   Input,
   List,
@@ -50,6 +55,11 @@ import {
 } from 'antd';
 import React, { useEffect, useState } from 'react';
 import { aiOptimizeDocument, aiWriteDocument } from '@/services/ai';
+import {
+  exportToPDF,
+  exportToText,
+  exportToWord,
+} from '@/services/documentExport';
 import { ossStorageService } from '@/services/ossStorage';
 import type { PromptTemplate } from '@/services/prompt';
 import { getPrompts } from '@/services/prompt';
@@ -94,6 +104,9 @@ const DocumentWriter: React.FC = () => {
   const [previewingPrompt, setPreviewingPrompt] =
     useState<PromptTemplate | null>(null);
   const [promptsLoading, setPromptsLoading] = useState(false);
+
+  // 导出相关状态
+  const [exporting, setExporting] = useState(false);
 
   const scenarioOptions: Record<string, { label: string; value: string }[]> = {
     speech: [
@@ -331,6 +344,128 @@ const DocumentWriter: React.FC = () => {
     execCommand('insertHTML', table);
   };
 
+  // 导出为 PDF
+  const handleExportPDF = async () => {
+    if (!content.trim()) {
+      message.warning('请先生成文档内容');
+      return;
+    }
+
+    const exportTitle = titleInput || '未命名文档';
+
+    setExporting(true);
+    try {
+      const response = await exportToPDF(content, exportTitle, {
+        pageSize: 'A4',
+        orientation: 'portrait',
+        margins: {
+          top: 2.54,
+          right: 3.18,
+          bottom: 2.54,
+          left: 3.18,
+        },
+        fontFamily: 'SimSun',
+        fontSize: 16,
+        lineHeight: 1.75,
+      });
+
+      if (response.success && response.data) {
+        message.success('PDF 导出成功');
+        // 触发下载
+        window.open(response.data.url, '_blank');
+      } else {
+        message.error(response.errorMessage || 'PDF 导出失败');
+      }
+    } catch (error) {
+      message.error('PDF 导出失败，请重试');
+      console.error(error);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // 导出为 Word
+  const handleExportWord = async () => {
+    if (!content.trim()) {
+      message.warning('请先生成文档内容');
+      return;
+    }
+
+    const exportTitle = titleInput || '未命名文档';
+
+    setExporting(true);
+    try {
+      const response = await exportToWord(content, exportTitle, {
+        fontFamily: 'SimSun',
+        fontSize: 16,
+        lineHeight: 1.75,
+      });
+
+      if (response.success && response.data) {
+        message.success('Word 文档导出成功');
+        // 触发下载
+        window.open(response.data.url, '_blank');
+      } else {
+        message.error(response.errorMessage || 'Word 导出失败');
+      }
+    } catch (error) {
+      message.error('Word 导出失败，请重试');
+      console.error(error);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // 导出为 TXT
+  const handleExportText = async () => {
+    if (!content.trim()) {
+      message.warning('请先生成文档内容');
+      return;
+    }
+
+    const exportTitle = titleInput || '未命名文档';
+
+    setExporting(true);
+    try {
+      const response = await exportToText(content, exportTitle);
+
+      if (response.success && response.data) {
+        message.success('文本文件导出成功');
+        // 触发下载
+        window.open(response.data.url, '_blank');
+      } else {
+        message.error(response.errorMessage || '文本导出失败');
+      }
+    } catch (error) {
+      message.error('文本导出失败，请重试');
+      console.error(error);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // 导出菜单项
+  const exportMenuItems: MenuProps['items'] = [
+    {
+      key: 'pdf',
+      label: '导出为 PDF',
+      icon: <FilePdfOutlined />,
+      onClick: handleExportPDF,
+    },
+    {
+      key: 'word',
+      label: '导出为 Word',
+      icon: <FileWordOutlined />,
+      onClick: handleExportWord,
+    },
+    {
+      key: 'txt',
+      label: '导出为 TXT',
+      icon: <FileTextOutlined />,
+      onClick: handleExportText,
+    },
+  ];
+
   return (
     <PageContainer
       header={{
@@ -554,6 +689,20 @@ const DocumentWriter: React.FC = () => {
                       >
                         复制
                       </Button>
+                      <Dropdown
+                        menu={{ items: exportMenuItems }}
+                        placement="bottomRight"
+                        disabled={!content || exporting}
+                      >
+                        <Button
+                          size="small"
+                          icon={<ExportOutlined />}
+                          loading={exporting}
+                          disabled={!content}
+                        >
+                          导出
+                        </Button>
+                      </Dropdown>
                       <Button
                         size="small"
                         type="primary"
