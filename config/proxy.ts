@@ -11,6 +11,15 @@
  */
 export default {
   // 如果需要自定义本地开发服务器  请取消注释按需调整
+  dev: {
+    // /api/ai/document/write -> http://127.0.0.1:8000/document/write
+    // 将 /api/ai/** 代理到后端服务
+    '/api/ai/': {
+      target: 'http://127.0.0.1:8000',
+      changeOrigin: true,
+      pathRewrite: { '^/api/ai': '' }, // 移除 /api/ai 前缀
+    },
+  },
   // dev: {
   //   // localhost:8000/api/** -> https://preview.pro.ant.design/api/**
   //   '/api/': {

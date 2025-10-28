@@ -22,6 +22,6 @@ def generate_document(title: str, requirement: str) -> str:
 def generate_document_by_prompt(prompt: str, document_type="article", tone="formal", language="zh") -> str:
     cli = get_client()
     msg = f"请用{ '中文' if language.startswith('zh') else '目标语言' }撰写一份{map_doc_type(document_type)}，语气偏向{map_tone(tone)}。需求如下：\n\n{prompt}"
-    messages = [{"role": "system", "content": "你是一名中文写作助手。"},
+    messages = [{"role": "system", "content": "你是一名中文写作助手。字数要在 1000 字以上"},
                 {"role": "user", "content": msg}]
     return cli.chat(messages, max_tokens=1200)

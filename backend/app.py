@@ -84,7 +84,7 @@ async def document_write(req: DocumentWriteRequest):
             tone=req.tone or "formal",
             language=req.language or "zh",
         )
-
+        print(content)
         return StandardResponse(
             success=True,
             data=DocumentData(
