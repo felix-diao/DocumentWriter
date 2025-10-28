@@ -22,7 +22,6 @@ import {
   RedoOutlined,
   ReloadOutlined,
   RightOutlined,
-  SettingOutlined,
   StrikethroughOutlined,
   TableOutlined,
   UnderlineOutlined,
@@ -52,6 +51,7 @@ import {
   Typography,
   Upload,
 } from 'antd';
+import * as Diff from 'diff';
 import React, { useEffect, useState } from 'react';
 import { aiOptimizeDocument, aiWriteDocument } from '@/services/ai';
 import {
@@ -214,7 +214,7 @@ const DocumentWriter: React.FC = () => {
         .map((f) => `\n[附加素材: ${f.name}]`)
         .join('');
 
-      const finalPrompt = `${promptsContent ? promptsContent + '\n\n' : ''}${prompt}\n类型: ${documentType}\n场景: ${scenario}\n字数: ${lengthOption}${filesContent}`;
+      const finalPrompt = `${promptsContent ? `${promptsContent}\n\n` : ''}${prompt}\n类型: ${documentType}\n场景: ${scenario}\n字数: ${lengthOption}${filesContent}`;
 
       const response = await aiWriteDocument({
         prompt: finalPrompt,
@@ -303,59 +303,219 @@ const DocumentWriter: React.FC = () => {
     message.success('已撤销优化');
   };
 
+  // 渲染差异对比内容
+  const renderDiffContent = (oldText: string, newText: string) => {
+    // 使用按字符对比，获得最精确的差异
+    const changes = Diff.diffChars(oldText, newText);
+
+    return (
+      <div
+        style={{
+          whiteSpace: 'pre-wrap',
+          fontFamily: 'inherit',
+          lineHeight: '2',
+          padding: '16px',
+          background: '#fff',
+          border: '1px solid #d9d9d9',
+          borderRadius: '4px',
+          maxHeight: '400px',
+          overflow: 'auto',
+          fontSize: '14px',
+        }}
+      >
+        {changes.map((part, index) => {
+          // 生成唯一的 key：结合索引、类型和内容片段
+          const keyPrefix = part.added ? 'add' : part.removed ? 'del' : 'keep';
+          const uniqueKey = `${keyPrefix}-${index}-${part.value.substring(0, 20).replace(/\s/g, '_')}`;
+
+          // 如果是新增的内容
+          if (part.added) {
+            return (
+              <span
+                key={uniqueKey}
+                style={{
+                  backgroundColor: '#d4edda',
+                  color: '#155724',
+                  padding: '2px 4px',
+                  borderRadius: '2px',
+                  fontWeight: '500',
+                }}
+              >
+                {part.value}
+              </span>
+            );
+          }
+
+          // 如果是删除的内容
+          if (part.removed) {
+            return (
+              <span
+                key={uniqueKey}
+                style={{
+                  backgroundColor: '#f8d7da',
+                  color: '#721c24',
+                  textDecoration: 'line-through',
+                  padding: '2px 4px',
+                  borderRadius: '2px',
+                  fontWeight: '500',
+                }}
+              >
+                {part.value}
+              </span>
+            );
+          }
+
+          // 未改变的内容
+          return <span key={uniqueKey}>{part.value}</span>;
+        })}
+      </div>
+    );
+  };
+
   // 查看优化对比
   const handleCompareOptimize = (historyItem: (typeof optimizeHistory)[0]) => {
+    const optimizeTypeLabels: Record<string, string> = {
+      all: '全面优化',
+      grammar: '语法',
+      style: '风格',
+      clarity: '清晰度',
+      logic: '逻辑',
+      format: '格式',
+      tone: '语气',
+    };
+
     Modal.info({
       title: '优化对比',
-      width: 800,
+      width: 1000,
+      icon: null,
       content: (
         <div>
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
             <div>
               <strong>优化指令：</strong>
-              {historyItem.instruction}
+              <span style={{ marginLeft: '8px', color: '#666' }}>
+                {historyItem.instruction || '全面优化'}
+              </span>
             </div>
+
             <div>
               <strong>优化类型：</strong>
-              {historyItem.types.map((t) => (
-                <Tag key={t} color="blue">
-                  {t}
-                </Tag>
-              ))}
+              <Space style={{ marginLeft: '8px' }}>
+                {historyItem.types.map((t) => (
+                  <Tag key={t} color="blue">
+                    {optimizeTypeLabels[t] || t}
+                  </Tag>
+                ))}
+              </Space>
             </div>
+
             <div>
-              <strong>优化前：</strong>
-              <div
-                style={{
-                  maxHeight: '200px',
-                  overflow: 'auto',
-                  background: '#f5f5f5',
-                  padding: '8px',
-                  borderRadius: '4px',
-                  marginTop: '8px',
-                }}
-              >
-                {historyItem.originalContent}
+              <strong>差异高亮：</strong>
+              <div style={{ marginTop: '8px' }}>
+                <Space size="small" style={{ marginBottom: '8px' }}>
+                  <Tag color="success">新增内容</Tag>
+                  <Tag color="error">删除内容</Tag>
+                </Space>
+                {renderDiffContent(
+                  historyItem.originalContent,
+                  historyItem.optimizedContent,
+                )}
               </div>
             </div>
+
+            {/* 并排对比视图 */}
             <div>
-              <strong>优化后：</strong>
-              <div
-                style={{
-                  maxHeight: '200px',
-                  overflow: 'auto',
-                  background: '#e6f7ff',
-                  padding: '8px',
-                  borderRadius: '4px',
-                  marginTop: '8px',
-                }}
-              >
-                {historyItem.optimizedContent}
-              </div>
+              <strong>详细对比：</strong>
+              <Row gutter={16} style={{ marginTop: '8px' }}>
+                <Col span={12}>
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      background: '#f5f5f5',
+                      borderRadius: '4px',
+                      marginBottom: '8px',
+                    }}
+                  >
+                    <strong style={{ color: '#999' }}>优化前</strong>
+                  </div>
+                  <div
+                    style={{
+                      maxHeight: '300px',
+                      overflow: 'auto',
+                      background: '#fafafa',
+                      padding: '12px',
+                      borderRadius: '4px',
+                      border: '1px solid #d9d9d9',
+                      whiteSpace: 'pre-wrap',
+                      lineHeight: '1.8',
+                    }}
+                  >
+                    {historyItem.originalContent}
+                  </div>
+                </Col>
+                <Col span={12}>
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      background: '#e6f7ff',
+                      borderRadius: '4px',
+                      marginBottom: '8px',
+                    }}
+                  >
+                    <strong style={{ color: '#1890ff' }}>优化后</strong>
+                  </div>
+                  <div
+                    style={{
+                      maxHeight: '300px',
+                      overflow: 'auto',
+                      background: '#f0f9ff',
+                      padding: '12px',
+                      borderRadius: '4px',
+                      border: '1px solid #91d5ff',
+                      whiteSpace: 'pre-wrap',
+                      lineHeight: '1.8',
+                    }}
+                  >
+                    {historyItem.optimizedContent}
+                  </div>
+                </Col>
+              </Row>
+            </div>
+
+            <div
+              style={{
+                padding: '8px 12px',
+                background: '#f0f0f0',
+                borderRadius: '4px',
+                fontSize: '12px',
+                color: '#666',
+              }}
+            >
+              <Space>
+                <span>
+                  字数：{historyItem.originalContent.length} →{' '}
+                  {historyItem.optimizedContent.length}
+                </span>
+                <span>
+                  变化：
+                  {historyItem.optimizedContent.length -
+                    historyItem.originalContent.length >
+                  0
+                    ? '+'
+                    : ''}
+                  {historyItem.optimizedContent.length -
+                    historyItem.originalContent.length}
+                </span>
+                <span>
+                  时间：
+                  {new Date(historyItem.timestamp).toLocaleString('zh-CN')}
+                </span>
+              </Space>
             </div>
           </Space>
         </div>
       ),
+      okText: '关闭',
     });
   };
 

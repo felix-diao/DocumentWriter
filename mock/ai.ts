@@ -68,17 +68,17 @@ let fileStorage: any[] = [];
 
 export default {
     // ==================== 文档书写相关 ====================
-    'POST /api/ai/document/write': async (req: Request, res: Response) => {
-        await delay(2000);
-        const { prompt, documentType, tone } = req.body;
+    // 'POST /api/ai/document/write': async (req: Request, res: Response) => {
+    //     await delay(2000);
+    //     const { prompt, documentType, tone } = req.body;
 
-        res.json({
-            success: true,
-            data: {
-                content: `# ${prompt}\n\n这是一篇由 AI 生成的${documentType === 'article' ? '文章' : '文档'}内容。\n\n## 背景\n\n根据您的需求"${prompt}"，我们为您生成了以下内容。这篇文档采用${tone === 'professional' ? '专业' : tone === 'formal' ? '正式' : '随意'}的语气风格编写。\n\n## 主要内容\n\n1. **第一部分**：详细阐述核心观点和理念\n2. **第二部分**：提供具体的实施方案和建议\n3. **第三部分**：总结要点并展望未来\n\n## 详细说明\n\nLorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.\n\n## 结论\n\n通过以上分析，我们可以得出结论...`,
-            },
-        });
-    },
+    //     res.json({
+    //         success: true,
+    //         data: {
+    //             content: `# ${prompt}\n\n这是一篇由 AI 生成的${documentType === 'article' ? '文章' : '文档'}内容。\n\n## 背景\n\n根据您的需求"${prompt}"，我们为您生成了以下内容。这篇文档采用${tone === 'professional' ? '专业' : tone === 'formal' ? '正式' : '随意'}的语气风格编写。\n\n## 主要内容\n\n1. **第一部分**：详细阐述核心观点和理念\n2. **第二部分**：提供具体的实施方案和建议\n3. **第三部分**：总结要点并展望未来\n\n## 详细说明\n\nLorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.\n\n## 结论\n\n通过以上分析，我们可以得出结论...`,
+    //         },
+    //     });
+    // },
     'POST /api/ai/document/optimize': async (req: Request, res: Response) => {
         await delay(1500);
         const { content, optimizationType, customInstruction, context } = req.body;
