@@ -1,0 +1,21 @@
+# FastAPI Web 框架
+fastapi==0.115.0
+uvicorn==0.30.3
+
+# 文档导出功能
+fpdf==1.7.2
+python-docx==1.1.2
+
+# HTTP 请求
+requests==2.32.3
+
+# 模板引擎 & 静态文件支持
+Jinja2==3.1.4
+
+# 类型支持
+pydantic==2.9.2
+
+# 其他通用库
+typing_extensions==4.12.2
+
+python-dotenv==1.0.1

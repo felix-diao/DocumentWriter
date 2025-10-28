@@ -37,4 +37,6 @@ functions/*
 screenshot
 .firebase
 
+.env
+
 build
