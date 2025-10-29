@@ -14,8 +14,9 @@ from models.request_models import (
     GenerateRequest,
     ExportRequest,
     DocumentWriteRequest,
+    DocumentOptimizeRequest,
 )
-from models.response_models import StandardResponse, DocumentData
+from models.response_models import StandardResponse, DocumentData, DocumentDataOptimize
 
 BASE_DIR = Path(__file__).resolve().parent  # backend/
 STATIC_DIR = BASE_DIR / "static"
@@ -105,6 +106,42 @@ async def document_write(req: DocumentWriteRequest):
             message=f"生成失败：{e}"
         )
     
+
+# --- 公文写作优化接口 ---
+@app.post("/document/optimize", response_model=StandardResponse[DocumentDataOptimize])
+async def document_optimize(req: DocumentOptimizeRequest):
+    """
+    POST /document/optimize
+    {
+        "content": "我们要做好这项工作，效果很好。",
+        "optimizationType": "all",
+        "customInstruction": "使语气更正式"
+    }
+    """
+    try:
+        from llm_client.generators import optimize_document
+        optimized_text = optimize_document(
+            content=req.content,
+            optimization_type=req.optimizationType,
+            custom_instruction=req.customInstruction,
+        )
+
+        return StandardResponse(
+            success=True,
+            data=DocumentDataOptimize(content=optimized_text),
+            message="OK"
+        )
+
+    except Exception as e:
+        return StandardResponse(
+            success=False,
+            data=DocumentDataOptimize(content=""),
+            message=f"优化失败：{e}"
+        )
+
+    
+
+
 if __name__ == "__main__":
     import uvicorn
     # 直接 python app.py 即可

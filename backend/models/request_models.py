@@ -20,3 +20,12 @@ class DocumentWriteRequest(BaseModel):
     documentType: str  # 'article' | 'report' | 'summary' | 'email'
     tone: str | None = None  # 'professional' | 'casual' | 'formal'
     language: str | None = None  # e.g. 'zh', 'en'
+
+
+from typing import Optional, Literal
+
+class DocumentOptimizeRequest(BaseModel):
+    content: str
+    optimizationType: Literal['grammar', 'style', 'clarity', 'logic', 'format', 'tone', 'all'] = 'all'
+    customInstruction: Optional[str] = None
+    context: Optional[dict] = None
