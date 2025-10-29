@@ -47,19 +47,61 @@ def optimize_document(content: str, optimization_type: str = "all", custom_instr
     cli = get_client()
     
     # 构造提示语
-    system_prompt = "你是一名专业的中文文字编辑助手，擅长文字润色、语法修正、逻辑优化和格式规范。"
+    system_prompt = (
+        "你是一名专业的中文文字编辑助手，擅长文字润色、语法修正、逻辑优化和格式规范。"
+        "重要：你的输出应该只包含优化后的文本内容，不要添加任何说明、解释、分析或前缀后缀。"
+        "直接输出优化后的完整文本即可。"
+    )
     
+    # 根据类型生成优化目标描述
+    type_desc = OPTIMIZATION_MAP.get(optimization_type, "全面优化文本")
+    
+    # 构建优化要求
     if custom_instruction:
-        # 用户自定义要求
-        user_prompt = f"请根据以下自定义要求优化这段文本：{custom_instruction}\n\n原文如下：\n{content}"
+        # 结合优化类型和自定义指令，强调按自定义要求大胆改写
+        optimization_requirement = (
+            f"优化目标：{type_desc}\n\n"
+            f"用户自定义要求（请重点关注并充分执行）：{custom_instruction}\n\n"
+            f"注意：请根据用户的自定义要求进行充分的改写和优化，不要只做表面的微调。"
+            f"如果用户要求语气更正式，就要大幅改写使之正式；"
+            f"如果用户要求更生动，就要增加描述性语言和修辞手法；"
+            f"如果用户要求更简洁，就要大胆删减冗余内容。"
+            f"总之，要按照用户的具体指令进行实质性的改写，不要过于保守。"
+        )
     else:
-        # 根据类型生成中文说明
-        type_desc = OPTIMIZATION_MAP.get(optimization_type, "全面优化文本")
-        user_prompt = f"请对以下文本进行{type_desc}，并返回优化后的版本，不要解释或分析。\n\n原文如下：\n{content}"
+        # 只使用优化类型
+        optimization_requirement = f"优化目标：{type_desc}"
+    
+    user_prompt = (
+        f"{optimization_requirement}\n\n"
+        f"原文：\n{content}\n\n"
+        f"要求：直接输出优化后的文本，不要添加'以下是优化后的版本'、'优化结果如下'等说明文字。"
+    )
 
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt}
     ]
-
-    return cli.chat(messages, max_tokens=1000)
+    
+    result = cli.chat(messages, max_tokens=1000)
+    
+    # 后处理：移除常见的说明性前缀
+    prefixes_to_remove = [
+        "以下是优化后的版本：",
+        "以下是优化后的文本：",
+        "优化后的文本如下：",
+        "优化结果如下：",
+        "优化后：",
+        "改写后：",
+        "润色后：",
+        "修改后的文本：",
+        "修改后：",
+    ]
+    
+    result_stripped = result.strip()
+    for prefix in prefixes_to_remove:
+        if result_stripped.startswith(prefix):
+            result_stripped = result_stripped[len(prefix):].strip()
+            break
+    
+    return result_stripped
