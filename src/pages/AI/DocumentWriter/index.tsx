@@ -124,6 +124,14 @@ const DocumentWriter: React.FC = () => {
     }>
   >([]);
 
+  // 进度条相关状态
+  const [generateProgress, setGenerateProgress] = useState(0);
+  const [generateProgressVisible, setGenerateProgressVisible] = useState(false);
+  const [generateProgressText, setGenerateProgressText] = useState('');
+  const [optimizeProgress, setOptimizeProgress] = useState(0);
+  const [optimizeProgressVisible, setOptimizeProgressVisible] = useState(false);
+  const [optimizeProgressText, setOptimizeProgressText] = useState('');
+
   const scenarioOptions: Record<string, { label: string; value: string }[]> = {
     speech: [
       { label: '开场演讲', value: 'opening' },
@@ -195,13 +203,61 @@ const DocumentWriter: React.FC = () => {
       .join('');
   };
 
+  // 模拟进度条
+  const simulateProgress = (
+    setProgress: (value: number) => void,
+    setText: (value: string) => void,
+    stages: { progress: number; text: string; duration: number }[],
+  ) => {
+    return new Promise<void>((resolve) => {
+      let currentStage = 0;
+
+      const advanceStage = () => {
+        if (currentStage >= stages.length) {
+          resolve();
+          return;
+        }
+
+        const stage = stages[currentStage];
+        setProgress(stage.progress);
+        setText(stage.text);
+
+        currentStage++;
+        setTimeout(advanceStage, stage.duration);
+      };
+
+      advanceStage();
+    });
+  };
+
   const handleGenerate = async () => {
     if (!prompt.trim()) {
       message.warning('请输入文档主题或描述');
       return;
     }
     setLoading(true);
+    setGenerateProgressVisible(true);
+    setGenerateProgress(0);
+
     try {
+      // 启动进度条动画（总计约25秒，前期时间更长）
+      const progressPromise = simulateProgress(
+        setGenerateProgress,
+        setGenerateProgressText,
+        [
+          { progress: 5, text: '正在初始化 AI 模型...', duration: 2000 },
+          { progress: 12, text: '正在分析需求和上下文...', duration: 2500 },
+          { progress: 20, text: '正在理解文档要求...', duration: 2800 },
+          { progress: 30, text: '正在构建文档框架...', duration: 3000 },
+          { progress: 42, text: '正在构思核心内容...', duration: 3200 },
+          { progress: 55, text: '正在生成文档正文...', duration: 3500 },
+          { progress: 68, text: '正在优化语言表达...', duration: 2800 },
+          { progress: 80, text: '正在完善细节内容...', duration: 2200 },
+          { progress: 88, text: '正在检查格式规范...', duration: 1800 },
+          { progress: 95, text: '正在最后润色调整...', duration: 1500 },
+        ],
+      );
+
       // 合并选中的 Prompt 模板
       const selectedPrompts = availablePrompts.filter((p) =>
         selectedPromptIds.includes(p.id),
@@ -222,11 +278,25 @@ const DocumentWriter: React.FC = () => {
         tone: 'formal',
         language: 'zh-CN',
       });
+
+      // 等待进度条完成
+      await progressPromise;
+
+      // 显示完成状态
+      setGenerateProgress(100);
+      setGenerateProgressText('生成完成！');
+
       const generatedContent = response.data?.content || '';
       setContent(generatedContent);
       setHtmlContent(formatContentToHTML(generatedContent));
-      message.success('文档生成成功');
+
+      // 延迟隐藏进度条
+      setTimeout(() => {
+        setGenerateProgressVisible(false);
+        message.success('文档生成成功');
+      }, 800);
     } catch (error) {
+      setGenerateProgressVisible(false);
       message.error('生成失败，请重试');
       console.error(error);
     } finally {
@@ -252,8 +322,28 @@ const DocumentWriter: React.FC = () => {
 
     setLoading(true);
     setOptimizeModalVisible(false);
+    setOptimizeProgressVisible(true);
+    setOptimizeProgress(0);
 
     try {
+      // 启动进度条动画（总计约25秒，前期时间更长）
+      const progressPromise = simulateProgress(
+        setOptimizeProgress,
+        setOptimizeProgressText,
+        [
+          { progress: 6, text: '正在读取原文...', duration: 2000 },
+          { progress: 15, text: '正在深度分析文档...', duration: 2500 },
+          { progress: 25, text: '正在理解优化需求...', duration: 2800 },
+          { progress: 36, text: '正在识别优化点...', duration: 3000 },
+          { progress: 48, text: '正在智能改写内容...', duration: 3500 },
+          { progress: 62, text: '正在优化表达方式...', duration: 3200 },
+          { progress: 75, text: '正在润色语言风格...', duration: 2800 },
+          { progress: 85, text: '正在检查语法逻辑...', duration: 2200 },
+          { progress: 92, text: '正在完善细节...', duration: 1800 },
+          { progress: 96, text: '正在最终调整...', duration: 1500 },
+        ],
+      );
+
       const originalContent = content;
       const response = await aiOptimizeDocument({
         content,
@@ -261,8 +351,18 @@ const DocumentWriter: React.FC = () => {
           ? 'all'
           : (selectedOptimizeTypes[0] as any),
         customInstruction: optimizeInstruction,
-        context: `文档类型: ${documentType}, 场景: ${scenario}`,
+        context: {
+          documentType,
+          scenario,
+        },
       });
+
+      // 等待进度条完成
+      await progressPromise;
+
+      // 显示完成状态
+      setOptimizeProgress(100);
+      setOptimizeProgressText('优化完成！');
 
       const optimizedContent = response.data?.content || '';
       setContent(optimizedContent);
@@ -279,9 +379,15 @@ const DocumentWriter: React.FC = () => {
       };
       setOptimizeHistory([historyItem, ...optimizeHistory.slice(0, 9)]); // 只保留最近10条
 
-      message.success('文档优化成功');
+      // 延迟隐藏进度条
+      setTimeout(() => {
+        setOptimizeProgressVisible(false);
+        message.success('文档优化成功');
+      }, 800);
+
       setOptimizeInstruction(''); // 清空输入
     } catch (error) {
+      setOptimizeProgressVisible(false);
       message.error('优化失败，请重试');
       console.error(error);
     } finally {
@@ -391,6 +497,74 @@ const DocumentWriter: React.FC = () => {
       content: (
         <div>
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            {/* 字数统计卡片 - 放在最前面 */}
+            <div
+              style={{
+                padding: '16px 20px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                borderRadius: '8px',
+                color: '#fff',
+              }}
+            >
+              <Row gutter={24} align="middle">
+                <Col span={8} style={{ textAlign: 'center' }}>
+                  <div
+                    style={{
+                      fontSize: '14px',
+                      opacity: 0.9,
+                      marginBottom: '4px',
+                    }}
+                  >
+                    优化前
+                  </div>
+                  <div style={{ fontSize: '32px', fontWeight: 'bold' }}>
+                    {historyItem.originalContent.length}
+                  </div>
+                  <div style={{ fontSize: '12px', opacity: 0.8 }}>字</div>
+                </Col>
+                <Col span={8} style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '40px', opacity: 0.9 }}>→</div>
+                  <div
+                    style={{
+                      fontSize: '14px',
+                      marginTop: '4px',
+                      fontWeight: 'bold',
+                    }}
+                  >
+                    {historyItem.optimizedContent.length -
+                      historyItem.originalContent.length >
+                    0
+                      ? '增加'
+                      : historyItem.optimizedContent.length -
+                            historyItem.originalContent.length <
+                          0
+                        ? '减少'
+                        : '不变'}{' '}
+                    {Math.abs(
+                      historyItem.optimizedContent.length -
+                        historyItem.originalContent.length,
+                    )}
+                    {' 字'}
+                  </div>
+                </Col>
+                <Col span={8} style={{ textAlign: 'center' }}>
+                  <div
+                    style={{
+                      fontSize: '14px',
+                      opacity: 0.9,
+                      marginBottom: '4px',
+                    }}
+                  >
+                    优化后
+                  </div>
+                  <div style={{ fontSize: '32px', fontWeight: 'bold' }}>
+                    {historyItem.optimizedContent.length}
+                  </div>
+                  <div style={{ fontSize: '12px', opacity: 0.8 }}>字</div>
+                </Col>
+              </Row>
+            </div>
+
             <div>
               <strong>优化指令：</strong>
               <span style={{ marginLeft: '8px', color: '#666' }}>
@@ -489,28 +663,13 @@ const DocumentWriter: React.FC = () => {
                 borderRadius: '4px',
                 fontSize: '12px',
                 color: '#666',
+                textAlign: 'center',
               }}
             >
-              <Space>
-                <span>
-                  字数：{historyItem.originalContent.length} →{' '}
-                  {historyItem.optimizedContent.length}
-                </span>
-                <span>
-                  变化：
-                  {historyItem.optimizedContent.length -
-                    historyItem.originalContent.length >
-                  0
-                    ? '+'
-                    : ''}
-                  {historyItem.optimizedContent.length -
-                    historyItem.originalContent.length}
-                </span>
-                <span>
-                  时间：
-                  {new Date(historyItem.timestamp).toLocaleString('zh-CN')}
-                </span>
-              </Space>
+              <span>
+                优化时间：
+                {new Date(historyItem.timestamp).toLocaleString('zh-CN')}
+              </span>
             </div>
           </Space>
         </div>
@@ -1640,6 +1799,94 @@ const DocumentWriter: React.FC = () => {
             </div>
           </Space>
         )}
+      </Modal>
+
+      {/* 生成进度条 Modal */}
+      <Modal
+        title={null}
+        open={generateProgressVisible}
+        footer={null}
+        closable={false}
+        width={500}
+        centered
+      >
+        <div style={{ padding: '20px 0' }}>
+          <div
+            style={{
+              textAlign: 'center',
+              marginBottom: '30px',
+              fontSize: '18px',
+              fontWeight: 'bold',
+              color: '#1890ff',
+            }}
+          >
+            🤖 AI 正在生成文档
+          </div>
+          <Progress
+            percent={generateProgress}
+            status={generateProgress === 100 ? 'success' : 'active'}
+            strokeColor={{
+              '0%': '#108ee9',
+              '100%': '#87d068',
+            }}
+            strokeWidth={12}
+          />
+          <div
+            style={{
+              textAlign: 'center',
+              marginTop: '20px',
+              fontSize: '14px',
+              color: '#666',
+              minHeight: '20px',
+            }}
+          >
+            {generateProgressText}
+          </div>
+        </div>
+      </Modal>
+
+      {/* 优化进度条 Modal */}
+      <Modal
+        title={null}
+        open={optimizeProgressVisible}
+        footer={null}
+        closable={false}
+        width={500}
+        centered
+      >
+        <div style={{ padding: '20px 0' }}>
+          <div
+            style={{
+              textAlign: 'center',
+              marginBottom: '30px',
+              fontSize: '18px',
+              fontWeight: 'bold',
+              color: '#722ed1',
+            }}
+          >
+            ✨ AI 正在优化文档
+          </div>
+          <Progress
+            percent={optimizeProgress}
+            status={optimizeProgress === 100 ? 'success' : 'active'}
+            strokeColor={{
+              '0%': '#722ed1',
+              '100%': '#f759ab',
+            }}
+            strokeWidth={12}
+          />
+          <div
+            style={{
+              textAlign: 'center',
+              marginTop: '20px',
+              fontSize: '14px',
+              color: '#666',
+              minHeight: '20px',
+            }}
+          >
+            {optimizeProgressText}
+          </div>
+        </div>
       </Modal>
     </PageContainer>
   );
