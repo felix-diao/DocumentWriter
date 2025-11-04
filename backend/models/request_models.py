@@ -20,6 +20,8 @@ class DocumentWriteRequest(BaseModel):
     documentType: str  # 'article' | 'report' | 'summary' | 'email'
     tone: str | None = None  # 'professional' | 'casual' | 'formal'
     language: str | None = None  # e.g. 'zh', 'en'
+    title: str | None = None  # 文章标题
+    requirement: str | None = None  # 提出的需求
 
 
 from typing import Optional, Literal

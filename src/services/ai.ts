@@ -5,6 +5,8 @@ const AI_API_BASE = '/api/ai'; // 根据实际情况修改
 
 // 文档书写接口
 export async function aiWriteDocument(params: {
+    title: string;
+    requirement: string;
     prompt: string;
     documentType: 'article' | 'report' | 'summary' | 'email';
     tone?: 'professional' | 'casual' | 'formal';
