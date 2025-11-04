@@ -180,27 +180,139 @@ const DocumentWriter: React.FC = () => {
   const formatContentToHTML = (text: string) => {
     if (!text) return '<p><br></p>';
 
-    return text
-      .split('\n')
-      .map((line) => {
-        const trimmed = line.trim();
-        if (!trimmed) return '<p><br></p>';
+    const escapeHtml = (value: string) =>
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 
-        if (trimmed.startsWith('#')) {
-          const level = (line.match(/^#+/) || [''])[0].length;
-          const content = trimmed.replace(/^#+\s*/, '');
-          if (level === 1) {
-            return `<h1 style="text-align: center; font-size: 22px; font-weight: bold; margin: 24px 0 20px 0; color: #000; font-family: '黑体', 'SimHei', sans-serif;">${content}</h1>`;
-          } else if (level === 2) {
-            return `<h2 style="font-size: 18px; font-weight: bold; margin: 20px 0 12px 0; color: #000; font-family: '黑体', 'SimHei', sans-serif;">${content}</h2>`;
-          } else {
-            return `<h3 style="font-size: 16px; font-weight: bold; margin: 16px 0 10px 0; color: #000; font-family: '黑体', 'SimHei', sans-serif;">${content}</h3>`;
-          }
+    const applyInlineFormatting = (value: string) => {
+      let result = escapeHtml(value);
+      result = result.replace(/~~(.+?)~~/g, '<del>$1</del>');
+      result = result.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      result = result.replace(/__(.+?)__/g, '<strong>$1</strong>');
+      result = result.replace(/`([^`]+)`/g, '<code>$1</code>');
+      result = result.replace(/\*(\S(?:.*?\S)?)\*/g, '<em>$1</em>');
+      result = result.replace(/_(\S(?:.*?\S)?)_/g, '<em>$1</em>');
+      return result;
+    };
+
+    const lines = text.split('\n');
+
+    let html = '';
+    let inList = false;
+    let listType: 'ol' | 'ul' | '' = '';
+    let isFirstContentLine = true;
+
+    const closeListIfNeeded = () => {
+      if (inList) {
+        html += `</${listType}>`;
+        inList = false;
+        listType = '';
+      }
+    };
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (!trimmed) {
+        closeListIfNeeded();
+        continue;
+      }
+
+      const markContentProcessed = () => {
+        if (isFirstContentLine) {
+          isFirstContentLine = false;
+        }
+      };
+
+      // 处理 Markdown 标题
+      if (trimmed.startsWith('#')) {
+        closeListIfNeeded();
+
+        const level = (trimmed.match(/^#+/) || [''])[0].length;
+        const content = applyInlineFormatting(trimmed.replace(/^#+\s*/, ''));
+
+        if (level === 1) {
+          html += `<h1 style="text-align: center; font-size: 22px; font-weight: bold; margin: 32px 0 24px 0; color: #000; font-family: '黑体', 'SimHei', sans-serif; letter-spacing: 1px;">${content}</h1>`;
+        } else if (level === 2) {
+          html += `<h2 style="font-size: 20px; font-weight: bold; margin: 24px 0 16px 0; color: #000; font-family: '黑体', 'SimHei', sans-serif; padding-left: 0;">${content}</h2>`;
+        } else {
+          html += `<h3 style="font-size: 18px; font-weight: bold; margin: 20px 0 12px 0; color: #000; font-family: '黑体', 'SimHei', sans-serif; padding-left: 0;">${content}</h3>`;
         }
 
-        return `<p style="text-indent: 2em; line-height: 1.75; margin: 8px 0; font-size: 16px; color: #000;">${trimmed}</p>`;
-      })
-      .join('');
+        markContentProcessed();
+        continue;
+      }
+
+      // 处理首行以 Markdown 粗体包裹的标题
+      if (isFirstContentLine) {
+        const boldTitleMatch = trimmed.match(/^(\*\*|__)(.+?)(\*\*|__)$/);
+        if (boldTitleMatch) {
+          closeListIfNeeded();
+          const content = applyInlineFormatting(boldTitleMatch[2]);
+          html += `<h1 style="text-align: center; font-size: 22px; font-weight: bold; margin: 32px 0 24px 0; color: #000; font-family: '黑体', 'SimHei', sans-serif; letter-spacing: 1px;">${content}</h1>`;
+          markContentProcessed();
+          continue;
+        }
+      }
+
+      // 处理有序列表（1. 或 一、）
+      if (/^(\d+[.)]|[\u4e00-\u9fa5][、．])/.test(trimmed)) {
+        if (!inList || listType !== 'ol') {
+          closeListIfNeeded();
+          html +=
+            '<ol style="margin: 12px 0; padding-left: 2em; line-height: 1.8;">';
+          inList = true;
+          listType = 'ol';
+        }
+        const content = applyInlineFormatting(
+          trimmed.replace(/^(\d+[.)]|[\u4e00-\u9fa5][、．])\s*/, ''),
+        );
+        html += `<li style="margin: 8px 0; font-size: 16px; color: #000;">${content}</li>`;
+        markContentProcessed();
+        continue;
+      }
+
+      // 处理无序列表（- 或 •）
+      if (/^[-*•·]\s/.test(trimmed)) {
+        if (!inList || listType !== 'ul') {
+          closeListIfNeeded();
+          html +=
+            '<ul style="margin: 12px 0; padding-left: 2em; line-height: 1.8; list-style-type: disc;">';
+          inList = true;
+          listType = 'ul';
+        }
+        const content = applyInlineFormatting(
+          trimmed.replace(/^[-*•·]\s*/, ''),
+        );
+        html += `<li style="margin: 8px 0; font-size: 16px; color: #000;">${content}</li>`;
+        markContentProcessed();
+        continue;
+      }
+
+      // 关闭列表
+      closeListIfNeeded();
+
+      const formattedText = applyInlineFormatting(trimmed);
+
+      // 处理普通段落
+      if (trimmed.match(/^(特此|此致|附件|抄送|印发|日期|时间|年月日)/)) {
+        html += `<p style="text-align: right; line-height: 1.8; margin: 8px 0 4px 0; font-size: 16px; color: #000; padding-right: 2em;">${formattedText}</p>`;
+      } else if (trimmed.match(/^[\u4e00-\u9fa5]+[：:]\s*$/)) {
+        html += `<p style="font-weight: bold; font-size: 17px; margin: 12px 0 4px 0; color: #000; padding-left: 0; text-indent: 0;">${formattedText}</p>`;
+      } else {
+        html += `<p style="text-indent: 2em; line-height: 1.8; margin: 0; font-size: 16px; color: #000; text-align: justify;">${formattedText}</p>`;
+      }
+
+      markContentProcessed();
+    }
+
+    closeListIfNeeded();
+
+    return html;
   };
 
   // 模拟进度条
@@ -273,6 +385,8 @@ const DocumentWriter: React.FC = () => {
       const finalPrompt = `${promptsContent ? `${promptsContent}\n\n` : ''}${prompt}\n类型: ${documentType}\n场景: ${scenario}\n字数: ${lengthOption}${filesContent}`;
 
       const response = await aiWriteDocument({
+        title: titleInput || prompt.split('\n')[0] || '未命名文档',
+        requirement: prompt,
         prompt: finalPrompt,
         documentType: documentType as any,
         tone: 'formal',
@@ -1166,16 +1280,17 @@ const DocumentWriter: React.FC = () => {
                         width: '21cm',
                         minHeight: '29.7cm',
                         background: '#ffffff',
-                        padding: '2.54cm 3.18cm',
+                        padding: '3.7cm 2.8cm 3.5cm 2.8cm', // 上右下左，符合公文格式
                         boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
                         fontSize: '16px',
-                        lineHeight: '1.75',
+                        lineHeight: '1.8', // 行距调整为1.8，更符合公文规范
                         fontFamily:
-                          '"Times New Roman", "仿宋", "FangSong", "SimSun", serif',
+                          '"仿宋", "FangSong", "SimSun", "宋体", "Times New Roman", serif', // 优先使用仿宋
                         color: '#000',
                         outline: 'none',
                         wordWrap: 'break-word',
                         overflowWrap: 'break-word',
+                        letterSpacing: '0.5px', // 字间距
                       }}
                     />
                   </div>
