@@ -19,6 +19,23 @@ export default {
       changeOrigin: true,
       pathRewrite: { '^/api/ai': '' }, // 移除 /api/ai 前缀
     },
+    // 将 /api/storage/** 代理到后端服务
+    '/api/storage/': {
+      target: 'http://127.0.0.1:8000',
+      changeOrigin: true,
+      pathRewrite: { '^/api': '' },
+    },
+    // 将 /api/knowledge/** 代理到后端服务
+    '/api/knowledge/': {
+      target: 'http://127.0.0.1:8000',
+      changeOrigin: true,
+      pathRewrite: { '^/api': '' },
+    },
+    // 直通静态资源，供上传文件访问
+    '/static/': {
+      target: 'http://127.0.0.1:8000',
+      changeOrigin: true,
+    },
   },
   // dev: {
   //   // localhost:8000/api/** -> https://preview.pro.ant.design/api/**

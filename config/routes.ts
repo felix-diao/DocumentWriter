@@ -92,6 +92,12 @@ export default [
         icon: 'file-text',
         component: './AI/PromptManager',
       },
+      {
+        path: '/AI/knowledge-base',
+        name: '知识库',
+        icon: 'database',
+        component: './AI/KnowledgeBase',
+      },
     ],
   },
   {
