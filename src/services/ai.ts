@@ -8,7 +8,7 @@ export async function aiWriteDocument(params: {
     title: string;
     requirement: string;
     prompt: string;
-    documentType: 'article' | 'report' | 'summary' | 'email';
+    documentType: 'notice' | 'bulletin' | 'request' | 'report' | 'letter' | 'meeting';
     tone?: 'professional' | 'casual' | 'formal';
     language?: string;
 }) {

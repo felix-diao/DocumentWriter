@@ -1,3 +1,5 @@
+from typing import Literal, Optional
+
 from pydantic import BaseModel
 
 
@@ -17,14 +19,11 @@ class ExportRequest(BaseModel):
 class DocumentWriteRequest(BaseModel):
     """AI 公文写作接口请求体"""
     prompt: str
-    documentType: str  # 'article' | 'report' | 'summary' | 'email'
-    tone: str | None = None  # 'professional' | 'casual' | 'formal'
-    language: str | None = None  # e.g. 'zh', 'en'
-    title: str | None = None  # 文章标题
-    requirement: str | None = None  # 提出的需求
-
-
-from typing import Optional, Literal
+    documentType: Literal['notice', 'bulletin', 'request', 'report', 'letter', 'meeting']
+    tone: Optional[str] = None  # 'professional' | 'casual' | 'formal'
+    language: Optional[str] = None  # e.g. 'zh', 'en'
+    title: Optional[str] = None  # 文章标题
+    requirement: Optional[str] = None  # 提出的需求
 
 class DocumentOptimizeRequest(BaseModel):
     content: str

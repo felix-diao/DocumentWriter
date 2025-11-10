@@ -71,7 +71,7 @@ async def document_write(req: DocumentWriteRequest):
     POST /document/write
     {
         "prompt": "关于开展校园安全检查的通知，要求包含三条措施…",
-        "documentType": "article",
+        "documentType": "notice",
         "tone": "formal",
         "language": "zh"
     }
@@ -81,20 +81,22 @@ async def document_write(req: DocumentWriteRequest):
         from llm_client.generators import generate_document_by_prompt
         
         # 构建完整的 prompt，优先使用标题和需求
-        print(req)
+        print(f"req: {req}")
         enhanced_prompt = req.prompt
         if req.title:
             enhanced_prompt = f"文档标题：{req.title}\n\n{enhanced_prompt}"
         if req.requirement and req.requirement not in enhanced_prompt:
             # 如果需求不在 prompt 中，则添加
             enhanced_prompt = f"{enhanced_prompt}\n\n用户需求：{req.requirement}"
-        
+
+        print(f"enhanced_prompt: {enhanced_prompt}")
         content = generate_document_by_prompt(
             prompt=enhanced_prompt,
             document_type=req.documentType,
             tone=req.tone or "formal",
             language=req.language or "zh",
         )
+        print(f"content: {content}")
         return StandardResponse(
             success=True,
             data=DocumentData(

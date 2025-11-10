@@ -1,8 +1,4 @@
 import {
-  AlignCenterOutlined,
-  AlignLeftOutlined,
-  AlignRightOutlined,
-  BoldOutlined,
   CloudUploadOutlined,
   CopyOutlined,
   DeleteOutlined,
@@ -13,20 +9,10 @@ import {
   FilePdfOutlined,
   FileTextOutlined,
   FileWordOutlined,
-  FontColorsOutlined,
-  HighlightOutlined,
-  ItalicOutlined,
   LeftOutlined,
-  LinkOutlined,
-  OrderedListOutlined,
-  RedoOutlined,
   ReloadOutlined,
   RightOutlined,
-  StrikethroughOutlined,
-  TableOutlined,
-  UnderlineOutlined,
   UndoOutlined,
-  UnorderedListOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
 import { PageContainer, ProCard } from '@ant-design/pro-components';
@@ -35,6 +21,7 @@ import {
   Button,
   Checkbox,
   Col,
+  Descriptions,
   Dropdown,
   Empty,
   Input,
@@ -52,7 +39,7 @@ import {
   Upload,
 } from 'antd';
 import * as Diff from 'diff';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { aiOptimizeDocument, aiWriteDocument } from '@/services/ai';
 import {
   exportToPDF,
@@ -64,7 +51,7 @@ import type { PromptTemplate } from '@/services/prompt';
 import { getPrompts } from '@/services/prompt';
 
 const { TextArea } = Input;
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 interface SavedDocument {
   id: string;
@@ -77,13 +64,969 @@ interface SavedDocument {
   size?: number;
 }
 
+const DOCUMENT_TYPE_OPTIONS = [
+  { label: '通知', value: 'notice' },
+  { label: '通报', value: 'bulletin' },
+  { label: '请示', value: 'request' },
+  { label: '报告', value: 'report' },
+  { label: '函', value: 'letter' },
+  { label: '会议纪要', value: 'meeting' },
+] as const;
+
+type DocumentTypeValue = (typeof DOCUMENT_TYPE_OPTIONS)[number]['value'];
+
+const DOCUMENT_TYPE_LABEL_MAP = DOCUMENT_TYPE_OPTIONS.reduce<
+  Record<DocumentTypeValue, string>
+>((acc, option) => {
+  acc[option.value] = option.label;
+  return acc;
+}, {} as Record<DocumentTypeValue, string>);
+
+const DEFAULT_DOCUMENT_TYPE = DOCUMENT_TYPE_OPTIONS[0].value;
+
+const isDocumentTypeValue = (value: string): value is DocumentTypeValue =>
+  DOCUMENT_TYPE_OPTIONS.some((option) => option.value === value);
+
+const getDocumentTypeLabel = (value: string) =>
+  isDocumentTypeValue(value) ? DOCUMENT_TYPE_LABEL_MAP[value] : value;
+
+const SCENARIO_OPTIONS: Record<
+  DocumentTypeValue,
+  { label: string; value: string }[]
+> = {
+  notice: [
+    { label: '日常通知', value: 'routine_notice' },
+    { label: '紧急通知', value: 'urgent_notice' },
+    { label: '转发通知', value: 'forward_notice' },
+  ],
+  bulletin: [
+    { label: '表扬通报', value: 'commendation_bulletin' },
+    { label: '批评通报', value: 'criticism_bulletin' },
+    { label: '情况通报', value: 'situation_bulletin' },
+  ],
+  request: [
+    { label: '事项请示', value: 'general_request' },
+    { label: '资金请示', value: 'funding_request' },
+    { label: '项目请示', value: 'project_request' },
+  ],
+  report: [
+    { label: '年度工作报告', value: 'annual_report' },
+    { label: '专项情况报告', value: 'special_report' },
+    { label: '答复报告', value: 'reply_report' },
+  ],
+  letter: [
+    { label: '商洽函', value: 'consultation_letter' },
+    { label: '询问函', value: 'inquiry_letter' },
+    { label: '答复函', value: 'reply_letter' },
+    { label: '告知函', value: 'notification_letter' },
+  ],
+  meeting: [
+    { label: '办公会议纪要', value: 'administrative_meeting' },
+    { label: '专题会议纪要', value: 'thematic_meeting' },
+    { label: '座谈会纪要', value: 'symposium_meeting' },
+  ],
+};
+
+const getScenarioLabel = (typeValue: string, scenarioValue?: string) => {
+  if (!scenarioValue) return '';
+  if (isDocumentTypeValue(typeValue)) {
+    const matched = SCENARIO_OPTIONS[typeValue].find(
+      (item) => item.value === scenarioValue,
+    );
+    if (matched) {
+      return matched.label;
+    }
+  }
+  for (const options of Object.values(SCENARIO_OPTIONS)) {
+    const matched = options.find((item) => item.value === scenarioValue);
+    if (matched) {
+      return matched.label;
+    }
+  }
+  return scenarioValue;
+};
+
+interface OfficialDocumentData {
+  serialNumber?: string;
+  secrecyLevel?: string;
+  secrecyPeriod?: string;
+  urgency?: string;
+  issuerMark?: string;
+  documentNumber?: string;
+  signer?: string;
+  title?: string;
+  addressees: string[];
+  body: string[];
+  attachments: string[];
+  issuerName?: string;
+  issueDate?: string;
+  footnote?: string;
+  carbonCopy: string[];
+  distributionOrg?: string;
+  distributionDate?: string;
+}
+
+const normalizeString = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const normalizeStringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeString(item))
+      .filter((item): item is string => Boolean(item));
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/[,，、;；\n]+/)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  }
+  return [];
+};
+
+const normalizeDirectStringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeString(item))
+      .filter((item): item is string => Boolean(item));
+  }
+  const normalized = normalizeString(value);
+  return normalized ? [normalized] : [];
+};
+
+const normalizeParagraphs = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeString(item))
+      .filter((item): item is string => Boolean(item));
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/\n+/)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  }
+  return [];
+};
+
+const numberToChinese = (value: number): string => {
+  const digits = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+  if (value <= 10) {
+    return ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][value];
+  }
+  if (value < 20) {
+    return `十${digits[value - 10] !== '零' ? digits[value - 10] : ''}`;
+  }
+  if (value < 100) {
+    const tens = Math.floor(value / 10);
+    const ones = value % 10;
+    return `${digits[tens]}十${ones === 0 ? '' : digits[ones]}`;
+  }
+  return `${value}`;
+};
+
+const toChineseOrdinal = (index: number): string => `${numberToChinese(index + 1)}、`;
+
+const buildNotificationTitle = (
+  issuingOrg?: string,
+  subject?: string,
+  docType?: string,
+): string | undefined => {
+  const normalizedOrg = normalizeString(issuingOrg);
+  const normalizedSubject = normalizeString(subject);
+  const normalizedDocType = normalizeString(docType) ?? '通知';
+
+  if (!normalizedOrg && !normalizedSubject) {
+    return normalizedDocType;
+  }
+
+  if (!normalizedOrg && normalizedSubject) {
+    if (normalizedSubject.includes(normalizedDocType)) {
+      return normalizedSubject;
+    }
+    if (normalizedSubject.startsWith('关于')) {
+      return `${normalizedSubject}${normalizedDocType === '通知' ? '' : normalizedDocType}`;
+    }
+    return `关于${normalizedSubject}${normalizedDocType === '通知' ? '的通知' : normalizedDocType}`;
+  }
+
+  if (normalizedOrg && !normalizedSubject) {
+    return `${normalizedOrg}${normalizedDocType}`;
+  }
+
+  if (!normalizedSubject) {
+    return `${normalizedOrg}${normalizedDocType}`;
+  }
+
+  if (normalizedSubject.includes('通知')) {
+    return normalizedSubject.startsWith(normalizedOrg ?? '')
+      ? normalizedSubject
+      : `${normalizedOrg}${normalizedSubject}`;
+  }
+
+  if (normalizedSubject.startsWith('关于')) {
+    return `${normalizedOrg}${normalizedSubject}${
+      normalizedDocType === '通知' ? '' : normalizedDocType
+    }`;
+  }
+
+  return `${normalizedOrg}关于${normalizedSubject}${
+    normalizedDocType === '通知' ? '的通知' : normalizedDocType
+  }`;
+};
+
+const mapOfficialDocumentData = (
+  raw: Record<string, unknown>,
+): OfficialDocumentData => {
+  if ('document' in raw && raw.document && typeof raw.document === 'object') {
+    const doc = raw.document as Record<string, unknown>;
+    const issuingAuthority = normalizeString(doc.issuingAuthority);
+    const documentNumber = normalizeString(doc.documentNumber);
+    const title = normalizeString(doc.title);
+    const recipients = normalizeDirectStringArray(doc.mainRecipients);
+    const issueDate = normalizeString(doc.date);
+    const attachments = normalizeDirectStringArray(doc.attachments);
+
+    const content = (doc.content ?? {}) as Record<string, unknown>;
+    const preamble = normalizeString(content.preamble);
+    const mainBody = Array.isArray(content.mainBody)
+      ? (content.mainBody as Record<string, unknown>[])
+      : [];
+    const requirements = content.requirements as Record<string, unknown> | undefined;
+    const conclusion = normalizeString(content.conclusion);
+
+    const body: string[] = [];
+    if (preamble) {
+      body.push(preamble);
+    }
+
+    mainBody.forEach((section) => {
+      const sectionTitle = normalizeString(section.sectionTitle);
+      const details = normalizeDirectStringArray(section.details);
+      if (!sectionTitle && details.length === 0) {
+        return;
+      }
+      const lines: string[] = [];
+      if (sectionTitle) {
+        lines.push(sectionTitle);
+      }
+      details.forEach((detail) => {
+        lines.push(detail);
+      });
+      body.push(lines.join('\n'));
+    });
+
+    if (requirements) {
+      const requirementTitle = normalizeString(requirements.title) ?? '工作要求';
+      const requirementDetails = normalizeDirectStringArray(requirements.details);
+      if (requirementTitle || requirementDetails.length > 0) {
+        const lines: string[] = [];
+        lines.push(requirementTitle);
+        requirementDetails.forEach((detail) => {
+          lines.push(detail);
+        });
+        body.push(lines.join('\n'));
+      }
+    }
+
+    if (conclusion) {
+      body.push(conclusion);
+    } else if (!body.some((paragraph) => paragraph.includes('特此通知'))) {
+      body.push('特此通知');
+    }
+
+    const contact = (doc.contact ?? {}) as Record<string, unknown>;
+    const contactSegments: string[] = [];
+    const contactDepartment = normalizeString(contact.department);
+    const contactPerson = normalizeString(contact.person);
+    const contactPhone = normalizeString(contact.phone);
+    const contactEmail = normalizeString(contact.email);
+
+    if (contactDepartment) {
+      contactSegments.push(contactDepartment);
+    }
+    if (contactPerson) {
+      contactSegments.push(contactPerson);
+    }
+    if (contactPhone) {
+      contactSegments.push(`电话：${contactPhone}`);
+    }
+    if (contactEmail) {
+      contactSegments.push(`邮箱：${contactEmail}`);
+    }
+
+    const footnote =
+      contactSegments.length > 0
+        ? `联系人及方式：${contactSegments.join('，')}`
+        : undefined;
+
+    return {
+      serialNumber: undefined,
+      secrecyLevel: undefined,
+      secrecyPeriod: undefined,
+      urgency: undefined,
+      issuerMark: issuingAuthority ? `${issuingAuthority}文件` : undefined,
+      documentNumber,
+      signer: undefined,
+      title,
+      addressees: recipients,
+      body,
+      attachments,
+      issuerName: issuingAuthority,
+      issueDate,
+      footnote,
+      carbonCopy: [],
+      distributionOrg: undefined,
+      distributionDate: undefined,
+    };
+  }
+
+  if ('docType' in raw) {
+    const {
+      docType,
+      noticeType,
+      issuingOrg,
+      recipients,
+      subject,
+      background,
+      matters,
+      deadline,
+      contactPerson,
+      isUrgent,
+      isSecret,
+    } = raw as Record<string, unknown>;
+
+    const issuingOrgText = normalizeString(issuingOrg);
+    const subjectText = normalizeString(subject);
+    const backgroundText = normalizeString(background);
+    const mattersArray = Array.isArray(matters) ? (matters as Record<string, unknown>[]) : [];
+    const deadlineText = normalizeString(deadline);
+    const contactText = normalizeString(contactPerson);
+    const noticeTypeText = normalizeString(noticeType);
+
+    const body: string[] = [];
+    if (backgroundText) {
+      body.push(backgroundText);
+    }
+    if (noticeTypeText) {
+      body.push(`通知类别：${noticeTypeText}`);
+    }
+
+    mattersArray.forEach((item, index) => {
+      const { title, content, requirements } = item as Record<string, unknown>;
+      const matterTitle = normalizeString(title) ?? `事项${index + 1}`;
+      const matterContent = normalizeString(content);
+      const matterRequirements = normalizeString(requirements);
+
+      const parts: string[] = [`${toChineseOrdinal(index)}${matterTitle}`];
+      if (matterContent) {
+        parts.push(matterContent);
+      }
+      if (matterRequirements) {
+        parts.push(`工作要求：${matterRequirements}`);
+      }
+
+      body.push(parts.join('\n'));
+    });
+
+    if (deadlineText || mattersArray.length > 0) {
+      let requirementText = '请各单位按照上述安排认真抓好落实';
+      if (deadlineText) {
+        requirementText += `，于${deadlineText}前完成相关工作`;
+      }
+      requirementText += '。';
+      body.push(requirementText);
+    }
+
+    if (contactText) {
+      body.push(`联系人及方式：${contactText}`);
+    }
+
+    body.push('特此通知');
+
+    return {
+      serialNumber: undefined,
+      secrecyLevel: isSecret ? '秘密' : undefined,
+      secrecyPeriod: undefined,
+      urgency: isUrgent ? '特急' : undefined,
+      issuerMark: issuingOrgText ? `${issuingOrgText}文件` : undefined,
+      documentNumber: undefined,
+      signer: undefined,
+      title: buildNotificationTitle(issuingOrgText, subjectText, normalizeString(docType)),
+      addressees: normalizeStringArray(recipients),
+      body,
+      attachments: [],
+      issuerName: issuingOrgText,
+      issueDate: undefined,
+      footnote: undefined,
+      carbonCopy: [],
+      distributionOrg: undefined,
+      distributionDate: undefined,
+    };
+  }
+
+  const {
+    正文,
+    附件说明,
+    抄送机关,
+    份号,
+    密级,
+    保密期限,
+    紧急程度,
+    发文机关标志,
+    发文字号,
+    签发人,
+    标题,
+    主送机关,
+    发文机关署名,
+    成文日期,
+    附注,
+    印发机关,
+    印发日期,
+  } = raw as Record<string, unknown>;
+
+  const body = normalizeParagraphs(正文);
+  const attachments = normalizeStringArray(附件说明);
+  const carbonCopy = normalizeStringArray(抄送机关);
+
+  return {
+    serialNumber: normalizeString(份号),
+    secrecyLevel: normalizeString(密级),
+    secrecyPeriod: normalizeString(保密期限),
+    urgency: normalizeString(紧急程度),
+    issuerMark: normalizeString(发文机关标志),
+    documentNumber: normalizeString(发文字号),
+    signer: normalizeString(签发人),
+    title: normalizeString(标题),
+    addressees: normalizeStringArray(主送机关),
+    body,
+    attachments,
+    issuerName: normalizeString(发文机关署名),
+    issueDate: normalizeString(成文日期),
+    footnote: normalizeString(附注),
+    carbonCopy,
+    distributionOrg: normalizeString(印发机关),
+    distributionDate: normalizeString(印发日期),
+  };
+};
+
+const takeCountedKey = (value: string, counter: Map<string, number>) => {
+  const current = counter.get(value) ?? 0;
+  const next = current + 1;
+  counter.set(value, next);
+  return `${value}-${next}`;
+};
+
+const ensureParentheses = (value?: string) => {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (/^（.*）$/.test(trimmed)) {
+    return trimmed;
+  }
+  const normalized = trimmed.replace(/[()]/g, '');
+  return `（${normalized}）`;
+};
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const renderMultilineHtml = (text: string) =>
+  escapeHtml(text).replace(/\n/g, '<br />');
+
+const INDENT = '　　';
+const paragraphNoIndentPattern =
+  /^(通知类别：|[一二三四五六七八九十]+、|（[一二三四五六七八九十]）|[0-9]+[.．、]|附件：|联系人及方式：|抄送：|发至：|特此通知)/;
+
+const shouldIndentParagraph = (text: string) =>
+  !paragraphNoIndentPattern.test(text);
+
+const indentParagraph = (paragraph: string) => {
+  if (!shouldIndentParagraph(paragraph)) {
+    return paragraph;
+  }
+  return paragraph
+    .split('\n')
+    .map((line) => (line.length > 0 ? `${INDENT}${line}` : line))
+    .join('\n');
+};
+
+const buildOfficialDocumentText = (data: OfficialDocumentData) => {
+  const lines: string[] = [];
+
+  if (data.issuerMark) {
+    lines.push(data.issuerMark);
+  }
+  if (data.documentNumber) {
+    if (lines.length > 0) lines.push('');
+    lines.push(data.documentNumber);
+  }
+  if (data.title) {
+    if (lines.length > 0) lines.push('');
+    lines.push(data.title);
+  }
+  if (data.addressees.length > 0) {
+    lines.push('');
+    lines.push(`${data.addressees.join('、')}：`);
+  }
+
+  if (data.body.length > 0) {
+    lines.push('');
+    data.body.forEach((paragraph, index) => {
+      if (index > 0) {
+        lines.push('');
+      }
+      lines.push(indentParagraph(paragraph));
+    });
+  }
+
+  if (data.attachments.length > 0) {
+    lines.push('');
+    data.attachments.forEach((item, index) => {
+      if (item.startsWith('附件：')) {
+        lines.push(item);
+      } else {
+        lines.push(`附件：${index + 1}．${item}`);
+      }
+    });
+  }
+
+  if (data.issuerName || data.issueDate) {
+    lines.push('');
+    if (data.issuerName) {
+      lines.push(data.issuerName);
+    }
+    if (data.issueDate) {
+      lines.push(data.issueDate);
+    }
+  }
+
+  const footnote = ensureParentheses(data.footnote);
+  if (footnote) {
+    lines.push('');
+    lines.push(footnote);
+  }
+
+  if (data.carbonCopy.length > 0 || data.distributionOrg || data.distributionDate) {
+    lines.push('');
+    if (data.carbonCopy.length > 0) {
+      lines.push(`抄送：${data.carbonCopy.join('、')}`);
+    }
+    if (data.distributionOrg) {
+      lines.push(data.distributionOrg);
+    }
+    if (data.distributionDate) {
+      lines.push(data.distributionDate);
+    }
+  }
+
+  return lines.join('\n');
+};
+
+const buildBodyParagraphHtml = (paragraph: string) => {
+  const indentStyle = shouldIndentParagraph(paragraph) ? '2em' : '0';
+  return `<p style="margin:0 0 16px 0;font-size:16px;line-height:1.9;text-align:justify;text-indent:${indentStyle};">${renderMultilineHtml(
+    paragraph,
+  )}</p>`;
+};
+
+const buildOfficialDocumentHTML = (data: OfficialDocumentData) => {
+  const metaItems: string[] = [];
+  if (data.serialNumber) metaItems.push(`份号：${data.serialNumber}`);
+  if (data.secrecyLevel) {
+    metaItems.push(
+      `密级：${data.secrecyLevel}${
+        data.secrecyPeriod ? `★${data.secrecyPeriod}` : ''
+      }`,
+    );
+  }
+  if (data.urgency) metaItems.push(`紧急程度：${data.urgency}`);
+  if (data.signer) metaItems.push(`签发人：${data.signer}`);
+
+  const addresseesText =
+    data.addressees.length > 0 ? data.addressees.join('、') : undefined;
+  const attachments = data.attachments.map((item, index) =>
+    item.startsWith('附件：') ? item : `附件：${index + 1}．${item}`,
+  );
+  const carbonCopyText =
+    data.carbonCopy.length > 0 ? data.carbonCopy.join('、') : undefined;
+
+  const htmlParts: string[] = [];
+  htmlParts.push(
+    '<div style="font-family:\'仿宋\',\'FangSong\',\'SimSun\',\'宋体\',\'Times New Roman\',serif;color:#000;">',
+  );
+
+  if (metaItems.length > 0) {
+    htmlParts.push(
+      `<div style="display:flex;justify-content:flex-end;flex-wrap:wrap;gap:6px 24px;font-size:12px;line-height:1.6;color:#444;">${metaItems
+        .map((item) => `<div>${escapeHtml(item)}</div>`)
+        .join('')}</div>`,
+    );
+  }
+
+  if (data.issuerMark) {
+    htmlParts.push(
+      `<div style="text-align:center;font-size:28px;color:#c00000;letter-spacing:6px;font-weight:700;margin:20px 0 10px 0;padding-bottom:12px;border-bottom:4px double #c00000;">${escapeHtml(
+        data.issuerMark,
+      )}</div>`,
+    );
+  }
+
+  if (data.documentNumber) {
+    htmlParts.push(
+      `<div style="text-align:center;font-size:16px;color:#000;margin:16px 0 24px;font-family:'仿宋','FangSong','SimSun',serif;">${escapeHtml(
+        data.documentNumber,
+      )}</div>`,
+    );
+  }
+
+  if (data.title) {
+    htmlParts.push(
+      `<div style="text-align:center;font-size:24px;font-weight:700;line-height:1.6;color:#000;margin:32px 0 28px;letter-spacing:2px;">${escapeHtml(
+        data.title,
+      )}</div>`,
+    );
+  }
+
+  if (addresseesText) {
+    htmlParts.push(
+      `<div style="font-size:16px;line-height:1.8;text-align:left;margin-bottom:16px;">主送机关：${escapeHtml(
+        addresseesText,
+      )}</div>`,
+    );
+  }
+
+  if (data.body.length > 0) {
+    data.body.forEach((paragraph) => {
+      htmlParts.push(buildBodyParagraphHtml(paragraph));
+    });
+  }
+
+  if (attachments.length > 0) {
+    htmlParts.push('<div style="font-size:15px;line-height:1.9;margin-top:24px;">');
+    attachments.forEach((item) => {
+      htmlParts.push(`<div>${renderMultilineHtml(item)}</div>`);
+    });
+    htmlParts.push('</div>');
+  }
+
+  if (data.issuerName || data.issueDate) {
+    htmlParts.push(
+      '<div style="margin-top:48px;font-size:16px;line-height:1.8;text-align:right;">',
+    );
+    if (data.issuerName) {
+      htmlParts.push(`<div>${escapeHtml(data.issuerName)}</div>`);
+    }
+    if (data.issueDate) {
+      htmlParts.push(`<div>${escapeHtml(data.issueDate)}</div>`);
+    }
+    htmlParts.push('</div>');
+  }
+
+  const footnote = ensureParentheses(data.footnote);
+  if (footnote) {
+    htmlParts.push(
+      `<div style="margin-top:24px;font-size:14px;line-height:1.7;color:#444;">${escapeHtml(
+        footnote,
+      )}</div>`,
+    );
+  }
+
+  if (carbonCopyText || data.distributionOrg || data.distributionDate) {
+    htmlParts.push(
+      '<div style="margin-top:48px;border-top:1px solid #d9d9d9;padding-top:16px;font-size:13px;line-height:1.7;color:#555;">',
+    );
+    if (carbonCopyText) {
+      htmlParts.push(`<div>抄送：${escapeHtml(carbonCopyText)}</div>`);
+    }
+    if (data.distributionOrg) {
+      htmlParts.push(`<div>${escapeHtml(data.distributionOrg)}</div>`);
+    }
+    if (data.distributionDate) {
+      htmlParts.push(`<div>${escapeHtml(data.distributionDate)}</div>`);
+    }
+    htmlParts.push('</div>');
+  }
+
+  htmlParts.push('</div>');
+  return htmlParts.join('');
+};
+
+const renderMultiline = (text: string) => {
+  const segments = text.split(/\n+/).filter((segment) => segment.length > 0);
+  const segmentCounter = new Map<string, number>();
+  return segments.map((segment, index) => (
+    <React.Fragment key={takeCountedKey(segment, segmentCounter)}>
+      {segment}
+      {index < segments.length - 1 && <br />}
+    </React.Fragment>
+  ));
+};
+
+function OfficialDocumentPreview({ data }: { data: OfficialDocumentData }) {
+  const metaItems: string[] = [];
+  if (data.serialNumber) metaItems.push(`份号：${data.serialNumber}`);
+  if (data.secrecyLevel) {
+    metaItems.push(
+      `密级：${data.secrecyLevel}${
+        data.secrecyPeriod ? `★${data.secrecyPeriod}` : ''
+      }`,
+    );
+  }
+  if (data.urgency) metaItems.push(`紧急程度：${data.urgency}`);
+  if (data.signer) metaItems.push(`签发人：${data.signer}`);
+
+  const addresseesText =
+    data.addressees.length > 0 ? data.addressees.join('、') : undefined;
+  const attachments = data.attachments.map(
+    (item, index) => (item.startsWith('附件：') ? item : `附件：${index + 1}．${item}`),
+  );
+  const carbonCopyText =
+    data.carbonCopy.length > 0 ? data.carbonCopy.join('、') : undefined;
+
+  const containerStyle: React.CSSProperties = {
+    width: '21cm',
+    margin: '0 auto',
+    background: '#ffffff',
+    padding: '48px 78px 32px 78px',
+    border: '1px solid #d9d9d9',
+    boxShadow: '0 6px 18px rgba(0,0,0,0.08)',
+    fontFamily:
+      '"仿宋", "FangSong", "SimSun", "宋体", "Times New Roman", serif',
+    color: '#000',
+    position: 'relative',
+  };
+
+  const metaRowStyle: React.CSSProperties = {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+    gap: '6px 24px',
+    fontSize: '12px',
+    lineHeight: 1.6,
+    color: '#444',
+  };
+
+  const bannerStyle: React.CSSProperties = {
+    textAlign: 'center',
+    fontSize: '28px',
+    color: '#c00000',
+    letterSpacing: '6px',
+    fontWeight: 700,
+    margin: '20px 0 10px 0',
+    paddingBottom: '12px',
+    borderBottom: '4px double #c00000',
+  };
+
+  const docNumberStyle: React.CSSProperties = {
+    textAlign: 'center',
+    fontSize: '16px',
+    color: '#000',
+    margin: '16px 0 24px',
+    fontFamily: '"仿宋", "FangSong", "SimSun", serif',
+  };
+
+  const titleStyle: React.CSSProperties = {
+    textAlign: 'center',
+    fontSize: '24px',
+    fontWeight: 700,
+    lineHeight: 1.6,
+    color: '#000',
+    margin: '32px 0 28px',
+    letterSpacing: '2px',
+  };
+
+  const addresseesStyle: React.CSSProperties = {
+    fontSize: '16px',
+    lineHeight: 1.8,
+    textAlign: 'left',
+    marginBottom: '16px',
+  };
+
+  const bodyParagraphStyle: React.CSSProperties = {
+    margin: '0 0 16px 0',
+    fontSize: '16px',
+    lineHeight: 1.9,
+    textIndent: '2em',
+    textAlign: 'justify',
+  };
+
+  const attachmentStyle: React.CSSProperties = {
+    fontSize: '15px',
+    lineHeight: 1.9,
+    marginTop: '24px',
+  };
+
+  const signatureStyle: React.CSSProperties = {
+    marginTop: '48px',
+    fontSize: '16px',
+    lineHeight: 1.8,
+    textAlign: 'right',
+  };
+
+  const footnoteStyle: React.CSSProperties = {
+    marginTop: '24px',
+    fontSize: '14px',
+    lineHeight: 1.7,
+    color: '#444',
+  };
+
+  const recordSectionStyle: React.CSSProperties = {
+    marginTop: '48px',
+    borderTop: '1px solid #d9d9d9',
+    paddingTop: '16px',
+    fontSize: '13px',
+    lineHeight: 1.7,
+    color: '#555',
+  };
+
+  const paragraphKeyCounter = new Map<string, number>();
+  const attachmentKeyCounter = new Map<string, number>();
+
+  return (
+    <div style={containerStyle}>
+      {metaItems.length > 0 && (
+        <div style={metaRowStyle}>
+          {metaItems.map((item) => (
+            <div key={item}>{item}</div>
+          ))}
+        </div>
+      )}
+      {data.issuerMark && <div style={bannerStyle}>{data.issuerMark}</div>}
+      {data.documentNumber && (
+        <div style={docNumberStyle}>{data.documentNumber}</div>
+      )}
+      {data.title && <div style={titleStyle}>{data.title}</div>}
+      {addresseesText && (
+        <div style={addresseesStyle}>主送机关：{addresseesText}</div>
+      )}
+      {data.body.length > 0 && (
+        <div>
+          {data.body.map((paragraph) => (
+            <p
+              style={bodyParagraphStyle}
+              key={takeCountedKey(paragraph, paragraphKeyCounter)}
+            >
+              {renderMultiline(paragraph)}
+            </p>
+          ))}
+        </div>
+      )}
+      {attachments.length > 0 && (
+        <div style={attachmentStyle}>
+          {attachments.map((item) => (
+            <div key={takeCountedKey(item, attachmentKeyCounter)}>
+              {renderMultiline(item)}
+            </div>
+          ))}
+        </div>
+      )}
+      {(data.issuerName || data.issueDate) && (
+        <div style={signatureStyle}>
+          {data.issuerName && <div>{data.issuerName}</div>}
+          {data.issueDate && <div>{data.issueDate}</div>}
+        </div>
+      )}
+      {ensureParentheses(data.footnote) && (
+        <div style={footnoteStyle}>{ensureParentheses(data.footnote)}</div>
+      )}
+      {(carbonCopyText || data.distributionOrg || data.distributionDate) && (
+        <div style={recordSectionStyle}>
+          {carbonCopyText && <div>抄送：{carbonCopyText}</div>}
+          {data.distributionOrg && <div>{data.distributionOrg}</div>}
+          {data.distributionDate && <div>{data.distributionDate}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OfficialDocumentMeta({ data }: { data: OfficialDocumentData }) {
+  const secrecyPeriodText = ensureParentheses(data.secrecyPeriod);
+  const footnoteText = ensureParentheses(data.footnote);
+
+  const baseItems = [
+    { label: '份号', value: data.serialNumber },
+    {
+      label: '密级',
+      value: data.secrecyLevel
+        ? `${data.secrecyLevel}${secrecyPeriodText ?? ''}`
+        : undefined,
+    },
+    { label: '紧急程度', value: data.urgency },
+    { label: '发文字号', value: data.documentNumber },
+    { label: '发文机关标志', value: data.issuerMark },
+    { label: '签发人', value: data.signer },
+    { label: '成文日期', value: data.issueDate },
+    { label: '发文机关署名', value: data.issuerName },
+    { label: '印发机关', value: data.distributionOrg },
+    { label: '印发日期', value: data.distributionDate },
+  ].filter((item) => Boolean(item.value));
+
+  const listItems = [
+    { label: '主送机关', values: data.addressees },
+    { label: '抄送机关', values: data.carbonCopy },
+    { label: '附件', values: data.attachments },
+  ].filter((item) => item.values.length > 0);
+
+  const renderList = (items: string[]) => (
+    <Space size={[4, 4]} wrap>
+      {items.map((item, index) => (
+        <Tag key={`${item}-${index}`} color="geekblue">
+          {item}
+        </Tag>
+      ))}
+    </Space>
+  );
+
+  return (
+    <Descriptions
+      column={{ xs: 1, sm: 1, md: 2 }}
+      size="small"
+      labelStyle={{ minWidth: 88, color: '#666', fontWeight: 500 }}
+      contentStyle={{ color: '#262626' }}
+    >
+      {data.title && (
+        <Descriptions.Item label="标题" span={2}>
+          {data.title}
+        </Descriptions.Item>
+      )}
+      {baseItems.map((item) => (
+        <Descriptions.Item label={item.label} key={item.label}>
+          {item.value}
+        </Descriptions.Item>
+      ))}
+      {listItems.map((item) => (
+        <Descriptions.Item label={item.label} span={2} key={item.label}>
+          {renderList(item.values)}
+        </Descriptions.Item>
+      ))}
+      {footnoteText && (
+        <Descriptions.Item label="附注" span={2}>
+          {footnoteText}
+        </Descriptions.Item>
+      )}
+    </Descriptions>
+  );
+}
+
 const DocumentWriter: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [prompt, setPrompt] = useState('');
   const [content, setContent] = useState('');
   const [htmlContent, setHtmlContent] = useState('');
-  const [documentType, setDocumentType] = useState<string>('speech');
+  const [documentType, setDocumentType] =
+    useState<DocumentTypeValue>(DEFAULT_DOCUMENT_TYPE);
   const [scenario, setScenario] = useState<string>('');
   const [titleInput, setTitleInput] = useState('');
   const [lengthOption, setLengthOption] = useState<'short' | 'medium' | 'long'>(
@@ -99,6 +1042,11 @@ const DocumentWriter: React.FC = () => {
     [],
   );
   const [selectedPromptIds, setSelectedPromptIds] = useState<string[]>([]);
+  const [promptVariableValues, setPromptVariableValues] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  const [officialDocumentData, setOfficialDocumentData] =
+    useState<OfficialDocumentData | null>(null);
   const [promptPreviewVisible, setPromptPreviewVisible] = useState(false);
   const [previewingPrompt, setPreviewingPrompt] =
     useState<PromptTemplate | null>(null);
@@ -132,28 +1080,103 @@ const DocumentWriter: React.FC = () => {
   const [optimizeProgressVisible, setOptimizeProgressVisible] = useState(false);
   const [optimizeProgressText, setOptimizeProgressText] = useState('');
 
-  const scenarioOptions: Record<string, { label: string; value: string }[]> = {
-    speech: [
-      { label: '开场演讲', value: 'opening' },
-      { label: '闭幕演讲', value: 'closing' },
-    ],
-    notice: [
-      { label: '内部通知', value: 'internal' },
-      { label: '外部通知', value: 'external' },
-    ],
-    report: [
-      { label: '个人工作报告', value: 'personal' },
-      { label: '单位工作报告', value: 'unit' },
-      { label: '专项工作报告', value: 'special' },
-    ],
-    research: [
-      { label: '市场调研报告', value: 'market' },
-      { label: '行业调研报告', value: 'industry' },
-    ],
-    suggestion: [
-      { label: '政策建议', value: 'policy' },
-      { label: '管理建议', value: 'management' },
-    ],
+  const selectedPrompts = useMemo(
+    () =>
+      availablePrompts.filter((prompt) =>
+        selectedPromptIds.includes(prompt.id),
+      ),
+    [availablePrompts, selectedPromptIds],
+  );
+  const selectedPromptsWithVariables = useMemo(
+    () =>
+      selectedPrompts.filter(
+        (prompt) => prompt.variables && prompt.variables.length > 0,
+      ),
+    [selectedPrompts],
+  );
+
+  useEffect(() => {
+    setPromptVariableValues((prev) => {
+      const next: Record<string, Record<string, string>> = {};
+
+      selectedPromptsWithVariables.forEach((prompt) => {
+        const prevValues = prev[prompt.id] || {};
+        const values: Record<string, string> = {};
+
+        prompt.variables?.forEach((variable) => {
+          values[variable] = prevValues[variable] ?? '';
+        });
+
+        next[prompt.id] = values;
+      });
+
+      const prevKeys = Object.keys(prev);
+      const nextKeys = Object.keys(next);
+      if (prevKeys.length !== nextKeys.length) {
+        return next;
+      }
+
+      for (const key of nextKeys) {
+        const prevValues = prev[key] || {};
+        const nextValues = next[key] || {};
+
+        const prevVarKeys = Object.keys(prevValues);
+        const nextVarKeys = Object.keys(nextValues);
+
+        if (prevVarKeys.length !== nextVarKeys.length) {
+          return next;
+        }
+
+        for (const varKey of nextVarKeys) {
+          if (prevValues[varKey] !== nextValues[varKey]) {
+            return next;
+          }
+        }
+      }
+
+      return prev;
+    });
+  }, [selectedPromptsWithVariables]);
+
+  const handlePromptVariableInputChange = (
+    promptId: string,
+    variable: string,
+    value: string,
+  ) => {
+    setPromptVariableValues((prev) => {
+      const previousValues = prev[promptId] || {};
+      if (previousValues[variable] === value) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [promptId]: {
+          ...previousValues,
+          [variable]: value,
+        },
+      };
+    });
+  };
+
+  const escapeRegExp = (value: string) =>
+    value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  const fillPromptTemplateContent = (template: PromptTemplate) => {
+    if (!template.variables || template.variables.length === 0) {
+      return template.content;
+    }
+
+    const values = promptVariableValues[template.id] || {};
+    let filledContent = template.content;
+
+    template.variables.forEach((variable) => {
+      const replacement = values[variable]?.trim() ?? '';
+      const regex = new RegExp(`\\{\\s*${escapeRegExp(variable)}\\s*\\}`, 'g');
+      filledContent = filledContent.replace(regex, replacement);
+    });
+
+    return filledContent;
   };
 
   // 加载 Prompt 模板
@@ -169,7 +1192,11 @@ const DocumentWriter: React.FC = () => {
         isActive: true,
         pageSize: 100,
       });
-      setAvailablePrompts(response.data || []);
+      const prompts = response.data || [];
+      setAvailablePrompts(prompts);
+      setSelectedPromptIds((prev) =>
+        prev.filter((id) => prompts.some((prompt) => prompt.id === id)),
+      );
     } catch (error) {
       console.error('加载 Prompt 模板失败:', error);
     } finally {
@@ -347,6 +1374,7 @@ const DocumentWriter: React.FC = () => {
       message.warning('请输入文档主题或描述');
       return;
     }
+
     setLoading(true);
     setGenerateProgressVisible(true);
     setGenerateProgress(0);
@@ -371,24 +1399,28 @@ const DocumentWriter: React.FC = () => {
       );
 
       // 合并选中的 Prompt 模板
-      const selectedPrompts = availablePrompts.filter((p) =>
-        selectedPromptIds.includes(p.id),
-      );
       const promptsContent = selectedPrompts
-        .map((p) => `\n[模板: ${p.name}]\n${p.content}`)
+        .map(
+          (p) => `\n[模板: ${p.name}]\n${fillPromptTemplateContent(p)}`,
+        )
         .join('\n\n');
 
       const filesContent = uploadedFiles
         .map((f) => `\n[附加素材: ${f.name}]`)
         .join('');
 
-      const finalPrompt = `${promptsContent ? `${promptsContent}\n\n` : ''}${prompt}\n类型: ${documentType}\n场景: ${scenario}\n字数: ${lengthOption}${filesContent}`;
+      const documentTypeLabel = getDocumentTypeLabel(documentType);
+      const scenarioLabel =
+        scenario && scenario.length > 0
+          ? getScenarioLabel(documentType, scenario)
+          : '未指定';
+      const finalPrompt = `${promptsContent ? `${promptsContent}\n\n` : ''}${prompt}\n类型: ${documentTypeLabel}\n场景: ${scenarioLabel}\n字数: ${lengthOption}${filesContent}`;
 
       const response = await aiWriteDocument({
         title: titleInput || prompt.split('\n')[0] || '未命名文档',
         requirement: prompt,
         prompt: finalPrompt,
-        documentType: documentType as any,
+        documentType,
         tone: 'formal',
         language: 'zh-CN',
       });
@@ -401,8 +1433,31 @@ const DocumentWriter: React.FC = () => {
       setGenerateProgressText('生成完成！');
 
       const generatedContent = response.data?.content || '';
-      setContent(generatedContent);
-      setHtmlContent(formatContentToHTML(generatedContent));
+
+      let mappedData: OfficialDocumentData | null = null;
+      let normalizedText = generatedContent;
+      let normalizedHtml = formatContentToHTML(generatedContent);
+
+      const trimmed = generatedContent.trim();
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            mappedData = mapOfficialDocumentData(parsed as Record<string, unknown>);
+            normalizedText = buildOfficialDocumentText(mappedData);
+            normalizedHtml = buildOfficialDocumentHTML(mappedData);
+          }
+        } catch (parseError) {
+          console.warn(
+            'Failed to parse generated content as official document JSON:',
+            parseError,
+          );
+        }
+      }
+
+      setOfficialDocumentData(mappedData);
+      setContent(normalizedText);
+      setHtmlContent(normalizedHtml);
 
       // 延迟隐藏进度条
       setTimeout(() => {
@@ -467,7 +1522,12 @@ const DocumentWriter: React.FC = () => {
         customInstruction: optimizeInstruction,
         context: {
           documentType,
+          documentTypeLabel: getDocumentTypeLabel(documentType),
           scenario,
+          scenarioLabel:
+            scenario && scenario.length > 0
+              ? getScenarioLabel(documentType, scenario)
+              : undefined,
         },
       });
 
@@ -793,12 +1853,18 @@ const DocumentWriter: React.FC = () => {
   };
 
   const handleCopy = () => {
-    const editor = document.getElementById('word-editor');
-    if (editor) {
-      const text = editor.innerText;
-      navigator.clipboard.writeText(text);
-      message.success('已复制到剪贴板');
+    if (!content.trim()) {
+      message.warning('暂无可复制内容');
+      return;
     }
+    if (!navigator.clipboard) {
+      message.error('当前环境暂不支持快速复制');
+      return;
+    }
+    navigator.clipboard
+      .writeText(content)
+      .then(() => message.success('已复制到剪贴板'))
+      .catch(() => message.error('复制失败，请重试'));
   };
 
   const handleSaveToCloud = () => {
@@ -817,9 +1883,8 @@ const DocumentWriter: React.FC = () => {
     setLoading(true);
     setUploadProgress(0);
     try {
-      const editor = document.getElementById('word-editor');
-      const currentContent = editor?.innerText || content;
-      const blob = new Blob([currentContent], { type: 'text/plain' });
+      const textContent = content;
+      const blob = new Blob([textContent], { type: 'text/plain' });
       const file = new File([blob], `${titleInput}.txt`, {
         type: 'text/plain',
       });
@@ -830,7 +1895,7 @@ const DocumentWriter: React.FC = () => {
       const newDoc: SavedDocument = {
         id: Date.now().toString(),
         title: titleInput,
-        content: currentContent,
+        content: textContent,
         type: documentType,
         scenario,
         url: result.url,
@@ -873,26 +1938,21 @@ const DocumentWriter: React.FC = () => {
   };
 
   const handleLoadDocument = (doc: SavedDocument) => {
+    setOfficialDocumentData(null);
     setContent(doc.content);
     setHtmlContent(formatContentToHTML(doc.content));
-    setDocumentType(doc.type);
-    setScenario(doc.scenario || '');
+    const matchedType = isDocumentTypeValue(doc.type)
+      ? doc.type
+      : DEFAULT_DOCUMENT_TYPE;
+    setDocumentType(matchedType);
+    const availableScenarios = SCENARIO_OPTIONS[matchedType] ?? [];
+    const matchedScenario = availableScenarios.some(
+      (item) => item.value === doc.scenario,
+    )
+      ? doc.scenario ?? ''
+      : '';
+    setScenario(matchedScenario || '');
     message.success('文档已加载');
-  };
-
-  const execCommand = (command: string, value?: string) => {
-    document.execCommand(command, false, value);
-  };
-
-  const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
-    const text = e.currentTarget.innerText;
-    setContent(text);
-  };
-
-  const insertTable = () => {
-    const table =
-      '<table border="1" style="border-collapse: collapse; width: 100%; margin: 12px 0; border: 1px solid #000;"><tr><td style="padding: 8px; border: 1px solid #000;">单元格1</td><td style="padding: 8px; border: 1px solid #000;">单元格2</td></tr><tr><td style="padding: 8px; border: 1px solid #000;">单元格3</td><td style="padding: 8px; border: 1px solid #000;">单元格4</td></tr></table>';
-    execCommand('insertHTML', table);
   };
 
   // 导出为 PDF
@@ -1028,202 +2088,30 @@ const DocumentWriter: React.FC = () => {
         <Row gutter={[16, 16]}>
           {/* 左侧：文档编辑器 */}
           <Col xs={24} lg={settingsPanelOpen ? 16 : 24}>
-            <ProCard bordered>
-              <Spin spinning={loading}>
-                <Space
-                  direction="vertical"
-                  style={{ width: '100%' }}
-                  size="middle"
-                >
-                  {/* Word 风格工具栏 */}
+            <Space
+              direction="vertical"
+              size="large"
+              style={{ width: '100%' }}
+            >
+              <ProCard bordered>
+                <Spin spinning={loading}>
+                  <Space
+                    direction="vertical"
+                    style={{ width: '100%' }}
+                    size="middle"
+                  >
+                  {/* 操作区 */}
                   <div
                     style={{
                       background: '#f3f4f6',
-                      padding: '8px 12px',
+                      padding: '12px 16px',
                       borderRadius: '6px',
                       border: '1px solid #e5e7eb',
                       display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: '6px',
-                      alignItems: 'center',
+                      justifyContent: 'flex-end',
                     }}
                   >
-                    <Select
-                      defaultValue="16px"
-                      style={{ width: 85 }}
-                      size="small"
-                      onChange={(val) => execCommand('fontSize', val)}
-                      options={[
-                        { label: '12px', value: '2' },
-                        { label: '14px', value: '3' },
-                        { label: '16px', value: '4' },
-                        { label: '18px', value: '5' },
-                        { label: '20px', value: '6' },
-                      ]}
-                    />
-
-                    <div
-                      style={{
-                        borderLeft: '1px solid #d1d5db',
-                        height: '20px',
-                        margin: '0 4px',
-                      }}
-                    />
-
-                    <Tooltip title="粗体">
-                      <Button
-                        size="small"
-                        icon={<BoldOutlined />}
-                        onClick={() => execCommand('bold')}
-                      />
-                    </Tooltip>
-                    <Tooltip title="斜体">
-                      <Button
-                        size="small"
-                        icon={<ItalicOutlined />}
-                        onClick={() => execCommand('italic')}
-                      />
-                    </Tooltip>
-                    <Tooltip title="下划线">
-                      <Button
-                        size="small"
-                        icon={<UnderlineOutlined />}
-                        onClick={() => execCommand('underline')}
-                      />
-                    </Tooltip>
-                    <Tooltip title="删除线">
-                      <Button
-                        size="small"
-                        icon={<StrikethroughOutlined />}
-                        onClick={() => execCommand('strikeThrough')}
-                      />
-                    </Tooltip>
-
-                    <div
-                      style={{
-                        borderLeft: '1px solid #d1d5db',
-                        height: '20px',
-                        margin: '0 4px',
-                      }}
-                    />
-
-                    <Tooltip title="字体颜色">
-                      <Button
-                        size="small"
-                        icon={<FontColorsOutlined />}
-                        onClick={() => {
-                          const color = window.prompt(
-                            '请输入颜色（如：red 或 #ff0000）',
-                            '#000000',
-                          );
-                          if (color) execCommand('foreColor', color);
-                        }}
-                      />
-                    </Tooltip>
-                    <Tooltip title="高亮">
-                      <Button
-                        size="small"
-                        icon={<HighlightOutlined />}
-                        onClick={() => execCommand('backColor', '#ffff00')}
-                      />
-                    </Tooltip>
-
-                    <div
-                      style={{
-                        borderLeft: '1px solid #d1d5db',
-                        height: '20px',
-                        margin: '0 4px',
-                      }}
-                    />
-
-                    <Tooltip title="左对齐">
-                      <Button
-                        size="small"
-                        icon={<AlignLeftOutlined />}
-                        onClick={() => execCommand('justifyLeft')}
-                      />
-                    </Tooltip>
-                    <Tooltip title="居中">
-                      <Button
-                        size="small"
-                        icon={<AlignCenterOutlined />}
-                        onClick={() => execCommand('justifyCenter')}
-                      />
-                    </Tooltip>
-                    <Tooltip title="右对齐">
-                      <Button
-                        size="small"
-                        icon={<AlignRightOutlined />}
-                        onClick={() => execCommand('justifyRight')}
-                      />
-                    </Tooltip>
-
-                    <div
-                      style={{
-                        borderLeft: '1px solid #d1d5db',
-                        height: '20px',
-                        margin: '0 4px',
-                      }}
-                    />
-
-                    <Tooltip title="编号">
-                      <Button
-                        size="small"
-                        icon={<OrderedListOutlined />}
-                        onClick={() => execCommand('insertOrderedList')}
-                      />
-                    </Tooltip>
-                    <Tooltip title="符号">
-                      <Button
-                        size="small"
-                        icon={<UnorderedListOutlined />}
-                        onClick={() => execCommand('insertUnorderedList')}
-                      />
-                    </Tooltip>
-                    <Tooltip title="表格">
-                      <Button
-                        size="small"
-                        icon={<TableOutlined />}
-                        onClick={insertTable}
-                      />
-                    </Tooltip>
-                    <Tooltip title="链接">
-                      <Button
-                        size="small"
-                        icon={<LinkOutlined />}
-                        onClick={() => {
-                          const url = window.prompt('请输入链接地址:');
-                          if (url) execCommand('createLink', url);
-                        }}
-                      />
-                    </Tooltip>
-
-                    <div
-                      style={{
-                        borderLeft: '1px solid #d1d5db',
-                        height: '20px',
-                        margin: '0 4px',
-                      }}
-                    />
-
-                    <Tooltip title="撤销">
-                      <Button
-                        size="small"
-                        icon={<UndoOutlined />}
-                        onClick={() => execCommand('undo')}
-                      />
-                    </Tooltip>
-                    <Tooltip title="重做">
-                      <Button
-                        size="small"
-                        icon={<RedoOutlined />}
-                        onClick={() => execCommand('redo')}
-                      />
-                    </Tooltip>
-
-                    <div style={{ flex: 1 }} />
-
-                    <Space size="small">
+                    <Space size="small" wrap>
                       <Button
                         size="small"
                         icon={<CopyOutlined />}
@@ -1258,46 +2146,93 @@ const DocumentWriter: React.FC = () => {
                     </Space>
                   </div>
 
-                  {/* 标准 A4 Word 编辑器 */}
+                  {/* 公文预览 */}
                   <div
                     style={{
-                      background: '#e5e5e5',
-                      padding: '40px 20px',
-                      borderRadius: '4px',
-                      minHeight: '900px',
-                      display: 'flex',
-                      justifyContent: 'center',
-                      alignItems: 'flex-start',
+                      background: '#f4f5f7',
+                      padding: '32px 24px',
+                      borderRadius: '6px',
+                      minHeight: '640px',
                     }}
                   >
-                    <div
-                      id="word-editor"
-                      contentEditable
-                      // biome-ignore lint/security/noDangerouslySetInnerHtml: 需要渲染富文本编辑器内容
-                      dangerouslySetInnerHTML={{ __html: htmlContent }}
-                      onInput={handleInput}
-                      style={{
-                        width: '21cm',
-                        minHeight: '29.7cm',
-                        background: '#ffffff',
-                        padding: '3.7cm 2.8cm 3.5cm 2.8cm', // 上右下左，符合公文格式
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                        fontSize: '16px',
-                        lineHeight: '1.8', // 行距调整为1.8，更符合公文规范
-                        fontFamily:
-                          '"仿宋", "FangSong", "SimSun", "宋体", "Times New Roman", serif', // 优先使用仿宋
-                        color: '#000',
-                        outline: 'none',
-                        wordWrap: 'break-word',
-                        overflowWrap: 'break-word',
-                        letterSpacing: '0.5px', // 字间距
-                      }}
-                    />
+                    {officialDocumentData ? (
+                      <Space
+                        direction="vertical"
+                        size="large"
+                        style={{ width: '100%' }}
+                      >
+                        <OfficialDocumentMeta data={officialDocumentData} />
+                        <div
+                          style={{
+                            background: '#ffffff',
+                            padding: '24px',
+                            borderRadius: '6px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                            overflowX: 'auto',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'center' }}>
+                            <OfficialDocumentPreview data={officialDocumentData} />
+                          </div>
+                        </div>
+                      </Space>
+                    ) : content ? (
+                      <div
+                        style={{
+                          background: '#ffffff',
+                          padding: '24px',
+                          borderRadius: '6px',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                          overflowX: 'auto',
+                        }}
+                      >
+                        <div
+                          style={{
+                            maxWidth: '21cm',
+                            width: '100%',
+                            margin: '0 auto',
+                            background: '#ffffff',
+                            padding: '32px 48px',
+                            border: '1px solid #d9d9d9',
+                            boxShadow: '0 6px 18px rgba(0,0,0,0.08)',
+                            fontFamily:
+                              '"仿宋", "FangSong", "SimSun", "宋体", "Times New Roman", serif',
+                            color: '#000',
+                            lineHeight: 1.8,
+                          }}
+                          // biome-ignore lint/security/noDangerouslySetInnerHtml: 公文预览需要渲染富文本内容
+                          dangerouslySetInnerHTML={{
+                            __html:
+                              htmlContent ||
+                              '<p style="text-align:center;color:#999;">暂无内容</p>',
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          minHeight: '240px',
+                          background: '#fafafa',
+                          borderRadius: '6px',
+                          border: '1px dashed #d9d9d9',
+                          color: '#8c8c8c',
+                          fontSize: '14px',
+                          textAlign: 'center',
+                          padding: '24px',
+                        }}
+                      >
+                        生成文档后可在此查看公文预览和制式要素
+                      </div>
+                    )}
                   </div>
                 </Space>
               </Spin>
             </ProCard>
-          </Col>
+          </Space>
+        </Col>
 
           {/* 右侧：设置面板 */}
           {settingsPanelOpen && (
@@ -1316,31 +2251,30 @@ const DocumentWriter: React.FC = () => {
                   >
                     <div>
                       <Title level={5}>公文类型</Title>
-                      <Select
+                      <Select<DocumentTypeValue>
                         value={documentType}
                         onChange={(val) => {
-                          setDocumentType(val);
+                          const matchedType =
+                            DOCUMENT_TYPE_OPTIONS.find(
+                              (option) => option.value === val,
+                            )?.value ?? DEFAULT_DOCUMENT_TYPE;
+                          setDocumentType(matchedType);
                           setScenario('');
                         }}
                         style={{ width: '100%' }}
-                        options={[
-                          { label: '演讲稿', value: 'speech' },
-                          { label: '通知', value: 'notice' },
-                          { label: '工作报告', value: 'report' },
-                          { label: '调研报告', value: 'research' },
-                          { label: '意见建议', value: 'suggestion' },
-                        ]}
+                        options={DOCUMENT_TYPE_OPTIONS}
                       />
                     </div>
 
                     <div>
                       <Title level={5}>写作场景</Title>
                       <Select
-                        value={scenario}
-                        onChange={setScenario}
+                        value={scenario || undefined}
+                        onChange={(value) => setScenario(value ?? '')}
                         style={{ width: '100%' }}
                         placeholder="选择场景"
-                        options={scenarioOptions[documentType] || []}
+                        options={SCENARIO_OPTIONS[documentType] || []}
+                        allowClear
                       />
                     </div>
 
@@ -1474,6 +2408,86 @@ const DocumentWriter: React.FC = () => {
                           </Empty>
                         )}
                       </Spin>
+                      {selectedPromptsWithVariables.length > 0 && (
+                        <div
+                          style={{
+                            marginTop: '12px',
+                            padding: '12px',
+                            background: '#f0f5ff',
+                            border: '1px solid #adc6ff',
+                            borderRadius: '6px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              marginBottom: '8px',
+                              color: '#1d39c4',
+                            }}
+                          >
+                            模板变量
+                          </div>
+                          <Space
+                            direction="vertical"
+                            style={{ width: '100%' }}
+                            size="middle"
+                          >
+                            {selectedPromptsWithVariables.map((prompt) => (
+                              <div key={prompt.id}>
+                                <div
+                                  style={{
+                                    fontWeight: 500,
+                                    marginBottom: '6px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                  }}
+                                >
+                                  <span>{prompt.name}</span>
+                                  <Tag color="blue">
+                                    {prompt.variables?.length} 个变量
+                                  </Tag>
+                                </div>
+                                <Space
+                                  direction="vertical"
+                                  style={{ width: '100%' }}
+                                  size="small"
+                                >
+                                  {prompt.variables?.map((variable) => (
+                                    <div key={variable}>
+                                      <div
+                                        style={{
+                                          fontSize: '12px',
+                                          color: '#555',
+                                          marginBottom: '4px',
+                                        }}
+                                      >
+                                        {`{${variable}}`}
+                                      </div>
+                                      <TextArea
+                                        autoSize={{ minRows: 1, maxRows: 4 }}
+                                        value={
+                                          promptVariableValues[prompt.id]?.[
+                                            variable
+                                          ] ?? ''
+                                        }
+                                        onChange={(e) =>
+                                          handlePromptVariableInputChange(
+                                            prompt.id,
+                                            variable,
+                                            e.target.value,
+                                          )
+                                        }
+                                        placeholder={`请输入 ${variable}`}
+                                      />
+                                    </div>
+                                  ))}
+                                </Space>
+                              </div>
+                            ))}
+                          </Space>
+                        </div>
+                      )}
                       {selectedPromptIds.length > 0 && (
                         <div style={{ marginTop: '8px' }}>
                           <Tag color="blue">
@@ -1493,6 +2507,16 @@ const DocumentWriter: React.FC = () => {
                         maxLength={2000}
                         showCount
                       />
+                      <Text
+                        type="secondary"
+                        style={{
+                          display: 'block',
+                          marginTop: '8px',
+                          fontSize: '13px',
+                        }}
+                      >
+                        描述写作背景、重点和格式要求，生成后可在左侧查看制式预览并进一步优化。
+                      </Text>
                     </div>
 
                     <Button
@@ -1633,59 +2657,66 @@ const DocumentWriter: React.FC = () => {
                   <List
                     dataSource={savedDocs}
                     locale={{ emptyText: '暂无保存的文档' }}
-                    renderItem={(doc) => (
-                      <List.Item
-                        actions={[
-                          <Button
-                            key="load"
-                            type="link"
-                            size="small"
-                            onClick={() => handleLoadDocument(doc)}
-                          >
-                            加载
-                          </Button>,
-                          <Button
-                            key="download"
-                            type="link"
-                            size="small"
-                            icon={<DownloadOutlined />}
-                            onClick={() => handleDownload(doc)}
-                          />,
-                          <Button
-                            key="delete"
-                            type="link"
-                            size="small"
-                            danger
-                            icon={<DeleteOutlined />}
-                            onClick={() => handleDelete(doc.id)}
-                          />,
-                        ]}
-                      >
-                        <List.Item.Meta
-                          avatar={
-                            <FileTextOutlined
-                              style={{ fontSize: 20, color: '#1890ff' }}
-                            />
-                          }
-                          title={doc.title}
-                          description={
-                            <Space direction="vertical" size={0}>
-                              <span style={{ fontSize: '12px' }}>
-                                类型: {doc.type}
-                              </span>
-                              {doc.scenario && (
+                    renderItem={(doc) => {
+                      const typeLabel = getDocumentTypeLabel(doc.type);
+                      const scenarioLabel = getScenarioLabel(
+                        doc.type,
+                        doc.scenario,
+                      );
+                      return (
+                        <List.Item
+                          actions={[
+                            <Button
+                              key="load"
+                              type="link"
+                              size="small"
+                              onClick={() => handleLoadDocument(doc)}
+                            >
+                              加载
+                            </Button>,
+                            <Button
+                              key="download"
+                              type="link"
+                              size="small"
+                              icon={<DownloadOutlined />}
+                              onClick={() => handleDownload(doc)}
+                            />,
+                            <Button
+                              key="delete"
+                              type="link"
+                              size="small"
+                              danger
+                              icon={<DeleteOutlined />}
+                              onClick={() => handleDelete(doc.id)}
+                            />,
+                          ]}
+                        >
+                          <List.Item.Meta
+                            avatar={
+                              <FileTextOutlined
+                                style={{ fontSize: 20, color: '#1890ff' }}
+                              />
+                            }
+                            title={doc.title}
+                            description={
+                              <Space direction="vertical" size={0}>
                                 <span style={{ fontSize: '12px' }}>
-                                  场景: {doc.scenario}
+                                  类型: {typeLabel}
                                 </span>
-                              )}
-                              <span style={{ fontSize: '12px' }}>
-                                {doc.createdAt.toLocaleDateString('zh-CN')}
-                              </span>
-                            </Space>
-                          }
-                        />
-                      </List.Item>
-                    )}
+                                {scenarioLabel && (
+                                  <span style={{ fontSize: '12px' }}>
+                                    场景: {scenarioLabel}
+                                  </span>
+                                )}
+                                <span style={{ fontSize: '12px' }}>
+                                  {doc.createdAt.toLocaleDateString('zh-CN')}
+                                </span>
+                              </Space>
+                            }
+                          />
+                        </List.Item>
+                      );
+                    }}
                   />
                 </ProCard>
               </Space>

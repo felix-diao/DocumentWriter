@@ -35,21 +35,21 @@ const { TextArea } = Input;
 
 // 分类选项
 const CATEGORY_OPTIONS = [
-  { label: '演讲稿', value: 'speech' },
   { label: '通知', value: 'notice' },
-  { label: '工作报告', value: 'report' },
-  { label: '调研报告', value: 'research' },
-  { label: '意见建议', value: 'suggestion' },
+  { label: '通报', value: 'bulletin' },
+  { label: '请示', value: 'request' },
+  { label: '报告', value: 'report' },
+  { label: '函', value: 'letter' },
   { label: '会议纪要', value: 'meeting' },
 ];
 
 const CATEGORY_COLOR_MAP: Record<string, string> = {
-  speech: 'blue',
   notice: 'green',
-  report: 'orange',
-  research: 'purple',
-  suggestion: 'cyan',
-  meeting: 'magenta',
+  bulletin: 'orange',
+  request: 'cyan',
+  report: 'gold',
+  letter: 'magenta',
+  meeting: 'purple',
 };
 
 const PromptManager: React.FC = () => {
@@ -183,7 +183,7 @@ const PromptManager: React.FC = () => {
         {} as Record<string, { text: string }>,
       ),
       render: (_, record) => (
-        <Tag color={CATEGORY_COLOR_MAP[record.category]}>
+        <Tag color={CATEGORY_COLOR_MAP[record.category] || 'blue'}>
           {CATEGORY_OPTIONS.find((c) => c.value === record.category)?.label}
         </Tag>
       ),
@@ -444,7 +444,7 @@ const PromptManager: React.FC = () => {
             </div>
             <div>
               <strong>分类：</strong>
-              <Tag color={CATEGORY_COLOR_MAP[previewPrompt.category]}>
+              <Tag color={CATEGORY_COLOR_MAP[previewPrompt.category] || 'blue'}>
                 {
                   CATEGORY_OPTIONS.find(
                     (c) => c.value === previewPrompt.category,

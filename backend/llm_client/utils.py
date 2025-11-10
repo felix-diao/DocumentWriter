@@ -1,10 +1,12 @@
 def map_doc_type(tp: str) -> str:
     return {
-        "article": "正式公文/通知",
-        "report": "工作报告",
-        "summary": "工作总结",
-        "email": "正式邮件",
-    }.get((tp or "").lower(), "正式公文/通知")
+        "notice": "通知",
+        "bulletin": "通报",
+        "request": "请示",
+        "report": "报告",
+        "letter": "函",
+        "meeting": "会议纪要",
+    }.get((tp or "").lower(), "通知")
 
 def map_tone(t: str) -> str:
     return {
