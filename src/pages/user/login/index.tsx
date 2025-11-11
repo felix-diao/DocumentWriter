@@ -18,6 +18,7 @@ import {
   SelectLang,
   useIntl,
   useModel,
+  history,
 } from '@umijs/max';
 import { Alert, App, Tabs } from 'antd';
 import { createStyles } from 'antd-style';
@@ -134,7 +135,7 @@ const Login: React.FC = () => {
     try {
       // 登录
       const msg = await login({ ...values, type });
-      if (msg.status === 'ok') {
+      if (msg.status === 'ok' || msg.access_token) {
         const defaultLoginSuccessMessage = intl.formatMessage({
           id: 'pages.login.success',
           defaultMessage: '登录成功！',
@@ -148,13 +149,17 @@ const Login: React.FC = () => {
       console.log(msg);
       // 如果失败去设置用户错误信息
       setUserLoginState(msg);
-    } catch (error) {
-      const defaultLoginFailureMessage = intl.formatMessage({
+    } catch (error: any) {
+      const errorMessage = error?.response?.data?.detail || error?.message || intl.formatMessage({
         id: 'pages.login.failure',
         defaultMessage: '登录失败，请重试！',
       });
       console.log(error);
-      message.error(defaultLoginFailureMessage);
+      message.error(errorMessage);
+      setUserLoginState({
+        status: 'error',
+        type: loginType,
+      });
     }
   };
   const { status, type: loginType } = userLoginState;
@@ -380,10 +385,13 @@ const Login: React.FC = () => {
               style={{
                 float: 'right',
               }}
+              onClick={() => {
+                history.push('/user/register');
+              }}
             >
               <FormattedMessage
-                id="pages.login.forgotPassword"
-                defaultMessage="忘记密码"
+                id="pages.login.register"
+                defaultMessage="注册账号"
               />
             </a>
           </div>

@@ -33,8 +33,33 @@ export async function getInitialState(): Promise<{
 }> {
   const fetchUserInfo = async () => {
     try {
-      const msg = await queryCurrentUser({ skipErrorHandler: true });
-      return msg.data;
+      const userInfo = await queryCurrentUser({ skipErrorHandler: true });
+      // 将 RAG 返回的用户信息转换为前端需要的格式
+      if (userInfo) {
+        return {
+          name: userInfo.username || userInfo.name,
+          userid: userInfo.user_id || userInfo.userid,
+          username: userInfo.username,
+          user_id: userInfo.user_id,
+          role: userInfo.role,
+          department: userInfo.department,
+          access: userInfo.role === 'admin' ? 'admin' : userInfo.role === 'user' ? 'user' : 'guest',
+          // 保留其他字段
+          avatar: userInfo.avatar,
+          email: userInfo.email,
+          signature: userInfo.signature,
+          title: userInfo.title,
+          group: userInfo.group || userInfo.department,
+          tags: userInfo.tags,
+          notifyCount: userInfo.notifyCount,
+          unreadCount: userInfo.unreadCount,
+          country: userInfo.country,
+          geographic: userInfo.geographic,
+          address: userInfo.address,
+          phone: userInfo.phone,
+        };
+      }
+      return undefined;
     } catch (_error) {
       history.push(loginPath);
     }

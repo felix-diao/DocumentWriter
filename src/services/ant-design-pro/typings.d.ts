@@ -6,10 +6,14 @@ declare namespace API {
     name?: string;
     avatar?: string;
     userid?: string;
+    user_id?: string;
+    username?: string;
     email?: string;
     signature?: string;
     title?: string;
     group?: string;
+    department?: string;
+    role?: string;
     tags?: { key?: string; label?: string }[];
     notifyCount?: number;
     unreadCount?: number;
@@ -27,6 +31,20 @@ declare namespace API {
     status?: string;
     type?: string;
     currentAuthority?: string;
+    access_token?: string;
+    token_type?: string;
+  };
+
+  type RegisterParams = {
+    username: string;
+    password: string;
+    department?: string;
+  };
+
+  type RegisterResult = {
+    user_id: string;
+    username: string;
+    department?: string;
   };
 
   type PageParams = {

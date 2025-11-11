@@ -1,28 +1,57 @@
 // @ts-ignore
 /* eslint-disable */
 import { request } from '@umijs/max';
+import { setToken, removeToken } from '@/utils/auth';
 
-/** 获取当前的用户 GET /api/currentUser */
+/** 获取当前的用户 GET /api/auth/me */
 export async function currentUser(options?: { [key: string]: any }) {
-  return request<{
-    data: API.CurrentUser;
-  }>('/api/currentUser', {
+  return request<API.CurrentUser>('/api/auth/me', {
     method: 'GET',
     ...(options || {}),
   });
 }
 
-/** 退出登录接口 POST /api/login/outLogin */
+/** 退出登录接口 POST /api/auth/logout */
 export async function outLogin(options?: { [key: string]: any }) {
-  return request<Record<string, any>>('/api/login/outLogin', {
+  removeToken();
+  return request<Record<string, any>>('/api/auth/logout', {
     method: 'POST',
     ...(options || {}),
   });
 }
 
-/** 登录接口 POST /api/login/account */
+/** 登录接口 POST /api/auth/login */
 export async function login(body: API.LoginParams, options?: { [key: string]: any }) {
-  return request<API.LoginResult>('/api/login/account', {
+  const response = await request<API.LoginResult>('/api/auth/login', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: {
+      username: body.username,
+      password: body.password,
+    },
+    ...(options || {}),
+  });
+  
+  // 保存 token
+  if (response.access_token) {
+    setToken(response.access_token);
+    return {
+      status: 'ok',
+      type: body.type,
+      currentAuthority: 'user',
+      access_token: response.access_token,
+      token_type: response.token_type,
+    };
+  }
+  
+  return response;
+}
+
+/** 注册接口 POST /api/auth/register */
+export async function register(body: API.RegisterParams, options?: { [key: string]: any }) {
+  return request<API.RegisterResult>('/api/auth/register', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -21,6 +21,11 @@ export default [
         path: '/user/login',
         component: './user/login',
       },
+      {
+        name: 'register',
+        path: '/user/register',
+        component: './user/register',
+      },
     ],
   },
   {
@@ -97,6 +102,12 @@ export default [
         name: '知识库',
         icon: 'database',
         component: './AI/KnowledgeBase',
+      },
+      {
+        path: '/AI/rag-upload',
+        name: 'RAG 文档上传',
+        icon: 'upload',
+        component: './AI/RAGDocumentUpload',
       },
     ],
   },

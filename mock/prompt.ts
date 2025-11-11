@@ -408,7 +408,7 @@ function getPrompts(req: Request, res: Response) {
 
   // 按启用状态筛选
   if (isActive !== undefined) {
-    const activeStatus = isActive === 'true' || isActive === true;
+    const activeStatus = isActive === 'true' || isActive === 'True';
     filteredData = filteredData.filter((item) => item.isActive === activeStatus);
   }
 

@@ -10,13 +10,34 @@
  * @doc https://umijs.org/docs/guides/proxy
  */
 const backendTarget = 'http://127.0.0.1:8000';
-const ragTarget = process.env.RAG_SERVICE_URL || 'http://127.0.0.1:3000';
+const ragTarget = process.env.RAG_SERVICE_URL || 'http://127.0.0.1:8080';
 
 export default {
   // 如果需要自定义本地开发服务器  请取消注释按需调整
   dev: {
     // /api/ai/document/write -> http://127.0.0.1:8000/document/write
     // 将 /api/ai/** 代理到后端服务
+    // RAG 认证相关接口
+    '/api/auth/': {
+      target: ragTarget,
+      changeOrigin: true,
+    },
+    // 兼容旧的登录接口路径
+    '/api/login/account': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/login/account': '/api/auth/login' }
+    },
+    '/api/login/outLogin': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/login/outLogin': '/api/auth/logout' }
+    },
+    '/api/currentUser': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/currentUser': '/api/auth/me' }
+    },
     '/api/ai/': {
       target: backendTarget,
       changeOrigin: true,
