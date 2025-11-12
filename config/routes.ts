@@ -103,12 +103,7 @@ export default [
         icon: 'database',
         component: './AI/KnowledgeBase',
       },
-      {
-        path: '/AI/rag-upload',
-        name: 'RAG 文档上传',
-        icon: 'upload',
-        component: './AI/RAGDocumentUpload',
-      },
+      
     ],
   },
   {

@@ -62,6 +62,17 @@ interface SavedDocument {
   url?: string;
   createdAt: Date;
   size?: number;
+  pdfUrl?: string;
+  wordUrl?: string;
+  pdfPath?: string;
+  wordPath?: string;
+}
+
+interface DocumentAssets {
+  pdfUrl?: string;
+  wordUrl?: string;
+  pdfPath?: string;
+  wordPath?: string;
 }
 
 const DOCUMENT_TYPE_OPTIONS = [
@@ -980,8 +991,8 @@ function OfficialDocumentMeta({ data }: { data: OfficialDocumentData }) {
 
   const renderList = (items: string[]) => (
     <Space size={[4, 4]} wrap>
-      {items.map((item, index) => (
-        <Tag key={`${item}-${index}`} color="geekblue">
+      {items.map((item) => (
+        <Tag key={item} color="geekblue">
           {item}
         </Tag>
       ))}
@@ -1054,6 +1065,9 @@ const DocumentWriter: React.FC = () => {
 
   // 导出相关状态
   const [exporting, setExporting] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
+  const [documentAssets, setDocumentAssets] = useState<DocumentAssets>({});
 
   // 优化相关状态
   const [optimizeModalVisible, setOptimizeModalVisible] = useState(false);
@@ -1137,6 +1151,27 @@ const DocumentWriter: React.FC = () => {
       return prev;
     });
   }, [selectedPromptsWithVariables]);
+
+  useEffect(() => {
+    if (!content.trim()) {
+      setPdfPreviewUrl(null);
+      setDocumentAssets({});
+    }
+  }, [content]);
+
+  const resolveAssetUrl = (rawUrl: string) => {
+    if (!rawUrl) {
+      return rawUrl;
+    }
+    if (/^https?:\/\//i.test(rawUrl)) {
+      return rawUrl;
+    }
+    if (rawUrl.startsWith('//')) {
+      return `${window.location.protocol}${rawUrl}`;
+    }
+    const sanitized = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`;
+    return `${window.location.origin}${sanitized}`;
+  };
 
   const handlePromptVariableInputChange = (
     promptId: string,
@@ -1433,6 +1468,24 @@ const DocumentWriter: React.FC = () => {
       setGenerateProgressText('生成完成！');
 
       const generatedContent = response.data?.content || '';
+      const pdfPathFromResponse =
+        response.data?.pdfPath || response.data?.pdfUrl || null;
+      const wordPathFromResponse =
+        response.data?.docxPath || response.data?.wordUrl || null;
+      const resolvedPdfUrl = pdfPathFromResponse
+        ? resolveAssetUrl(pdfPathFromResponse)
+        : null;
+      const resolvedWordUrl = wordPathFromResponse
+        ? resolveAssetUrl(wordPathFromResponse)
+        : undefined;
+
+      setDocumentAssets({
+        pdfUrl: resolvedPdfUrl ?? undefined,
+        wordUrl: resolvedWordUrl,
+        pdfPath: pdfPathFromResponse ?? undefined,
+        wordPath: wordPathFromResponse ?? undefined,
+      });
+      setPdfPreviewUrl(resolvedPdfUrl);
 
       let mappedData: OfficialDocumentData | null = null;
       let normalizedText = generatedContent;
@@ -1541,6 +1594,8 @@ const DocumentWriter: React.FC = () => {
       const optimizedContent = response.data?.content || '';
       setContent(optimizedContent);
       setHtmlContent(formatContentToHTML(optimizedContent));
+      setDocumentAssets({});
+      setPdfPreviewUrl(null);
 
       // 保存到优化历史
       const historyItem = {
@@ -1901,6 +1956,10 @@ const DocumentWriter: React.FC = () => {
         url: result.url,
         createdAt: new Date(),
         size: result.size,
+        pdfUrl: documentAssets.pdfUrl,
+        wordUrl: documentAssets.wordUrl,
+        pdfPath: documentAssets.pdfPath,
+        wordPath: documentAssets.wordPath,
       };
       setSavedDocs([newDoc, ...savedDocs]);
       message.success('文档已保存到云端');
@@ -1939,6 +1998,19 @@ const DocumentWriter: React.FC = () => {
 
   const handleLoadDocument = (doc: SavedDocument) => {
     setOfficialDocumentData(null);
+    const nextAssets: DocumentAssets = {};
+    const pdfSource = doc.pdfPath || doc.pdfUrl;
+    if (pdfSource) {
+      nextAssets.pdfPath = doc.pdfPath;
+      nextAssets.pdfUrl = resolveAssetUrl(pdfSource);
+    }
+    const wordSource = doc.wordPath || doc.wordUrl;
+    if (wordSource) {
+      nextAssets.wordPath = doc.wordPath;
+      nextAssets.wordUrl = resolveAssetUrl(wordSource);
+    }
+    setDocumentAssets(nextAssets);
+    setPdfPreviewUrl(nextAssets.pdfUrl ?? null);
     setContent(doc.content);
     setHtmlContent(formatContentToHTML(doc.content));
     const matchedType = isDocumentTypeValue(doc.type)
@@ -1959,6 +2031,18 @@ const DocumentWriter: React.FC = () => {
   const handleExportPDF = async () => {
     if (!content.trim()) {
       message.warning('请先生成文档内容');
+      return;
+    }
+
+    const existingPdfUrl =
+      documentAssets.pdfUrl ||
+      (documentAssets.pdfPath
+        ? resolveAssetUrl(documentAssets.pdfPath)
+        : undefined);
+    if (existingPdfUrl) {
+      const targetUrl = resolveAssetUrl(existingPdfUrl);
+      window.open(targetUrl, '_blank');
+      message.success('PDF 导出成功');
       return;
     }
 
@@ -1983,7 +2067,13 @@ const DocumentWriter: React.FC = () => {
       if (response.success && response.data) {
         message.success('PDF 导出成功');
         // 触发下载
-        window.open(response.data.url, '_blank');
+        const resolvedUrl = resolveAssetUrl(response.data.url);
+        setDocumentAssets((prev) => ({
+          ...prev,
+          pdfUrl: resolvedUrl,
+          pdfPath: response.data.url ?? prev.pdfPath,
+        }));
+        window.open(resolvedUrl, '_blank');
       } else {
         message.error(response.errorMessage || 'PDF 导出失败');
       }
@@ -1995,10 +2085,78 @@ const DocumentWriter: React.FC = () => {
     }
   };
 
+  const handleGeneratePdfPreview = async () => {
+    if (!content.trim()) {
+      message.warning('请先生成文档内容');
+      return;
+    }
+
+    const existingPdfUrl =
+      documentAssets.pdfUrl ||
+      (documentAssets.pdfPath
+        ? resolveAssetUrl(documentAssets.pdfPath)
+        : undefined);
+    if (existingPdfUrl) {
+      const resolvedUrl = resolveAssetUrl(existingPdfUrl);
+      setPdfPreviewUrl(resolvedUrl);
+      message.success('PDF 预览已准备好');
+      return;
+    }
+
+    const previewTitle = titleInput || '未命名文档';
+
+    setPdfPreviewLoading(true);
+    try {
+      const response = await exportToPDF(content, previewTitle, {
+        pageSize: 'A4',
+        orientation: 'portrait',
+        margins: {
+          top: 2.54,
+          right: 3.18,
+          bottom: 2.54,
+          left: 3.18,
+        },
+        fontFamily: 'SimSun',
+        fontSize: 16,
+        lineHeight: 1.75,
+      });
+
+      if (response.success && response.data?.url) {
+        const resolvedUrl = resolveAssetUrl(response.data.url);
+        setPdfPreviewUrl(resolvedUrl);
+        setDocumentAssets((prev) => ({
+          ...prev,
+          pdfUrl: resolvedUrl,
+          pdfPath: response.data?.url ?? prev.pdfPath,
+        }));
+        message.success('PDF 预览生成成功');
+      } else {
+        message.error(response.errorMessage || 'PDF 预览生成失败');
+      }
+    } catch (error) {
+      message.error('PDF 预览生成失败，请重试');
+      console.error(error);
+    } finally {
+      setPdfPreviewLoading(false);
+    }
+  };
+
   // 导出为 Word
   const handleExportWord = async () => {
     if (!content.trim()) {
       message.warning('请先生成文档内容');
+      return;
+    }
+
+    const existingWordUrl =
+      documentAssets.wordUrl ||
+      (documentAssets.wordPath
+        ? resolveAssetUrl(documentAssets.wordPath)
+        : undefined);
+    if (existingWordUrl) {
+      const targetUrl = resolveAssetUrl(existingWordUrl);
+      window.open(targetUrl, '_blank');
+      message.success('Word 文档导出成功');
       return;
     }
 
@@ -2015,7 +2173,13 @@ const DocumentWriter: React.FC = () => {
       if (response.success && response.data) {
         message.success('Word 文档导出成功');
         // 触发下载
-        window.open(response.data.url, '_blank');
+        const resolvedUrl = resolveAssetUrl(response.data.url);
+        setDocumentAssets((prev) => ({
+          ...prev,
+          wordUrl: resolvedUrl,
+          wordPath: response.data.url ?? prev.wordPath,
+        }));
+        window.open(resolvedUrl, '_blank');
       } else {
         message.error(response.errorMessage || 'Word 导出失败');
       }
@@ -2076,6 +2240,131 @@ const DocumentWriter: React.FC = () => {
       onClick: handleExportText,
     },
   ];
+
+  const renderPdfPreviewSection = () => {
+    const previewUrl =
+      pdfPreviewUrl ||
+      (documentAssets.pdfUrl
+        ? resolveAssetUrl(documentAssets.pdfUrl)
+        : documentAssets.pdfPath
+        ? resolveAssetUrl(documentAssets.pdfPath)
+        : null);
+    const wordDownloadUrl =
+      documentAssets.wordUrl
+        ? resolveAssetUrl(documentAssets.wordUrl)
+        : documentAssets.wordPath
+        ? resolveAssetUrl(documentAssets.wordPath)
+        : undefined;
+
+    return (
+      <div
+        style={{
+          background: '#ffffff',
+          padding: '24px',
+          borderRadius: '6px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '12px',
+          }}
+        >
+          <Title level={5} style={{ margin: 0 }}>
+            PDF 预览
+          </Title>
+          <Space size="small">
+            {wordDownloadUrl && (
+              <Button
+                size="small"
+                icon={<FileWordOutlined />}
+                onClick={() => window.open(wordDownloadUrl, '_blank')}
+              >
+                下载 Word
+              </Button>
+            )}
+            {previewUrl && (
+              <Button
+                size="small"
+                icon={<ExportOutlined />}
+                onClick={() => window.open(previewUrl, '_blank')}
+              >
+                新窗口打开
+              </Button>
+            )}
+            <Button
+              size="small"
+              type="primary"
+              icon={<FilePdfOutlined />}
+              loading={pdfPreviewLoading}
+              onClick={handleGeneratePdfPreview}
+            >
+              {previewUrl ? '刷新预览' : '生成预览'}
+            </Button>
+          </Space>
+        </div>
+        <div
+          style={{
+            position: 'relative',
+            border: '1px solid #e5e7eb',
+            borderRadius: '6px',
+            minHeight: '640px',
+            height: '72vh',
+            maxHeight: '960px',
+            background: '#f8f9fb',
+            overflow: 'hidden',
+          }}
+        >
+          {previewUrl ? (
+            <iframe
+              key={previewUrl}
+              src={`${previewUrl}#toolbar=0`}
+              title="PDF Preview"
+              style={{
+                width: '100%',
+                height: '100%',
+                border: 'none',
+                backgroundColor: '#fff',
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#8c8c8c',
+                fontSize: '14px',
+                textAlign: 'center',
+                padding: '24px',
+              }}
+            >
+              生成 PDF 预览以查看版式效果
+            </div>
+          )}
+          {pdfPreviewLoading && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'rgba(255,255,255,0.85)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Spin tip="正在生成 PDF..." />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <PageContainer
@@ -2175,39 +2464,47 @@ const DocumentWriter: React.FC = () => {
                             <OfficialDocumentPreview data={officialDocumentData} />
                           </div>
                         </div>
+                        {renderPdfPreviewSection()}
                       </Space>
                     ) : content ? (
-                      <div
-                        style={{
-                          background: '#ffffff',
-                          padding: '24px',
-                          borderRadius: '6px',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                          overflowX: 'auto',
-                        }}
+                      <Space
+                        direction="vertical"
+                        size="large"
+                        style={{ width: '100%' }}
                       >
                         <div
                           style={{
-                            maxWidth: '21cm',
-                            width: '100%',
-                            margin: '0 auto',
                             background: '#ffffff',
-                            padding: '32px 48px',
-                            border: '1px solid #d9d9d9',
-                            boxShadow: '0 6px 18px rgba(0,0,0,0.08)',
-                            fontFamily:
-                              '"仿宋", "FangSong", "SimSun", "宋体", "Times New Roman", serif',
-                            color: '#000',
-                            lineHeight: 1.8,
+                            padding: '24px',
+                            borderRadius: '6px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                            overflowX: 'auto',
                           }}
-                          // biome-ignore lint/security/noDangerouslySetInnerHtml: 公文预览需要渲染富文本内容
-                          dangerouslySetInnerHTML={{
-                            __html:
-                              htmlContent ||
-                              '<p style="text-align:center;color:#999;">暂无内容</p>',
-                          }}
-                        />
-                      </div>
+                        >
+                          <div
+                            style={{
+                              maxWidth: '21cm',
+                              width: '100%',
+                              margin: '0 auto',
+                              background: '#ffffff',
+                              padding: '32px 48px',
+                              border: '1px solid #d9d9d9',
+                              boxShadow: '0 6px 18px rgba(0,0,0,0.08)',
+                              fontFamily:
+                                '"仿宋", "FangSong", "SimSun", "宋体", "Times New Roman", serif',
+                              color: '#000',
+                              lineHeight: 1.8,
+                            }}
+                            // biome-ignore lint/security/noDangerouslySetInnerHtml: 公文预览需要渲染富文本内容
+                            dangerouslySetInnerHTML={{
+                              __html:
+                                htmlContent ||
+                                '<p style="text-align:center;color:#999;">暂无内容</p>',
+                            }}
+                          />
+                        </div>
+                        {renderPdfPreviewSection()}
+                      </Space>
                     ) : (
                       <div
                         style={{

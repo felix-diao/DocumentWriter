@@ -20,8 +20,9 @@ class DocumentData(BaseData):
     content: str
     wordCount: int
     generatedAt: datetime
+    pdfUrl: Optional[str] = None
+    wordUrl: Optional[str] = None
 
 # 文档优化接口的数据结构（只保留 content）
 class DocumentDataOptimize(BaseData):
     content: str
-

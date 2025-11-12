@@ -55,8 +55,26 @@ export default {
       changeOrigin: true,
       pathRewrite: { '^/AI/uploads': '/uploads' }
     },
-
-
+    '/AI/word/': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/AI/word': '/generated_documents' }
+    },
+    '/AI/pdf/': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/AI/pdf': '/pdf' }
+    },
+    '/AI/txt/': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/AI/txt': '/txt' }
+    },
+    "/api/document/export": {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/document': '/api/document' }
+    },
     // ====================================================
 
     '/api/ai/': {
