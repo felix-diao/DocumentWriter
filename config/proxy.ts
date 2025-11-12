@@ -38,6 +38,27 @@ export default {
       changeOrigin: true,
       pathRewrite: { '^/api/currentUser': '/api/auth/me' }
     },
+    // /api/ai/document/write -> http://127.0.0.1:8080/api/document/write
+    '/api/ai/document/': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/ai/document': '/api/document' }
+    },
+    // 将 /api/knowledge/** 代理到 RAG 服务
+    '/api/knowledge': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/knowledge': '/api/knowledge' }
+    },
+    '/AI/uploads/': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/AI/uploads': '/uploads' }
+    },
+
+
+    // ====================================================
+
     '/api/ai/': {
       target: backendTarget,
       changeOrigin: true,
@@ -49,12 +70,7 @@ export default {
       changeOrigin: true,
       pathRewrite: { '^/api': '' },
     },
-    // 将 /api/knowledge/** 代理到后端服务
-    '/api/knowledge/': {
-      target: backendTarget,
-      changeOrigin: true,
-      pathRewrite: { '^/api': '' },
-    },
+    
     // 将 /api/documents/** 代理到 RAG 服务
     '/api/documents/': {
       target: ragTarget,
