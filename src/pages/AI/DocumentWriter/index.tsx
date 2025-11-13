@@ -1449,7 +1449,17 @@ const DocumentWriter: React.FC = () => {
         scenario && scenario.length > 0
           ? getScenarioLabel(documentType, scenario)
           : '未指定';
-      const finalPrompt = `${promptsContent ? `${promptsContent}\n\n` : ''}${prompt}\n类型: ${documentTypeLabel}\n场景: ${scenarioLabel}\n字数: ${lengthOption}${filesContent}`;
+      const lengthMap = {
+        short: '500字',
+        medium: '1000字',
+        long: '2000字',
+      };
+      
+      const displayLength = lengthMap[lengthOption];
+          
+      const finalPrompt = `${promptsContent ? `${promptsContent}\n\n` : ''}${prompt}\n类型: ${documentTypeLabel}\n场景: ${scenarioLabel}\n字数要求：正文长度务必控制在${displayLength}左右，请尽量完成至该长度要求。\n${filesContent}`;
+
+      console.log(finalPrompt);
 
       const response = await aiWriteDocument({
         title: titleInput || prompt.split('\n')[0] || '未命名文档',
