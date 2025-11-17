@@ -82,11 +82,6 @@ export default [
         component: './AI/DocumentWriter',
       },
       {
-        path: '/AI/translator',
-        name: 'AI 翻译',
-        component: './AI/Translator',
-      },
-      {
         path: '/AI/meeting-assistant',
         name: 'AI 会议助手',
         component: './AI/MeetingAssistant',

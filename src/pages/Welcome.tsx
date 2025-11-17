@@ -146,12 +146,6 @@ const Welcome: React.FC = () => {
             />
             <InfoCard
               index={2}
-              title="AI 翻译"
-              href="https://example.com/docs/translate"
-              desc="内置 AI 翻译功能，支持多语言文档互译，帮助跨语言团队高效沟通。"
-            />
-            <InfoCard
-              index={3}
               title="AI 会议助手"
               href="https://example.com/docs/meeting"
               desc="智能会议助手，支持会议记录、自动生成会议纪要和任务分配，让会议更高效。"

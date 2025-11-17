@@ -100,7 +100,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
   },
   footerRender: () => (
     <div style={{ textAlign: 'center', padding: '16px 0', color: '#999' }}>
-      ©2025 AI文档助手 | AI文档书写 · AI翻译 · AI会议助手
+      ©2025 AI文档助手 | AI文档书写 · AI会议助手
     </div>
   ),
   onPageChange: () => {
