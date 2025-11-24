@@ -75,6 +75,11 @@ export default {
       changeOrigin: true,
       pathRewrite: { '^/api/document': '/api/document' }
     },
+    '/api/meeting/create': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/meeting/create': '/api/meetings' }
+    },
     // ====================================================
 
     '/api/ai/': {
@@ -98,6 +103,8 @@ export default {
       target: ragTarget,
       changeOrigin: true,
     },
+    // 将 /api/meeting/** 代理到 RAG 服务（腾讯会议接口）
+    
     // 直通静态资源，供上传文件访问
     '/static/': {
       target: backendTarget,

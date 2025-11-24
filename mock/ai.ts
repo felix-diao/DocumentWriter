@@ -205,24 +205,24 @@ export default {
     },
 
     // ==================== 会议管理相关 ====================
-    'POST /api/meeting/create': async (req: Request, res: Response) => {
-        await delay(1000);
-        const { subject, start_time, end_time, settings } = req.body;
+    // 'POST /api/meeting/create': async (req: Request, res: Response) => {
+    //     await delay(1000);
+    //     const { subject, start_time, end_time, settings } = req.body;
 
-        const newMeeting = {
-            meeting_id: `mock_${Date.now()}`,
-            meeting_code: Math.floor(100000000 + Math.random() * 900000000).toString(),
-            subject,
-            join_url: `https://meeting.tencent.com/dm/mock_${Date.now()}`,
-            start_time,
-            end_time,
-            status: 'scheduled',
-            settings,
-        };
+    //     const newMeeting = {
+    //         meeting_id: `mock_${Date.now()}`,
+    //         meeting_code: Math.floor(100000000 + Math.random() * 900000000).toString(),
+    //         subject,
+    //         join_url: `https://meeting.tencent.com/dm/mock_${Date.now()}`,
+    //         start_time,
+    //         end_time,
+    //         status: 'scheduled',
+    //         settings,
+    //     };
 
-        meetingStorage.push(newMeeting);
-        res.json({ success: true, data: newMeeting });
-    },
+    //     meetingStorage.push(newMeeting);
+    //     res.json({ success: true, data: newMeeting });
+    // },
     'GET /api/meeting/list': async (req: Request, res: Response) => {
         await delay(500);
         res.json({ success: true, data: { meetings: meetingStorage, total: meetingStorage.length } });

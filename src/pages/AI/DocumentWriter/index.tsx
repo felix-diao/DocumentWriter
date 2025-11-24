@@ -86,6 +86,11 @@ const DOCUMENT_TYPE_OPTIONS = [
 
 type DocumentTypeValue = (typeof DOCUMENT_TYPE_OPTIONS)[number]['value'];
 
+const DOCUMENT_TYPE_SELECT_OPTIONS = DOCUMENT_TYPE_OPTIONS.map((option) => ({
+  label: option.label,
+  value: option.value,
+}));
+
 const DOCUMENT_TYPE_LABEL_MAP = DOCUMENT_TYPE_OPTIONS.reduce<
   Record<DocumentTypeValue, string>
 >((acc, option) => {
@@ -1604,8 +1609,26 @@ const DocumentWriter: React.FC = () => {
       const optimizedContent = response.data?.content || '';
       setContent(optimizedContent);
       setHtmlContent(formatContentToHTML(optimizedContent));
-      setDocumentAssets({});
-      setPdfPreviewUrl(null);
+
+      // 处理优化结果附带的 PDF/Word 预览路径
+      const pdfPathFromResponse =
+        response.data?.pdfPath || response.data?.pdfUrl || null;
+      const wordPathFromResponse =
+        response.data?.docxPath || response.data?.wordUrl || null;
+      const resolvedPdfUrl = pdfPathFromResponse
+        ? resolveAssetUrl(pdfPathFromResponse)
+        : null;
+      const resolvedWordUrl = wordPathFromResponse
+        ? resolveAssetUrl(wordPathFromResponse)
+        : undefined;
+
+      setDocumentAssets({
+        pdfUrl: resolvedPdfUrl ?? undefined,
+        wordUrl: resolvedWordUrl,
+        pdfPath: pdfPathFromResponse ?? undefined,
+        wordPath: wordPathFromResponse ?? undefined,
+      });
+      setPdfPreviewUrl(resolvedPdfUrl);
 
       // 保存到优化历史
       const historyItem = {
@@ -2075,13 +2098,14 @@ const DocumentWriter: React.FC = () => {
       });
 
       if (response.success && response.data) {
+        const { data } = response;
         message.success('PDF 导出成功');
         // 触发下载
-        const resolvedUrl = resolveAssetUrl(response.data.url);
+        const resolvedUrl = resolveAssetUrl(data.url);
         setDocumentAssets((prev) => ({
           ...prev,
           pdfUrl: resolvedUrl,
-          pdfPath: response.data.url ?? prev.pdfPath,
+          pdfPath: data.url ?? prev.pdfPath,
         }));
         window.open(resolvedUrl, '_blank');
       } else {
@@ -2181,13 +2205,14 @@ const DocumentWriter: React.FC = () => {
       });
 
       if (response.success && response.data) {
+        const { data } = response;
         message.success('Word 文档导出成功');
         // 触发下载
-        const resolvedUrl = resolveAssetUrl(response.data.url);
+        const resolvedUrl = resolveAssetUrl(data.url);
         setDocumentAssets((prev) => ({
           ...prev,
           wordUrl: resolvedUrl,
-          wordPath: response.data.url ?? prev.wordPath,
+          wordPath: data.url ?? prev.wordPath,
         }));
         window.open(resolvedUrl, '_blank');
       } else {
@@ -2569,7 +2594,7 @@ const DocumentWriter: React.FC = () => {
                           setScenario('');
                         }}
                         style={{ width: '100%' }}
-                        options={DOCUMENT_TYPE_OPTIONS}
+                        options={DOCUMENT_TYPE_SELECT_OPTIONS}
                       />
                     </div>
 
