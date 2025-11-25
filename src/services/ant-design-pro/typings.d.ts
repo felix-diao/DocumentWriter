@@ -33,6 +33,7 @@ declare namespace API {
     currentAuthority?: string;
     access_token?: string;
     token_type?: string;
+    message?: string;
   };
 
   type RegisterParams = {
@@ -84,6 +85,32 @@ declare namespace API {
     password?: string;
     autoLogin?: boolean;
     type?: string;
+  };
+
+  type ChangePasswordParams = {
+    old_password: string;
+    new_password: string;
+    confirm_password: string;
+  };
+
+  type PasswordChangeResponse = {
+    message: string;
+    user_id: string;
+    username: string;
+    changed_at: string;
+  };
+
+  type LogoutResponse = {
+    message: string;
+    user_id: string;
+    username: string;
+    logout_at: string;
+  };
+
+  type StandardResponse<T = any> = {
+    success: boolean;
+    data?: T | null;
+    message: string;
   };
 
   type ErrorResponse = {

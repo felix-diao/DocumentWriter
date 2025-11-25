@@ -62,6 +62,36 @@ const useStyles = createStyles(({ token }) => {
         "url('https://mdn.alipayobjects.com/yuyan_qk0oxh/afts/img/V-_oS6r-i7wAAAAAAAAAAAAAFl94AQBr')",
       backgroundSize: '100% 100%',
     },
+  loginForm: {
+    maxWidth: 440,
+    margin: '0 auto',
+    padding: '0 24px',
+    '& .ant-pro-form-login-logo': {
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    '@media (max-width: 576px)': {
+      padding: '0 16px',
+    },
+  },
+  logo: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 28,
+    '& img': {
+      display: 'block',
+      height: 96,
+      width: 'auto',
+    },
+    '@media (max-width: 576px)': {
+      marginBottom: 24,
+      '& img': {
+        height: 64,
+      },
+    },
+  },
   };
 });
 
@@ -162,7 +192,7 @@ const Login: React.FC = () => {
       });
     }
   };
-  const { status, type: loginType } = userLoginState;
+  const { status, type: loginType, message: loginErrorMessage } = userLoginState;
 
   return (
     <div className={styles.container}>
@@ -183,26 +213,31 @@ const Login: React.FC = () => {
         }}
       >
         <LoginForm
-          contentStyle={{
-            minWidth: 280,
-            maxWidth: '75vw',
-          }}
-          logo={<img alt="logo" src="/logo.svg" />}
-          title={Settings.title}
-          subTitle={intl.formatMessage({
-            id: 'pages.layouts.userLayout.title',
-          })}
+          className={styles.loginForm}
+          // contentStyle={{
+          //   minWidth: 280,
+          //   maxWidth: '75vw',
+          // }}
+          logo={
+            <div className={styles.logo}>
+              <img alt="logo" src="/logo.svg" />
+            </div>
+          }
+          // title={Settings.title}
+          // subTitle={intl.formatMessage({
+          //   id: 'pages.layouts.userLayout.title',
+          // })}
           initialValues={{
             autoLogin: true,
           }}
-          actions={[
-            <FormattedMessage
-              key="loginWith"
-              id="pages.login.loginWith"
-              defaultMessage="其他登录方式"
-            />,
-            <ActionIcons key="icons" />,
-          ]}
+          // actions={[
+          //   <FormattedMessage
+          //     key="loginWith"
+          //     id="pages.login.loginWith"
+          //     defaultMessage="其他登录方式"
+          //   />,
+          //   <ActionIcons key="icons" />,
+          // ]}
           onFinish={async (values) => {
             await handleSubmit(values as API.LoginParams);
           }}
@@ -216,25 +251,22 @@ const Login: React.FC = () => {
                 key: 'account',
                 label: intl.formatMessage({
                   id: 'pages.login.accountLogin.tab',
-                  defaultMessage: '账户密码登录',
+                  defaultMessage: ' ',
                 }),
               },
-              {
-                key: 'mobile',
-                label: intl.formatMessage({
-                  id: 'pages.login.phoneLogin.tab',
-                  defaultMessage: '手机号登录',
-                }),
-              },
+              
             ]}
           />
 
           {status === 'error' && loginType === 'account' && (
             <LoginMessage
-              content={intl.formatMessage({
-                id: 'pages.login.accountLogin.errorMessage',
-                defaultMessage: '账户或密码错误(admin/ant.design)',
-              })}
+              content={
+                loginErrorMessage ||
+                intl.formatMessage({
+                  id: 'pages.login.accountLogin.errorMessage',
+                  defaultMessage: '账户或密码错误(admin/ant.design)',
+                })
+              }
             />
           )}
           {type === 'account' && (

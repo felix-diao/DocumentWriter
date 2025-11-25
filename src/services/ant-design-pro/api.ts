@@ -13,16 +13,19 @@ export async function currentUser(options?: { [key: string]: any }) {
 
 /** 退出登录接口 POST /api/auth/logout */
 export async function outLogin(options?: { [key: string]: any }) {
-  removeToken();
-  return request<Record<string, any>>('/api/auth/logout', {
-    method: 'POST',
-    ...(options || {}),
-  });
+  try {
+    return await request<API.StandardResponse<API.LogoutResponse>>('/api/auth/logout', {
+      method: 'POST',
+      ...(options || {}),
+    });
+  } finally {
+    removeToken();
+  }
 }
 
 /** 登录接口 POST /api/auth/login */
 export async function login(body: API.LoginParams, options?: { [key: string]: any }) {
-  const response = await request<API.LoginResult>('/api/auth/login', {
+  const response = await request<API.StandardResponse<API.LoginResult>>('/api/auth/login', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -34,25 +37,45 @@ export async function login(body: API.LoginParams, options?: { [key: string]: an
     ...(options || {}),
   });
   
-  // 保存 token
-  if (response.access_token) {
-    setToken(response.access_token);
+  const tokenInfo = response.data;
+
+  if (response.success && tokenInfo?.access_token) {
+    setToken(tokenInfo.access_token);
     return {
       status: 'ok',
       type: body.type,
       currentAuthority: 'user',
-      access_token: response.access_token,
-      token_type: response.token_type,
+      access_token: tokenInfo.access_token,
+      token_type: tokenInfo.token_type,
     };
   }
-  
-  return response;
+
+  return {
+    status: 'error',
+    type: body.type,
+    message: response.message || '用户名或密码错误',
+  };
 }
 
 /** 注册接口 POST /api/auth/register */
 export async function register(body: API.RegisterParams, options?: { [key: string]: any }) {
-  return request<API.RegisterResult>('/api/auth/register', {
+  return request<API.StandardResponse<API.RegisterResult>>('/api/auth/register', {
     method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  });
+}
+
+/** 修改密码接口 PUT /api/auth/change-password */
+export async function changePassword(
+  body: API.ChangePasswordParams,
+  options?: { [key: string]: any },
+) {
+  return request<API.StandardResponse<API.PasswordChangeResponse>>('/api/auth/change-password', {
+    method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
     },

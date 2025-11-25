@@ -163,10 +163,10 @@ export default {
   },
 
   // 退出登录
-  'POST /api/login/outLogin': (_req: Request, res: Response) => {
-    access = '';
-    res.send({ data: {}, success: true });
-  },
+  // 'POST /api/login/outLogin': (_req: Request, res: Response) => {
+  //   access = '';
+  //   res.send({ data: {}, success: true });
+  // },
 
   // 注册接口
   'POST /api/register': (_req: Request, res: Response) => {

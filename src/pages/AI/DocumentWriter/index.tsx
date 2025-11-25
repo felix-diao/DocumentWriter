@@ -86,11 +86,6 @@ const DOCUMENT_TYPE_OPTIONS = [
 
 type DocumentTypeValue = (typeof DOCUMENT_TYPE_OPTIONS)[number]['value'];
 
-const DOCUMENT_TYPE_SELECT_OPTIONS = DOCUMENT_TYPE_OPTIONS.map((option) => ({
-  label: option.label,
-  value: option.value,
-}));
-
 const DOCUMENT_TYPE_LABEL_MAP = DOCUMENT_TYPE_OPTIONS.reduce<
   Record<DocumentTypeValue, string>
 >((acc, option) => {
@@ -228,6 +223,50 @@ const normalizeParagraphs = (value: unknown): string[] => {
       .filter((item) => item.length > 0);
   }
   return [];
+};
+
+const normalizeAiRateValue = (value: unknown): number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      return null;
+    }
+    const percent = value > 1 ? value : value * 100;
+    return Math.min(Math.max(percent, 0), 100);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const cleaned = trimmed.endsWith('%')
+      ? trimmed.slice(0, -1).trim()
+      : trimmed;
+    const parsed = parseFloat(cleaned);
+    if (Number.isNaN(parsed)) {
+      return null;
+    }
+    const percent =
+      trimmed.includes('%') || parsed > 1 ? parsed : parsed * 100;
+    return Math.min(Math.max(percent, 0), 100);
+  }
+
+  return null;
+};
+
+const formatAiRateDisplay = (value: number | null): string => {
+  if (value === null || Number.isNaN(value)) {
+    return '--';
+  }
+  const clamped = Math.min(Math.max(value, 0), 100);
+  const rounded = Math.round(clamped * 10) / 10;
+  return Number.isInteger(rounded)
+    ? `${rounded.toFixed(0)}%`
+    : `${rounded.toFixed(1)}%`;
 };
 
 const numberToChinese = (value: number): string => {
@@ -1041,6 +1080,8 @@ const DocumentWriter: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [content, setContent] = useState('');
   const [htmlContent, setHtmlContent] = useState('');
+  const [generateAiRate, setGenerateAiRate] = useState<number | null>(null);
+  const [optimizeAiRate, setOptimizeAiRate] = useState<number | null>(null);
   const [documentType, setDocumentType] =
     useState<DocumentTypeValue>(DEFAULT_DOCUMENT_TYPE);
   const [scenario, setScenario] = useState<string>('');
@@ -1088,6 +1129,7 @@ const DocumentWriter: React.FC = () => {
       originalContent: string;
       optimizedContent: string;
       timestamp: Date;
+      aiRate: number | null;
     }>
   >([]);
 
@@ -1161,6 +1203,8 @@ const DocumentWriter: React.FC = () => {
     if (!content.trim()) {
       setPdfPreviewUrl(null);
       setDocumentAssets({});
+      setGenerateAiRate(null);
+      setOptimizeAiRate(null);
     }
   }, [content]);
 
@@ -1415,6 +1459,9 @@ const DocumentWriter: React.FC = () => {
       return;
     }
 
+    const previousGenerateAiRate = generateAiRate;
+    setGenerateAiRate(null);
+
     setLoading(true);
     setGenerateProgressVisible(true);
     setGenerateProgress(0);
@@ -1493,6 +1540,11 @@ const DocumentWriter: React.FC = () => {
       const resolvedWordUrl = wordPathFromResponse
         ? resolveAssetUrl(wordPathFromResponse)
         : undefined;
+      const aiRateValue = normalizeAiRateValue(
+        response.data?.aiRate ?? response.data?.ai_rate,
+      );
+      setGenerateAiRate(aiRateValue);
+      setOptimizeAiRate(null);
 
       setDocumentAssets({
         pdfUrl: resolvedPdfUrl ?? undefined,
@@ -1533,6 +1585,7 @@ const DocumentWriter: React.FC = () => {
         message.success('文档生成成功');
       }, 800);
     } catch (error) {
+      setGenerateAiRate(previousGenerateAiRate);
       setGenerateProgressVisible(false);
       message.error('生成失败，请重试');
       console.error(error);
@@ -1556,6 +1609,9 @@ const DocumentWriter: React.FC = () => {
       message.warning('请先生成文档内容');
       return;
     }
+
+    const previousOptimizeAiRate = optimizeAiRate;
+    setOptimizeAiRate(null);
 
     setLoading(true);
     setOptimizeModalVisible(false);
@@ -1607,37 +1663,24 @@ const DocumentWriter: React.FC = () => {
       setOptimizeProgressText('优化完成！');
 
       const optimizedContent = response.data?.content || '';
+      const aiRateValue = normalizeAiRateValue(
+        response.data?.aiRate ?? response.data?.ai_rate,
+      );
+      setOptimizeAiRate(aiRateValue);
       setContent(optimizedContent);
       setHtmlContent(formatContentToHTML(optimizedContent));
-
-      // 处理优化结果附带的 PDF/Word 预览路径
-      const pdfPathFromResponse =
-        response.data?.pdfPath || response.data?.pdfUrl || null;
-      const wordPathFromResponse =
-        response.data?.docxPath || response.data?.wordUrl || null;
-      const resolvedPdfUrl = pdfPathFromResponse
-        ? resolveAssetUrl(pdfPathFromResponse)
-        : null;
-      const resolvedWordUrl = wordPathFromResponse
-        ? resolveAssetUrl(wordPathFromResponse)
-        : undefined;
-
-      setDocumentAssets({
-        pdfUrl: resolvedPdfUrl ?? undefined,
-        wordUrl: resolvedWordUrl,
-        pdfPath: pdfPathFromResponse ?? undefined,
-        wordPath: wordPathFromResponse ?? undefined,
-      });
-      setPdfPreviewUrl(resolvedPdfUrl);
+      setDocumentAssets({});
+      setPdfPreviewUrl(null);
 
       // 保存到优化历史
       const historyItem = {
         id: Date.now().toString(),
         instruction: optimizeInstruction || '智能优化',
-        types: selectedOptimizeTypes,
+        types: [...selectedOptimizeTypes],
         originalContent,
         optimizedContent,
         timestamp: new Date(),
+        aiRate: aiRateValue,
       };
       setOptimizeHistory([historyItem, ...optimizeHistory.slice(0, 9)]); // 只保留最近10条
 
@@ -1649,6 +1692,7 @@ const DocumentWriter: React.FC = () => {
 
       setOptimizeInstruction(''); // 清空输入
     } catch (error) {
+      setOptimizeAiRate(previousOptimizeAiRate);
       setOptimizeProgressVisible(false);
       message.error('优化失败，请重试');
       console.error(error);
@@ -1664,10 +1708,11 @@ const DocumentWriter: React.FC = () => {
       return;
     }
 
-    const lastHistory = optimizeHistory[0];
+    const [lastHistory, ...restHistory] = optimizeHistory;
     setContent(lastHistory.originalContent);
     setHtmlContent(formatContentToHTML(lastHistory.originalContent));
-    setOptimizeHistory(optimizeHistory.slice(1));
+    setOptimizeHistory(restHistory);
+    setOptimizeAiRate(restHistory[0]?.aiRate ?? null);
     message.success('已撤销优化');
   };
 
@@ -1844,6 +1889,16 @@ const DocumentWriter: React.FC = () => {
                 ))}
               </Space>
             </div>
+
+            {historyItem.aiRate !== null &&
+              historyItem.aiRate !== undefined && (
+                <div>
+                  <strong>AI率：</strong>
+                  <Tag color="purple" style={{ marginLeft: '8px' }}>
+                    {formatAiRateDisplay(historyItem.aiRate)}
+                  </Tag>
+                </div>
+              )}
 
             <div>
               <strong>差异高亮：</strong>
@@ -2031,6 +2086,8 @@ const DocumentWriter: React.FC = () => {
 
   const handleLoadDocument = (doc: SavedDocument) => {
     setOfficialDocumentData(null);
+    setGenerateAiRate(null);
+    setOptimizeAiRate(null);
     const nextAssets: DocumentAssets = {};
     const pdfSource = doc.pdfPath || doc.pdfUrl;
     if (pdfSource) {
@@ -2098,14 +2155,13 @@ const DocumentWriter: React.FC = () => {
       });
 
       if (response.success && response.data) {
-        const { data } = response;
         message.success('PDF 导出成功');
         // 触发下载
-        const resolvedUrl = resolveAssetUrl(data.url);
+        const resolvedUrl = resolveAssetUrl(response.data.url);
         setDocumentAssets((prev) => ({
           ...prev,
           pdfUrl: resolvedUrl,
-          pdfPath: data.url ?? prev.pdfPath,
+          pdfPath: response.data.url ?? prev.pdfPath,
         }));
         window.open(resolvedUrl, '_blank');
       } else {
@@ -2205,14 +2261,13 @@ const DocumentWriter: React.FC = () => {
       });
 
       if (response.success && response.data) {
-        const { data } = response;
         message.success('Word 文档导出成功');
         // 触发下载
-        const resolvedUrl = resolveAssetUrl(data.url);
+        const resolvedUrl = resolveAssetUrl(response.data.url);
         setDocumentAssets((prev) => ({
           ...prev,
           wordUrl: resolvedUrl,
-          wordPath: data.url ?? prev.wordPath,
+          wordPath: response.data.url ?? prev.wordPath,
         }));
         window.open(resolvedUrl, '_blank');
       } else {
@@ -2424,6 +2479,98 @@ const DocumentWriter: React.FC = () => {
                     style={{ width: '100%' }}
                     size="middle"
                   >
+                    {(generateAiRate !== null || optimizeAiRate !== null) && (
+                      <div
+                        style={{
+                          background:
+                            'linear-gradient(135deg, #f0f5ff 0%, #ffffff 100%)',
+                          border: '1px solid rgba(173,198,255,0.6)',
+                          borderRadius: '8px',
+                          padding: '16px 20px',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: `repeat(${
+                              generateAiRate !== null && optimizeAiRate !== null
+                                ? 2
+                                : 1
+                            }, minmax(0, 1fr))`,
+                            gap: '16px',
+                          }}
+                        >
+                          {generateAiRate !== null && (
+                            <div>
+                              <div
+                                style={{
+                                  fontSize: '12px',
+                                  color: '#1d39c4',
+                                  letterSpacing: '0.5px',
+                                  marginBottom: '4px',
+                                  fontWeight: 500,
+                                }}
+                              >
+                                生成 AI率
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: '28px',
+                                  fontWeight: 700,
+                                  color: '#2f54eb',
+                                  lineHeight: 1.1,
+                                }}
+                              >
+                                {formatAiRateDisplay(generateAiRate)}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: '12px',
+                                  color: '#597ef7',
+                                  marginTop: '4px',
+                                }}
+                              >
+                                本次生成内容的 AI 占比
+                              </div>
+                            </div>
+                          )}
+                          {optimizeAiRate !== null && (
+                            <div>
+                              <div
+                                style={{
+                                  fontSize: '12px',
+                                  color: '#531dab',
+                                  letterSpacing: '0.5px',
+                                  marginBottom: '4px',
+                                  fontWeight: 500,
+                                }}
+                              >
+                                优化 AI率
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: '28px',
+                                  fontWeight: 700,
+                                  color: '#722ed1',
+                                  lineHeight: 1.1,
+                                }}
+                              >
+                                {formatAiRateDisplay(optimizeAiRate)}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: '12px',
+                                  color: '#9254de',
+                                  marginTop: '4px',
+                                }}
+                              >
+                                最近优化后内容的 AI 占比
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   {/* 操作区 */}
                   <div
                     style={{
@@ -2594,7 +2741,7 @@ const DocumentWriter: React.FC = () => {
                           setScenario('');
                         }}
                         style={{ width: '100%' }}
-                        options={DOCUMENT_TYPE_SELECT_OPTIONS}
+                        options={DOCUMENT_TYPE_OPTIONS}
                       />
                     </div>
 
@@ -2970,6 +3117,17 @@ const DocumentWriter: React.FC = () => {
                                 <span style={{ fontSize: '12px' }}>
                                   类型: {item.types.join(', ')}
                                 </span>
+                                {item.aiRate !== null &&
+                                  item.aiRate !== undefined && (
+                                    <span
+                                      style={{
+                                        fontSize: '12px',
+                                        color: '#722ed1',
+                                      }}
+                                    >
+                                      AI率：{formatAiRateDisplay(item.aiRate)}
+                                    </span>
+                                  )}
                                 <span
                                   style={{ fontSize: '12px', color: '#999' }}
                                 >

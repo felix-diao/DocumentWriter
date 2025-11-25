@@ -17,6 +17,7 @@ interface ResponseStructure {
   data: any;
   errorCode?: number;
   errorMessage?: string;
+  message?: string;
   showType?: ErrorShowType;
 }
 
@@ -102,10 +103,18 @@ export const errorConfig: RequestConfig = {
   responseInterceptors: [
     (response) => {
       // 拦截响应数据，进行个性化处理
-      const { data } = response as unknown as ResponseStructure;
-
+      const resp: any = response;
+      const data = resp?.data as ResponseStructure | undefined;
       if (data?.success === false) {
-        message.error('请求失败！');
+        const requestUrl: string =
+          resp?.config?.url || resp?.url || '';
+        const suppressToastPaths = ['/api/auth/login', '/api/auth/register'];
+        const shouldSuppress = suppressToastPaths.some((path) =>
+          requestUrl.includes(path),
+        );
+        if (!shouldSuppress) {
+          message.error(data?.errorMessage || data?.message || '请求失败！');
+        }
       }
       return response;
     },

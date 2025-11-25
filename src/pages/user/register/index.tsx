@@ -85,8 +85,8 @@ const Register: React.FC = () => {
     try {
       // 移除 confirmPassword 字段，只提交后端需要的字段
       const { confirmPassword, ...registerData } = values;
-      const result = await register(registerData as API.RegisterParams);
-      if (result.user_id) {
+      const response = await register(registerData as API.RegisterParams);
+      if (response?.success && response.data?.user_id) {
         const defaultRegisterSuccessMessage = intl.formatMessage({
           id: 'pages.register.success',
           defaultMessage: '注册成功！',
@@ -100,18 +100,39 @@ const Register: React.FC = () => {
       }
       setRegisterState({
         status: 'error',
-        message: '注册失败，请重试',
+        message: response?.message || '注册失败，请重试',
       });
     } catch (error: any) {
-      const errorMessage = error?.response?.data?.detail || error?.message || intl.formatMessage({
-        id: 'pages.register.failure',
-        defaultMessage: '注册失败，请重试！',
-      });
       console.log(error);
-      message.error(errorMessage);
+      const errorResponse = error?.response;
+      let parsedMessage: string | undefined;
+
+      if (Array.isArray(errorResponse?.data?.detail)) {
+        parsedMessage = errorResponse.data.detail
+          .map((item: { msg?: string }) => item?.msg)
+          .filter(Boolean)
+          .join('；');
+      } else if (typeof errorResponse?.data?.detail === 'string') {
+        parsedMessage = errorResponse.data.detail;
+      } else if (error?.message) {
+        parsedMessage = error.message;
+      }
+
+      if (!parsedMessage) {
+        parsedMessage = intl.formatMessage({
+          id: 'pages.register.failure',
+          defaultMessage: '注册失败，请重试！',
+        });
+      }
+
+      const isValidationError = errorResponse?.status === 422;
+      if (!isValidationError) {
+        message.error(parsedMessage);
+      }
+
       setRegisterState({
         status: 'error',
-        message: errorMessage,
+        message: parsedMessage,
       });
     }
   };
@@ -152,8 +173,8 @@ const Register: React.FC = () => {
               marginBottom: 24,
             }}
           >
-            <img alt="logo" src="/logo.svg" style={{ height: 44, marginBottom: 16 }} />
-            <h2 style={{ marginBottom: 8 }}>{Settings.title}</h2>
+            <img alt="logo" src="/logo.svg" style={{ height: 60, marginBottom: 16 }} />
+            <h2 style={{ marginBottom: 16 }}>{Settings.title}</h2>
             <p style={{ color: '#999' }}>
               {intl.formatMessage({
                 id: 'pages.register.subTitle',
@@ -224,13 +245,41 @@ const Register: React.FC = () => {
                   ),
                 },
                 {
-                  min: 6,
+                  min: 8,
                   message: (
                     <FormattedMessage
-                      id="pages.register.password.min"
-                      defaultMessage="密码至少6个字符！"
+                      id="pages.register.password.minLength"
+                      defaultMessage="密码至少 8 位"
                     />
                   ),
+                },
+                {
+                  validator: (_, value) => {
+                    if (!value) return Promise.resolve();
+                    const requirements = [
+                      {
+                        test: /[A-Z]/.test(value),
+                        message: '密码需包含至少一个大写字母',
+                      },
+                      {
+                        test: /[a-z]/.test(value),
+                        message: '密码需包含至少一个小写字母',
+                      },
+                      {
+                        test: /\d/.test(value),
+                        message: '密码需包含至少一个数字',
+                      },
+                      {
+                        test: !/\s/.test(value),
+                        message: '密码不能包含空格',
+                      },
+                    ];
+                    const failed = requirements.find((item) => !item.test);
+                    if (failed) {
+                      return Promise.reject(new Error(failed.message));
+                    }
+                    return Promise.resolve();
+                  },
                 },
               ]}
             />
@@ -326,4 +375,3 @@ const Register: React.FC = () => {
 };
 
 export default Register;
-

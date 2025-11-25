@@ -1,7 +1,7 @@
 export default {
   'pages.layouts.userLayout.title':
     '欢迎使用 AI 文档助手，一个基于 AI 的文档生成和翻译工具',
-  'pages.login.accountLogin.tab': '账户密码登录',
+  'pages.login.accountLogin.tab': ' ',
   'pages.login.accountLogin.errorMessage':
     '错误的用户名和密码(felix or user/123456)',
   'pages.login.failure': '登录失败，请重试！',

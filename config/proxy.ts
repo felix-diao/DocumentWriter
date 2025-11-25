@@ -33,6 +33,7 @@ export default {
       changeOrigin: true,
       pathRewrite: { '^/api/login/outLogin': '/api/auth/logout' }
     },
+    
     '/api/currentUser': {
       target: ragTarget,
       changeOrigin: true,
