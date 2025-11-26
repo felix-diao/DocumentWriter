@@ -325,14 +325,12 @@ const buildNotificationTitle = (
   }
 
   if (normalizedSubject.startsWith('关于')) {
-    return `${normalizedOrg}${normalizedSubject}${
-      normalizedDocType === '通知' ? '' : normalizedDocType
-    }`;
+    return `${normalizedOrg}${normalizedSubject}${normalizedDocType === '通知' ? '' : normalizedDocType
+      }`;
   }
 
-  return `${normalizedOrg}关于${normalizedSubject}${
-    normalizedDocType === '通知' ? '的通知' : normalizedDocType
-  }`;
+  return `${normalizedOrg}关于${normalizedSubject}${normalizedDocType === '通知' ? '的通知' : normalizedDocType
+    }`;
 };
 
 const mapOfficialDocumentData = (
@@ -699,8 +697,7 @@ const buildOfficialDocumentHTML = (data: OfficialDocumentData) => {
   if (data.serialNumber) metaItems.push(`份号：${data.serialNumber}`);
   if (data.secrecyLevel) {
     metaItems.push(
-      `密级：${data.secrecyLevel}${
-        data.secrecyPeriod ? `★${data.secrecyPeriod}` : ''
+      `密级：${data.secrecyLevel}${data.secrecyPeriod ? `★${data.secrecyPeriod}` : ''
       }`,
     );
   }
@@ -832,8 +829,7 @@ function OfficialDocumentPreview({ data }: { data: OfficialDocumentData }) {
   if (data.serialNumber) metaItems.push(`份号：${data.serialNumber}`);
   if (data.secrecyLevel) {
     metaItems.push(
-      `密级：${data.secrecyLevel}${
-        data.secrecyPeriod ? `★${data.secrecyPeriod}` : ''
+      `密级：${data.secrecyLevel}${data.secrecyPeriod ? `★${data.secrecyPeriod}` : ''
       }`,
     );
   }
@@ -1506,9 +1502,9 @@ const DocumentWriter: React.FC = () => {
         medium: '1000字',
         long: '2000字',
       };
-      
+
       const displayLength = lengthMap[lengthOption];
-          
+
       const finalPrompt = `${promptsContent ? `${promptsContent}\n\n` : ''}${prompt}\n类型: ${documentTypeLabel}\n场景: ${scenarioLabel}\n字数要求：正文长度务必控制在${displayLength}左右，请尽量完成至该长度要求。\n${filesContent}`;
 
       console.log(finalPrompt);
@@ -1669,8 +1665,31 @@ const DocumentWriter: React.FC = () => {
       setOptimizeAiRate(aiRateValue);
       setContent(optimizedContent);
       setHtmlContent(formatContentToHTML(optimizedContent));
-      setDocumentAssets({});
-      setPdfPreviewUrl(null);
+
+      // ⭐ 修改这部分:优化后也自动获取并显示PDF(与 handleGenerate 的逻辑一致)
+      const pdfPathFromResponse =
+        response.data?.pdfPath ||
+        response.data?.pdfUrl ||
+        null;
+      const wordPathFromResponse =
+        response.data?.docxPath ||
+        response.data?.wordPath ||
+        response.data?.wordUrl ||
+        null;
+      const resolvedPdfUrl = pdfPathFromResponse
+        ? resolveAssetUrl(pdfPathFromResponse)
+        : null;
+      const resolvedWordUrl = wordPathFromResponse
+        ? resolveAssetUrl(wordPathFromResponse)
+        : undefined;
+
+      setDocumentAssets({
+        pdfUrl: resolvedPdfUrl ?? undefined,
+        wordUrl: resolvedWordUrl,
+        pdfPath: pdfPathFromResponse ?? undefined,
+        wordPath: wordPathFromResponse ?? undefined,
+      });
+      setPdfPreviewUrl(resolvedPdfUrl);
 
       // 保存到优化历史
       const historyItem = {
@@ -1840,16 +1859,16 @@ const DocumentWriter: React.FC = () => {
                   >
                     {historyItem.optimizedContent.length -
                       historyItem.originalContent.length >
-                    0
+                      0
                       ? '增加'
                       : historyItem.optimizedContent.length -
-                            historyItem.originalContent.length <
-                          0
+                        historyItem.originalContent.length <
+                        0
                         ? '减少'
                         : '不变'}{' '}
                     {Math.abs(
                       historyItem.optimizedContent.length -
-                        historyItem.originalContent.length,
+                      historyItem.originalContent.length,
                     )}
                     {' 字'}
                   </div>
@@ -2332,19 +2351,20 @@ const DocumentWriter: React.FC = () => {
   ];
 
   const renderPdfPreviewSection = () => {
+
     const previewUrl =
       pdfPreviewUrl ||
       (documentAssets.pdfUrl
         ? resolveAssetUrl(documentAssets.pdfUrl)
         : documentAssets.pdfPath
-        ? resolveAssetUrl(documentAssets.pdfPath)
-        : null);
+          ? resolveAssetUrl(documentAssets.pdfPath)
+          : null);
     const wordDownloadUrl =
       documentAssets.wordUrl
         ? resolveAssetUrl(documentAssets.wordUrl)
         : documentAssets.wordPath
-        ? resolveAssetUrl(documentAssets.wordPath)
-        : undefined;
+          ? resolveAssetUrl(documentAssets.wordPath)
+          : undefined;
 
     return (
       <div
@@ -2492,11 +2512,10 @@ const DocumentWriter: React.FC = () => {
                         <div
                           style={{
                             display: 'grid',
-                            gridTemplateColumns: `repeat(${
-                              generateAiRate !== null && optimizeAiRate !== null
-                                ? 2
-                                : 1
-                            }, minmax(0, 1fr))`,
+                            gridTemplateColumns: `repeat(${generateAiRate !== null && optimizeAiRate !== null
+                              ? 2
+                              : 1
+                              }, minmax(0, 1fr))`,
                             gap: '16px',
                           }}
                         >
@@ -2571,147 +2590,147 @@ const DocumentWriter: React.FC = () => {
                         </div>
                       </div>
                     )}
-                  {/* 操作区 */}
-                  <div
-                    style={{
-                      background: '#f3f4f6',
-                      padding: '12px 16px',
-                      borderRadius: '6px',
-                      border: '1px solid #e5e7eb',
-                      display: 'flex',
-                      justifyContent: 'flex-end',
-                    }}
-                  >
-                    <Space size="small" wrap>
-                      <Button
-                        size="small"
-                        icon={<CopyOutlined />}
-                        onClick={handleCopy}
-                        disabled={!content}
-                      >
-                        复制
-                      </Button>
-                      <Dropdown
-                        menu={{ items: exportMenuItems }}
-                        placement="bottomRight"
-                        disabled={!content || exporting}
-                      >
+                    {/* 操作区 */}
+                    <div
+                      style={{
+                        background: '#f3f4f6',
+                        padding: '12px 16px',
+                        borderRadius: '6px',
+                        border: '1px solid #e5e7eb',
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                      }}
+                    >
+                      <Space size="small" wrap>
                         <Button
                           size="small"
-                          icon={<ExportOutlined />}
-                          loading={exporting}
+                          icon={<CopyOutlined />}
+                          onClick={handleCopy}
                           disabled={!content}
                         >
-                          导出
+                          复制
                         </Button>
-                      </Dropdown>
-                      <Button
-                        size="small"
-                        type="primary"
-                        icon={<CloudUploadOutlined />}
-                        onClick={handleSaveToCloud}
-                        disabled={!content}
-                      >
-                        保存
-                      </Button>
-                    </Space>
-                  </div>
-
-                  {/* 公文预览 */}
-                  <div
-                    style={{
-                      background: '#f4f5f7',
-                      padding: '32px 24px',
-                      borderRadius: '6px',
-                      minHeight: '640px',
-                    }}
-                  >
-                    {officialDocumentData ? (
-                      <Space
-                        direction="vertical"
-                        size="large"
-                        style={{ width: '100%' }}
-                      >
-                        <OfficialDocumentMeta data={officialDocumentData} />
-                        <div
-                          style={{
-                            background: '#ffffff',
-                            padding: '24px',
-                            borderRadius: '6px',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                            overflowX: 'auto',
-                          }}
+                        <Dropdown
+                          menu={{ items: exportMenuItems }}
+                          placement="bottomRight"
+                          disabled={!content || exporting}
                         >
-                          <div style={{ display: 'flex', justifyContent: 'center' }}>
-                            <OfficialDocumentPreview data={officialDocumentData} />
-                          </div>
-                        </div>
-                        {renderPdfPreviewSection()}
+                          <Button
+                            size="small"
+                            icon={<ExportOutlined />}
+                            loading={exporting}
+                            disabled={!content}
+                          >
+                            导出
+                          </Button>
+                        </Dropdown>
+                        <Button
+                          size="small"
+                          type="primary"
+                          icon={<CloudUploadOutlined />}
+                          onClick={handleSaveToCloud}
+                          disabled={!content}
+                        >
+                          保存
+                        </Button>
                       </Space>
-                    ) : content ? (
-                      <Space
-                        direction="vertical"
-                        size="large"
-                        style={{ width: '100%' }}
-                      >
-                        <div
-                          style={{
-                            background: '#ffffff',
-                            padding: '24px',
-                            borderRadius: '6px',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                            overflowX: 'auto',
-                          }}
+                    </div>
+
+                    {/* 公文预览 */}
+                    <div
+                      style={{
+                        background: '#f4f5f7',
+                        padding: '32px 24px',
+                        borderRadius: '6px',
+                        minHeight: '640px',
+                      }}
+                    >
+                      {officialDocumentData ? (
+                        <Space
+                          direction="vertical"
+                          size="large"
+                          style={{ width: '100%' }}
+                        >
+                          <OfficialDocumentMeta data={officialDocumentData} />
+                          <div
+                            style={{
+                              background: '#ffffff',
+                              padding: '24px',
+                              borderRadius: '6px',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                              overflowX: 'auto',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'center' }}>
+                              <OfficialDocumentPreview data={officialDocumentData} />
+                            </div>
+                          </div>
+                          {renderPdfPreviewSection()}
+                        </Space>
+                      ) : content ? (
+                        <Space
+                          direction="vertical"
+                          size="large"
+                          style={{ width: '100%' }}
                         >
                           <div
                             style={{
-                              maxWidth: '21cm',
-                              width: '100%',
-                              margin: '0 auto',
                               background: '#ffffff',
-                              padding: '32px 48px',
-                              border: '1px solid #d9d9d9',
-                              boxShadow: '0 6px 18px rgba(0,0,0,0.08)',
-                              fontFamily:
-                                '"仿宋", "FangSong", "SimSun", "宋体", "Times New Roman", serif',
-                              color: '#000',
-                              lineHeight: 1.8,
+                              padding: '24px',
+                              borderRadius: '6px',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                              overflowX: 'auto',
                             }}
-                            // biome-ignore lint/security/noDangerouslySetInnerHtml: 公文预览需要渲染富文本内容
-                            dangerouslySetInnerHTML={{
-                              __html:
-                                htmlContent ||
-                                '<p style="text-align:center;color:#999;">暂无内容</p>',
-                            }}
-                          />
+                          >
+                            <div
+                              style={{
+                                maxWidth: '21cm',
+                                width: '100%',
+                                margin: '0 auto',
+                                background: '#ffffff',
+                                padding: '32px 48px',
+                                border: '1px solid #d9d9d9',
+                                boxShadow: '0 6px 18px rgba(0,0,0,0.08)',
+                                fontFamily:
+                                  '"仿宋", "FangSong", "SimSun", "宋体", "Times New Roman", serif',
+                                color: '#000',
+                                lineHeight: 1.8,
+                              }}
+                              // biome-ignore lint/security/noDangerouslySetInnerHtml: 公文预览需要渲染富文本内容
+                              dangerouslySetInnerHTML={{
+                                __html:
+                                  htmlContent ||
+                                  '<p style="text-align:center;color:#999;">暂无内容</p>',
+                              }}
+                            />
+                          </div>
+                          {renderPdfPreviewSection()}
+                        </Space>
+                      ) : (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            minHeight: '240px',
+                            background: '#fafafa',
+                            borderRadius: '6px',
+                            border: '1px dashed #d9d9d9',
+                            color: '#8c8c8c',
+                            fontSize: '14px',
+                            textAlign: 'center',
+                            padding: '24px',
+                          }}
+                        >
+                          生成文档后可在此查看公文预览和制式要素
                         </div>
-                        {renderPdfPreviewSection()}
-                      </Space>
-                    ) : (
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          minHeight: '240px',
-                          background: '#fafafa',
-                          borderRadius: '6px',
-                          border: '1px dashed #d9d9d9',
-                          color: '#8c8c8c',
-                          fontSize: '14px',
-                          textAlign: 'center',
-                          padding: '24px',
-                        }}
-                      >
-                        生成文档后可在此查看公文预览和制式要素
-                      </div>
-                    )}
-                  </div>
-                </Space>
-              </Spin>
-            </ProCard>
-          </Space>
-        </Col>
+                      )}
+                    </div>
+                  </Space>
+                </Spin>
+              </ProCard>
+            </Space>
+          </Col>
 
           {/* 右侧：设置面板 */}
           {settingsPanelOpen && (
@@ -2947,7 +2966,7 @@ const DocumentWriter: React.FC = () => {
                                         autoSize={{ minRows: 1, maxRows: 4 }}
                                         value={
                                           promptVariableValues[prompt.id]?.[
-                                            variable
+                                          variable
                                           ] ?? ''
                                         }
                                         onChange={(e) =>

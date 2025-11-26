@@ -185,7 +185,7 @@ const Login: React.FC = () => {
         defaultMessage: '登录失败，请重试！',
       });
       console.log(error);
-      message.error(errorMessage);
+      // message.error(errorMessage);
       setUserLoginState({
         status: 'error',
         type: loginType,
@@ -258,14 +258,10 @@ const Login: React.FC = () => {
             ]}
           />
 
-          {status === 'error' && loginType === 'account' && (
+          {status === 'error'  && (
             <LoginMessage
               content={
-                loginErrorMessage ||
-                intl.formatMessage({
-                  id: 'pages.login.accountLogin.errorMessage',
-                  defaultMessage: '账户或密码错误(admin/ant.design)',
-                })
+                loginErrorMessage || "账户或密码错误"
               }
             />
           )}

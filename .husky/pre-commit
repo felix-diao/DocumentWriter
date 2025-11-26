@@ -1,4 +1,0 @@
-#!/bin/sh
-
-# Disabled husky pre-commit checks per request.
-exit 0

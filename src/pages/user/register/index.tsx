@@ -121,7 +121,7 @@ const Register: React.FC = () => {
       if (!parsedMessage) {
         parsedMessage = intl.formatMessage({
           id: 'pages.register.failure',
-          defaultMessage: '注册失败，请重试！',
+          defaultMessage: '注册失败，用户名已存在或密码格式不正确，请重试！',
         });
       }
 
@@ -184,7 +184,7 @@ const Register: React.FC = () => {
           </div>
 
           {status === 'error' && (
-            <RegisterMessage content={registerState.message || '注册失败，请重试'} />
+            <RegisterMessage content={registerState.message || '注册失败，请重试( 用户名已存在或密码格式不正确) '} />
           )}
 
           <Form
