@@ -1,4 +1,5 @@
-import axios, { AxiosInstance } from 'axios';
+import { request } from '@umijs/max';
+import axios, { type AxiosInstance } from 'axios';
 import crypto from 'crypto';
 
 interface TencentMeetingConfig {
@@ -35,45 +36,63 @@ interface MeetingInfo {
 class TencentMeetingService {
     private config: TencentMeetingConfig;
     private apiUrl: string;
-    private axiosInstance: AxiosInstance;
+    private axiosInstance: AxiosInstance | null;
+    private readonly useMockApi: boolean;
+    private readonly mockBaseUrl = '/api/meeting';
 
     constructor(config: TencentMeetingConfig) {
         this.config = config;
         this.apiUrl = config.apiUrl || 'https://api.meeting.qq.com/v1';
+        this.useMockApi = this.shouldUseMock(config);
+        this.axiosInstance = null;
 
-        this.axiosInstance = axios.create({
-            baseURL: this.apiUrl,
-            timeout: 10000,
-        });
+        if (!this.useMockApi) {
+            this.axiosInstance = axios.create({
+                baseURL: this.apiUrl,
+                timeout: 10000,
+            });
 
-        // 添加请求拦截器，自动添加签名
-        this.axiosInstance.interceptors.request.use((config) => {
-            const timestamp = Math.floor(Date.now() / 1000).toString();
-            const nonce = this.generateNonce();
+            // 添加请求拦截器，自动添加签名
+            this.axiosInstance.interceptors.request.use((cfg) => {
+                const timestamp = Math.floor(Date.now() / 1000).toString();
+                const nonce = this.generateNonce();
 
-            config.headers = config.headers || {};
-            config.headers['X-TC-Key'] = this.config.secretId;
-            config.headers['X-TC-Timestamp'] = timestamp;
-            config.headers['X-TC-Nonce'] = nonce;
-            config.headers['X-TC-Signature'] = this.generateSignature(
-                config.method?.toUpperCase() || 'GET',
-                config.url || '',
-                timestamp,
-                nonce,
-                JSON.stringify(config.data || {})
-            );
-            config.headers['AppId'] = this.config.appId;
-            config.headers['SdkId'] = this.config.sdkId;
+                cfg.headers = cfg.headers || {};
+                cfg.headers['X-TC-Key'] = this.config.secretId;
+                cfg.headers['X-TC-Timestamp'] = timestamp;
+                cfg.headers['X-TC-Nonce'] = nonce;
+                cfg.headers['X-TC-Signature'] = this.generateSignature(
+                    cfg.method?.toUpperCase() || 'GET',
+                    cfg.url || '',
+                    timestamp,
+                    nonce,
+                    JSON.stringify(cfg.data || {})
+                );
+                cfg.headers['AppId'] = this.config.appId;
+                cfg.headers['SdkId'] = this.config.sdkId;
 
-            return config;
-        });
+                return cfg;
+            });
+        }
     }
 
     /**
      * 创建会议
      */
     async createMeeting(params: CreateMeetingParams): Promise<MeetingInfo> {
+        if (this.useMockApi) {
+            const response = await this.requestMock<{ success: boolean; data: MeetingInfo }>('/create', {
+                method: 'POST',
+                data: params,
+            });
+            return response.data;
+        }
+
         try {
+            if (!this.axiosInstance) {
+                throw new Error('会议服务暂时不可用，请稍后重试');
+            }
+
             const response = await this.axiosInstance.post('/meetings', {
                 userid: this.config.sdkId, // 用户 ID，企业内唯一
                 instanceid: 1, // 设备类型，1:PC 2:Mac 3:Android 4:iOS
@@ -98,7 +117,16 @@ class TencentMeetingService {
      * 查询会议详情
      */
     async getMeetingInfo(meetingId: string): Promise<MeetingInfo> {
+        if (this.useMockApi) {
+            const response = await this.requestMock<{ success: boolean; data: MeetingInfo }>(`/${meetingId}`);
+            return response.data;
+        }
+
         try {
+            if (!this.axiosInstance) {
+                throw new Error('会议服务暂时不可用，请稍后重试');
+            }
+
             const response = await this.axiosInstance.get(`/meetings/${meetingId}`, {
                 params: {
                     userid: this.config.sdkId,
@@ -126,7 +154,19 @@ class TencentMeetingService {
      * 取消会议
      */
     async cancelMeeting(meetingId: string, reason?: string): Promise<void> {
+        if (this.useMockApi) {
+            await this.requestMock(`/${meetingId}/cancel`, {
+                method: 'POST',
+                data: { reason },
+            });
+            return;
+        }
+
         try {
+            if (!this.axiosInstance) {
+                throw new Error('会议服务暂时不可用，请稍后重试');
+            }
+
             await this.axiosInstance.post(`/meetings/${meetingId}/cancel`, {
                 userid: this.config.sdkId,
                 instanceid: 1,
@@ -143,7 +183,19 @@ class TencentMeetingService {
      * 修改会议
      */
     async updateMeeting(meetingId: string, params: Partial<CreateMeetingParams>): Promise<void> {
+        if (this.useMockApi) {
+            await this.requestMock(`/${meetingId}`, {
+                method: 'PUT',
+                data: params,
+            });
+            return;
+        }
+
         try {
+            if (!this.axiosInstance) {
+                throw new Error('会议服务暂时不可用，请稍后重试');
+            }
+
             await this.axiosInstance.put(`/meetings/${meetingId}`, {
                 userid: this.config.sdkId,
                 instanceid: 1,
@@ -159,7 +211,18 @@ class TencentMeetingService {
      * 查询用户的会议列表
      */
     async getUserMeetings(startTime?: string, endTime?: string): Promise<MeetingInfo[]> {
+        if (this.useMockApi) {
+            const response = await this.requestMock<{ success: boolean; data: { meetings: MeetingInfo[] } }>('/list', {
+                params: { start_time: startTime, end_time: endTime },
+            });
+            return response.data.meetings || [];
+        }
+
         try {
+            if (!this.axiosInstance) {
+                throw new Error('会议服务暂时不可用，请稍后重试');
+            }
+
             const response = await this.axiosInstance.get('/meetings', {
                 params: {
                     userid: this.config.sdkId,
@@ -188,7 +251,16 @@ class TencentMeetingService {
      * 获取参会成员列表
      */
     async getParticipants(meetingId: string): Promise<any[]> {
+        if (this.useMockApi) {
+            const response = await this.requestMock<{ success: boolean; data: { participants: any[] } }>(`/${meetingId}/participants`);
+            return response.data.participants || [];
+        }
+
         try {
+            if (!this.axiosInstance) {
+                throw new Error('会议服务暂时不可用，请稍后重试');
+            }
+
             const response = await this.axiosInstance.get(`/meetings/${meetingId}/participants`, {
                 params: {
                     userid: this.config.sdkId,
@@ -251,6 +323,25 @@ class TencentMeetingService {
             return `${errorMsg} (${errorCode})`;
         }
         return '会议服务暂时不可用，请稍后重试';
+    }
+
+    private shouldUseMock(config: TencentMeetingConfig): boolean {
+        if (process.env.TENCENT_MEETING_USE_MOCK === 'true') {
+            return true;
+        }
+
+        return !config.appId || !config.sdkId || !config.secretId || !config.secretKey;
+    }
+
+    private async requestMock<T>(
+        path: string,
+        options: { method?: 'GET' | 'POST' | 'PUT'; data?: any; params?: Record<string, any> } = {}
+    ): Promise<T> {
+        return request<T>(`${this.mockBaseUrl}${path}`, {
+            method: options.method || 'GET',
+            data: options.data,
+            params: options.params,
+        });
     }
 }
 

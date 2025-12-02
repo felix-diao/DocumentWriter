@@ -270,6 +270,10 @@ const Register: React.FC = () => {
                         message: '密码需包含至少一个数字',
                       },
                       {
+                        test: /[^A-Za-z0-9\s]/.test(value),
+                        message: '密码需包含至少一个特殊字符',
+                      },
+                      {
                         test: !/\s/.test(value),
                         message: '密码不能包含空格',
                       },

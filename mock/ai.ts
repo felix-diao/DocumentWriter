@@ -205,27 +205,35 @@ export default {
     },
 
     // ==================== 会议管理相关 ====================
-    // 'POST /api/meeting/create': async (req: Request, res: Response) => {
-    //     await delay(1000);
-    //     const { subject, start_time, end_time, settings } = req.body;
+    'POST /api/meeting/create': async (req: Request, res: Response) => {
+        await delay(800);
+        const { subject, start_time, end_time, settings } = req.body;
 
-    //     const newMeeting = {
-    //         meeting_id: `mock_${Date.now()}`,
-    //         meeting_code: Math.floor(100000000 + Math.random() * 900000000).toString(),
-    //         subject,
-    //         join_url: `https://meeting.tencent.com/dm/mock_${Date.now()}`,
-    //         start_time,
-    //         end_time,
-    //         status: 'scheduled',
-    //         settings,
-    //     };
+        const timestamp = Date.now();
+        const meetingId = `mock_${timestamp}`;
 
-    //     meetingStorage.push(newMeeting);
-    //     res.json({ success: true, data: newMeeting });
-    // },
+        const newMeeting = {
+            meeting_id: meetingId,
+            meeting_code: Math.floor(100000000 + Math.random() * 900000000).toString(),
+            subject: subject || '未命名会议',
+            join_url: `https://meeting.tencent.com/dm/${meetingId}`,
+            start_time: start_time || new Date(timestamp).toISOString(),
+            end_time: end_time || new Date(timestamp + 60 * 60 * 1000).toISOString(),
+            status: 'scheduled',
+            settings,
+            created_at: new Date(timestamp).toISOString(),
+        };
+
+        meetingStorage.unshift(newMeeting);
+        res.json({ success: true, data: newMeeting });
+    },
     'GET /api/meeting/list': async (req: Request, res: Response) => {
         await delay(500);
-        res.json({ success: true, data: { meetings: meetingStorage, total: meetingStorage.length } });
+        const includeCancelled = req.query.includeCancelled === 'true';
+        const meetings = includeCancelled
+            ? meetingStorage
+            : meetingStorage.filter(m => m.status !== 'cancelled');
+        res.json({ success: true, data: { meetings, total: meetings.length } });
     },
     'GET /api/meeting/:meetingId': async (req: Request, res: Response) => {
         await delay(300);
@@ -237,8 +245,13 @@ export default {
         await delay(500);
         const meetingIndex = meetingStorage.findIndex(m => m.meeting_id === req.params.meetingId);
         if (meetingIndex !== -1) {
-            meetingStorage[meetingIndex].status = 'cancelled';
-            res.json({ success: true, message: '会议已取消' });
+            const cancelledMeeting = {
+                ...meetingStorage[meetingIndex],
+                status: 'cancelled',
+                cancelled_at: new Date().toISOString(),
+            };
+            meetingStorage.splice(meetingIndex, 1, cancelledMeeting);
+            res.json({ success: true, message: '会议已取消', data: cancelledMeeting });
         } else res.status(404).json({ success: false, message: '会议不存在' });
     },
     'PUT /api/meeting/:meetingId': async (req: Request, res: Response) => {

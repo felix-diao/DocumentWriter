@@ -2602,14 +2602,6 @@ const DocumentWriter: React.FC = () => {
                       }}
                     >
                       <Space size="small" wrap>
-                        <Button
-                          size="small"
-                          icon={<CopyOutlined />}
-                          onClick={handleCopy}
-                          disabled={!content}
-                        >
-                          复制
-                        </Button>
                         <Dropdown
                           menu={{ items: exportMenuItems }}
                           placement="bottomRight"
