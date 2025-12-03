@@ -36,7 +36,7 @@ const { TextArea } = Input;
 // 分类选项
 const CATEGORY_OPTIONS = [
   { label: '通知', value: 'notice' },
-  { label: '通报', value: 'bulletin' },
+  { label: '公文', value: 'bulletin' },
   { label: '请示', value: 'request' },
   { label: '报告', value: 'report' },
   { label: '函', value: 'letter' },
@@ -321,23 +321,23 @@ const PromptManager: React.FC = () => {
           >
             新建模板
           </Button>,
-          <Popconfirm
-            key="batch-delete"
-            title="确认批量删除"
-            description={`确定要删除选中的 ${selectedRowKeys.length} 个模板吗？`}
-            onConfirm={handleBatchDelete}
-            disabled={selectedRowKeys.length === 0}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Button
-              danger
-              icon={<DeleteOutlined />}
-              disabled={selectedRowKeys.length === 0}
-            >
-              批量删除
-            </Button>
-          </Popconfirm>,
+          // <Popconfirm
+          //   key="batch-delete"
+          //   title="确认批量删除"
+          //   description={`确定要删除选中的 ${selectedRowKeys.length} 个模板吗？`}
+          //   onConfirm={handleBatchDelete}
+          //   disabled={selectedRowKeys.length === 0}
+          //   okText="确定"
+          //   cancelText="取消"
+          // >
+          //   <Button
+          //     danger
+          //     icon={<DeleteOutlined />}
+          //     disabled={selectedRowKeys.length === 0}
+          //   >
+          //     批量删除
+          //   </Button>
+          // </Popconfirm>,
         ]}
         rowSelection={{
           selectedRowKeys,

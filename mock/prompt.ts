@@ -554,13 +554,13 @@ function togglePromptActive(req: Request, res: Response) {
 }
 
 export default {
-  'GET /api/prompts': getPrompts,
-  'GET /api/prompts/:id': getPromptById,
-  'POST /api/prompts': createPrompt,
-  'PUT /api/prompts/:id': updatePrompt,
-  'DELETE /api/prompts/:id': deletePrompt,
-  'DELETE /api/prompts/batch': batchDeletePrompts,
-  'GET /api/prompts/category/:category': getPromptsByCategory,
-  'PATCH /api/prompts/:id/toggle': togglePromptActive,
+  // 'GET /api/prompts': getPrompts,
+  // 'GET /api/prompts/:id': getPromptById,
+  // 'POST /api/prompts': createPrompt,
+  // 'PUT /api/prompts/:id': updatePrompt,
+  // 'DELETE /api/prompts/:id': deletePrompt,
+  // 'DELETE /api/prompts/batch': batchDeletePrompts,
+  // 'GET /api/prompts/category/:category': getPromptsByCategory,
+  // 'PATCH /api/prompts/:id/toggle': togglePromptActive,
 };
 

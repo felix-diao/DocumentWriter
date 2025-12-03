@@ -81,6 +81,13 @@ export default {
       changeOrigin: true,
       pathRewrite: { '^/api/meeting/create': '/api/meetings' }
     },
+ 
+    '/api/prompts': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/prompts': '/api/prompts' }
+    },
+
     // ====================================================
 
     '/api/ai/': {
