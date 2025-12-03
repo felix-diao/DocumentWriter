@@ -173,7 +173,7 @@ const Register: React.FC = () => {
               marginBottom: 24,
             }}
           >
-            <img alt="logo" src="/logo.svg" style={{ height: 60, marginBottom: 16 }} />
+            <img alt="logo" src="/logo1.svg" style={{ height: 60, marginBottom: 16 }} />
             <h2 style={{ marginBottom: 16 }}>{Settings.title}</h2>
             <p style={{ color: '#999' }}>
               {intl.formatMessage({

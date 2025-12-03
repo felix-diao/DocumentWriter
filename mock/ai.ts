@@ -282,20 +282,20 @@ export default {
         res.json({
             success: true,
             data: {
-                summary: `本次会议主要讨论了 AI 功能模块的开发进度和下一步计划。根据会议内容"${transcript.substring(0, 50)}..."，团队确认了文档书写、翻译和会议助手三个核心功能的技术方案。会议决定优先完成文档书写功能的开发，预计两周内上线测试版本。`,
+                summary: `研发项目例会讨论了后端性能瓶颈、前端优化、数据安全及版本发布计划，决定将性能优化列为最高优先级并安排相关任务。`,
                 actionItems: [
-                    { id: '1', task: '完成文档书写功能的前端界面开发', assignee: '张三', deadline: '2025-10-15', status: 'pending' },
-                    { id: '2', task: '对接 AI API 并完成后端集成', assignee: '李四', deadline: '2025-10-18', status: 'pending' },
-                    { id: '3', task: '编写单元测试和集成测试', assignee: '王五', deadline: '2025-10-20', status: 'pending' },
-                    { id: '4', task: '准备用户使用文档和培训材料', assignee: '赵六', deadline: '2025-10-22', status: 'pending' },
+                    { id: '1', task: '数据库重构设计与索引方案 ', assignee: '张工', deadline: '2025-12-05', status: 'pending' },
+                    { id: '2', task: '缓存架构可行性评估与测试验证', assignee: '李工', deadline: '2025-12-05', status: 'pending' },
+                    { id: '3', task: '输出前端的数据精简需求', assignee: '赵工', deadline: '2025-12-05', status: 'pending' },
+                    { id: '4', task: '制定日志脱敏标准与验证流程', assignee: '陈工', deadline: '2025-12-05', status: 'pending' },
+                    { id: '5', task: '提交联合技术评估报告', assignee: '各模块负责人', deadline: '2025-12-05', status: 'pending' }
                 ],
                 decisions: [
-                    '确定使用 Ant Design Pro 作为前端框架',
-                    '采用微服务架构进行后端开发',
-                    '优先开发文档书写功能',
-                    '每周举行两次技术评审会议',
+                    '将性能优化列为最高优先级',
+                    '新增一轮压力测试',
+                    '在评估报告中加入对当前版本上线计划的风险等级判定'
                 ],
-                participants: ['张三', '李四', '王五', '赵六', '项目经理'],
+                participants: ['张工', '李工', '赵工', '陈工'],
             },
         });
     },

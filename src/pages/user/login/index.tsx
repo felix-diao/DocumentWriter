@@ -214,16 +214,16 @@ const Login: React.FC = () => {
       >
         <LoginForm
           className={styles.loginForm}
-          // contentStyle={{
-          //   minWidth: 280,
-          //   maxWidth: '75vw',
-          // }}
+          contentStyle={{
+            minWidth: 280,
+            maxWidth: '75vw',
+          }}
           logo={
-            <div className={styles.logo}>
-              <img alt="logo" src="/logo.svg" />
+            <div >
+              <img alt="logo" src="/logo1.svg" />
             </div>
           }
-          // title={Settings.title}
+          title={Settings.title}
           // subTitle={intl.formatMessage({
           //   id: 'pages.layouts.userLayout.title',
           // })}
