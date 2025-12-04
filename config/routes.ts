@@ -81,6 +81,12 @@ export default [
         name: 'AI 公文生成器',
         component: './AI/DocumentWriter',
       },
+      // {
+      //   path: '/AI/conversation-history',
+      //   name: '会话历史',
+      //   icon: 'message',
+      //   component: './AI/ConversationHistory',
+      // },
       {
         path: '/AI/meeting-assistant',
         name: 'AI 会议助手',
@@ -99,6 +105,23 @@ export default [
         component: './AI/KnowledgeBase',
       },
       
+    ],
+  },
+  {
+    path: '/meetings',
+    name: '会议系统',
+    icon: 'solution',
+    routes: [
+      {
+        path: '/meetings/manage',
+        name: '会议管理',
+        component: './Meetings/Management',
+      },
+      {
+        path: '/meetings/minutes',
+        name: '会议纪要',
+        component: './Meetings/Minutes',
+      },
     ],
   },
   {

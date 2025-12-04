@@ -92,8 +92,15 @@ export const errorConfig: RequestConfig = {
     (config: RequestOptions) => {
       // 拦截请求配置，添加 Authorization header
       const authHeader = getAuthHeader();
-      if (authHeader && config.headers) {
-        config.headers['Authorization'] = authHeader;
+      if (authHeader) {
+        if (config.headers instanceof Headers) {
+          config.headers.set('Authorization', authHeader);
+        } else {
+          config.headers = {
+            ...(config.headers || {}),
+            Authorization: authHeader,
+          };
+        }
       }
       return config;
     },

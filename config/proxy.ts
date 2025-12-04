@@ -81,11 +81,26 @@ export default {
       changeOrigin: true,
       pathRewrite: { '^/api/meeting/create': '/api/meetings' }
     },
+    '/api/meetings': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/meetings': '/api/meetings' }
+    },
+    '/api/minutes': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/minutes': '/api/minutes' }
+    },
  
     '/api/prompts': {
       target: ragTarget,
       changeOrigin: true,
       pathRewrite: { '^/api/prompts': '/api/prompts' }
+    },
+    '/api/conversations': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/conversations': '/api/conversations' },
     },
 
     // ====================================================
