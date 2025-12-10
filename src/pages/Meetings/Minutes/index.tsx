@@ -1,5 +1,9 @@
 import {
+  AudioOutlined,
+  CloudUploadOutlined,
   DownloadOutlined,
+  PauseCircleOutlined,
+  PlayCircleOutlined,
   PlusOutlined,
   ReloadOutlined,
   ThunderboltOutlined,
@@ -8,24 +12,31 @@ import { PageContainer, ProCard } from '@ant-design/pro-components';
 import {
   Alert,
   Button,
+  Col,
   Checkbox,
   DatePicker,
   Divider,
   Empty,
   Form,
   Input,
-  message,
   Modal,
+  Progress,
+  message,
+  Row,
   Select,
   Space,
   Spin,
   Table,
   Tag,
+  Upload,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { type Dayjs } from 'dayjs';
-import React, { useEffect, useMemo, useState } from 'react';
+import duration from 'dayjs/plugin/duration';
+dayjs.extend(duration);
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { history, useLocation } from '@umijs/max';
 import meetingsApi, { Meeting, MeetingAudio, MeetingFile } from '@/services/meetings';
 import meetingMinutesApi, {
@@ -79,6 +90,19 @@ const MeetingMinutes: React.FC = () => {
   const [editingDecision, setEditingDecision] = useState<MeetingDecisionItem | null>(null);
   const [actionForm] = Form.useForm<ActionFormValues>();
   const [decisionForm] = Form.useForm<DecisionFormValues>();
+  const [recordingModalVisible, setRecordingModalVisible] = useState(false);
+  const [uploadAudioModalVisible, setUploadAudioModalVisible] = useState(false);
+  const [uploadFileModalVisible, setUploadFileModalVisible] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [recording, setRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [recordingUploading, setRecordingUploading] = useState(false);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const [hasRecordingData, setHasRecordingData] = useState(false);
+  const hasSelectedMeeting = typeof selectedMeetingId === 'number';
 
   const queryMeetingId = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -98,9 +122,14 @@ const MeetingMinutes: React.FC = () => {
     setLoadingMeetings(true);
     try {
       const data = await meetingsApi.list();
-      setMeetings(data);
-      if (!queryMeetingId && !selectedMeetingId && data.length) {
-        const firstId = data[0].id;
+      const sortedMeetings = [...data].sort((a, b) => {
+        const dateA = dayjs(a.date).valueOf();
+        const dateB = dayjs(b.date).valueOf();
+        return dateB - dateA;
+      });
+      setMeetings(sortedMeetings);
+      if (!queryMeetingId && !selectedMeetingId && sortedMeetings.length) {
+        const firstId = sortedMeetings[0].id;
         setSelectedMeetingId(firstId);
         history.replace(`/meetings/minutes?meetingId=${firstId}`);
       }
@@ -162,7 +191,17 @@ const MeetingMinutes: React.FC = () => {
       setInsights(null);
       setAvailableFiles([]);
       setAvailableAudios([]);
+      stopRecordingTimer();
+      if (recording) {
+        stopRecording();
+      }
     }
+    return () => {
+      stopRecordingTimer();
+      if (mediaRecorderRef.current) {
+        mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+      }
+    };
   }, [selectedMeetingId]);
 
   const handleMeetingChange = (value: number) => {
@@ -319,6 +358,189 @@ const MeetingMinutes: React.FC = () => {
     }
   };
 
+  const startRecordingTimer = () => {
+    stopRecordingTimer();
+    recordingTimerRef.current = setInterval(() => {
+      setRecordingDuration((prev) => prev + 1);
+    }, 1000);
+  };
+
+  const stopRecordingTimer = () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  };
+
+  const resetRecordingState = () => {
+    setRecording(false);
+    setIsPaused(false);
+    setRecordingDuration(0);
+    setHasRecordingData(false);
+    recordingChunksRef.current = [];
+    stopRecordingTimer();
+  };
+
+  const handleOpenRecordingModal = () => {
+    if (!selectedMeetingId) {
+      message.warning('请先选择会议');
+      return;
+    }
+    if (recording) {
+      stopRecording();
+    }
+    resetRecordingState();
+    setRecordingError(null);
+    setRecordingModalVisible(true);
+  };
+
+  const startRecording = async () => {
+    if (!selectedMeetingId) {
+      message.warning('请先选择会议');
+      return;
+    }
+    setRecordingError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      recordingChunksRef.current = [];
+      setRecordingDuration(0);
+      setHasRecordingData(false);
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordingChunksRef.current.push(event.data);
+          setHasRecordingData(true);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setRecording(true);
+      setIsPaused(false);
+      startRecordingTimer();
+      message.success('开始录音');
+    } catch (error: any) {
+      const errMsg = error?.message || '无法开始录音，请检查麦克风权限';
+      setRecordingError(errMsg);
+      message.error(errMsg);
+    }
+  };
+
+  const stopRecording = () => {
+    if (!mediaRecorderRef.current) {
+      return;
+    }
+    if (mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+    mediaRecorderRef.current = null;
+    setRecording(false);
+    setIsPaused(false);
+    stopRecordingTimer();
+  };
+
+  const getRecordedFile = (): File | null => {
+    if (!recordingChunksRef.current.length) {
+      return null;
+    }
+    const blob = new Blob(recordingChunksRef.current, { type: 'audio/webm' });
+    return new File([blob], `meeting-recording-${Date.now()}.webm`, {
+      type: 'audio/webm',
+    });
+  };
+  const pauseRecording = () => {
+    if (!mediaRecorderRef.current || isPaused || !recording) {
+      return;
+    }
+    if (typeof mediaRecorderRef.current.pause === 'function') {
+      mediaRecorderRef.current.pause();
+      setIsPaused(true);
+      stopRecordingTimer();
+    }
+  };
+
+  const resumeRecording = () => {
+    if (!mediaRecorderRef.current || !isPaused) {
+      return;
+    }
+    if (typeof mediaRecorderRef.current.resume === 'function') {
+      mediaRecorderRef.current.resume();
+      setIsPaused(false);
+      startRecordingTimer();
+    }
+  };
+
+  const uploadRecording = async () => {
+    if (!selectedMeetingId) {
+      message.warning('请选择会议');
+      return;
+    }
+    const recordedFile = getRecordedFile();
+    if (!recordedFile) {
+      message.warning('没有录音数据');
+      return;
+    }
+    setRecordingUploading(true);
+    try {
+      await meetingsApi.uploadAudios(selectedMeetingId, [recordedFile]);
+      message.success('录音已上传');
+      setRecordingModalVisible(false);
+      resetRecordingState();
+      const audios = await meetingsApi.listAudios(selectedMeetingId);
+      setAvailableAudios(audios);
+    } catch (error: any) {
+      const errMsg = error?.message || '录音上传失败';
+      message.error(errMsg);
+      setRecordingError(errMsg);
+    } finally {
+      setRecordingUploading(false);
+    }
+  };
+
+  const handleAudioUpload = async ({ file, onSuccess, onError }: any) => {
+    if (!selectedMeetingId) {
+      message.warning('请选择会议');
+      onError?.(new Error('请选择会议')); 
+      return;
+    }
+    try {
+      await meetingsApi.uploadAudios(selectedMeetingId, [file as File]);
+      const audios = await meetingsApi.listAudios(selectedMeetingId);
+      setAvailableAudios(audios);
+      onSuccess?.('ok');
+      message.success(`${file.name} 上传成功`);
+    } catch (error: any) {
+      const errMsg = error?.message || `${file.name} 上传失败`;
+      message.error(errMsg);
+      onError?.(new Error(errMsg));
+    }
+  };
+
+  const handleFileUpload = async ({ file, onSuccess, onError }: any) => {
+    if (!selectedMeetingId) {
+      message.warning('请选择会议');
+      onError?.(new Error('请选择会议'));
+      return;
+    }
+    try {
+      await meetingsApi.uploadFiles(selectedMeetingId, [file as File]);
+      const files = await meetingsApi.listFiles(selectedMeetingId);
+      setAvailableFiles(files);
+      onSuccess?.('ok');
+      message.success(`${file.name} 上传成功`);
+    } catch (error: any) {
+      const errMsg = error?.message || `${file.name} 上传失败`;
+      message.error(errMsg);
+      onError?.(new Error(errMsg));
+    }
+  };
+
   const summaryUpdatedAt = insights?.summary?.updated_at;
 
   const actionColumns: ColumnsType<MeetingActionItem> = [
@@ -423,21 +645,36 @@ const MeetingMinutes: React.FC = () => {
       {availableAudios.length ? (
         <Checkbox.Group value={selectedAudioIds} onChange={handleSelectAudios} style={{ width: '100%' }}>
           <Space direction="vertical" style={{ width: '100%' }}>
-            {availableAudios.map((audio) => (
-              <Checkbox key={audio.id} value={audio.id}>
-                <Space direction="vertical" size={0}>
-                  <Text strong>{audio.filename}</Text>
-                  <Text type="secondary">
-                    {dayjs(audio.uploaded_at).format('YYYY-MM-DD HH:mm')} ·{' '}
-                    {audio.status === 'completed'
-                      ? '已完成转写'
-                      : audio.status === 'failed'
-                        ? '转写失败'
-                        : '转写中'}
-                  </Text>
-                </Space>
-              </Checkbox>
-            ))}
+            {availableAudios.map((audio) => {
+              const isProcessing = audio.status !== 'completed' && audio.status !== 'failed';
+              const checkbox = (
+                <Checkbox
+                  key={audio.id}
+                  value={audio.id}
+                  disabled={isProcessing}
+                  style={isProcessing ? { cursor: 'not-allowed' } : undefined}
+                >
+                  <Space direction="vertical" size={0}>
+                    <Text strong>{audio.filename}</Text>
+                    <Text type="secondary">
+                      {dayjs(audio.uploaded_at).format('YYYY-MM-DD HH:mm')} ·{' '}
+                      {audio.status === 'completed'
+                        ? '已完成转写'
+                        : audio.status === 'failed'
+                          ? '转写失败'
+                          : '转写中'}
+                    </Text>
+                  </Space>
+                </Checkbox>
+              );
+              return isProcessing ? (
+                <Tooltip key={audio.id} title="该录音仍在转写中，完成后方可参与生成纪要">
+                  <span>{checkbox}</span>
+                </Tooltip>
+              ) : (
+                checkbox
+              );
+            })}
           </Space>
         </Checkbox.Group>
       ) : (
@@ -454,50 +691,77 @@ const MeetingMinutes: React.FC = () => {
       // }}
     >
       <ProCard ghost>
-        <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
-          <Space size="large">
-            <Space>
-              <Text strong>选择会议：</Text>
-              <Select<number>
-                placeholder="请选择会议"
-                style={{ minWidth: 260 }}
-                loading={loadingMeetings}
-                showSearch
-                optionFilterProp="label"
-                value={selectedMeetingId}
-                onChange={handleMeetingChange}
-                options={meetings.map((meeting) => ({
-                  value: meeting.id,
-                  label: `${meeting.title}（${dayjs(meeting.date).format('MM-DD HH:mm')}）`,
-                }))}
-              />
+        <Row gutter={[16, 16]} align="middle">
+          <Col xs={24} lg={12}>
+            <Space size="middle" wrap>
+              <Space>
+                <Text strong>选择会议：</Text>
+                <Select<number>
+                  placeholder="请选择会议"
+                  style={{ minWidth: 260 }}
+                  loading={loadingMeetings}
+                  showSearch
+                  optionFilterProp="label"
+                  value={selectedMeetingId}
+                  onChange={handleMeetingChange}
+                  options={meetings.map((meeting) => ({
+                    value: meeting.id,
+                    label: `${meeting.title}（${dayjs(meeting.date).format('MM-DD HH:mm')}）`,
+                  }))}
+                />
+              </Space>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => selectedMeetingId && loadInsights(selectedMeetingId, true)}
+                disabled={!selectedMeetingId}
+              >
+                刷新纪要
+              </Button>
             </Space>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => selectedMeetingId && loadInsights(selectedMeetingId, true)}
-              disabled={!selectedMeetingId}
-            >
-              刷新纪要
-            </Button>
-          </Space>
-          <Space>
-            <Button
-              icon={<ThunderboltOutlined />}
-              type="primary"
-              disabled={!selectedMeetingId}
-              onClick={() => setGenerateModalVisible(true)}
-            >
-              智能生成纪要
-            </Button>
-            <Button
-              icon={<DownloadOutlined />}
-              disabled={!selectedMeetingId}
-              onClick={() => selectedMeetingId && window.open(getMinutesDocxUrl(selectedMeetingId), '_blank')}
-            >
-              导出 Word
-            </Button>
-          </Space>
-        </Space>
+          </Col>
+          <Col xs={24} lg={12}>
+            <Space style={{ width: '100%', justifyContent: 'flex-end' }} wrap>
+              <Button
+                icon={<AudioOutlined />}
+                onClick={handleOpenRecordingModal}
+                disabled={!hasSelectedMeeting}
+              >
+                在线录音
+              </Button>
+              <Button
+                icon={<CloudUploadOutlined />}
+                disabled={!hasSelectedMeeting}
+                onClick={() => setUploadAudioModalVisible(true)}
+              >
+                上传录音
+              </Button>
+              <Button
+                icon={<CloudUploadOutlined />}
+                disabled={!hasSelectedMeeting}
+                onClick={() => setUploadFileModalVisible(true)}
+              >
+                上传文件
+              </Button>
+              <Button
+                icon={<ThunderboltOutlined />}
+                type="primary"
+                disabled={!selectedMeetingId}
+                onClick={() => setGenerateModalVisible(true)}
+              >
+                智能生成纪要
+              </Button>
+              <Button
+                icon={<DownloadOutlined />}
+                disabled={!selectedMeetingId}
+                onClick={() =>
+                  selectedMeetingId && window.open(getMinutesDocxUrl(selectedMeetingId), '_blank')
+                }
+              >
+                导出 Word
+              </Button>
+            </Space>
+          </Col>
+        </Row>
 
         <Spin spinning={loadingInsights}>
           {!selectedMeetingId ? (
@@ -636,6 +900,119 @@ const MeetingMinutes: React.FC = () => {
             <TextArea rows={4} placeholder="例如：优先推进 A 项目的上线排期" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="在线录音"
+        open={recordingModalVisible}
+        onCancel={() => {
+          setRecordingModalVisible(false);
+          stopRecording();
+          resetRecordingState();
+        }}
+        footer={[
+          <Button
+            key="cancel"
+            onClick={() => {
+              setRecordingModalVisible(false);
+              stopRecording();
+              resetRecordingState();
+            }}
+          >
+            关闭
+          </Button>,
+          <Button
+            key="start"
+            type={recording ? 'default' : 'primary'}
+            danger={recording && !isPaused}
+            icon={
+              !recording ? (
+                <AudioOutlined />
+              ) : isPaused ? (
+                <PlayCircleOutlined />
+              ) : (
+                <PauseCircleOutlined />
+              )
+            }
+            onClick={() => {
+              if (!recording) {
+                startRecording();
+              } else if (isPaused) {
+                resumeRecording();
+              } else {
+                pauseRecording();
+              }
+            }}
+          >
+            {!recording ? '开始录音' : isPaused ? '继续录音' : '暂停录音'}
+          </Button>,
+          recording && (
+            <Button key="stop" danger onClick={stopRecording}>
+              停止录音
+            </Button>
+          ),
+          <Button
+            key="upload"
+            type="primary"
+            loading={recordingUploading}
+            onClick={uploadRecording}
+            disabled={recordingUploading || recording || !hasRecordingData}
+          >
+            上传录音
+          </Button>,
+        ]}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <Text>录音时长：{dayjs.duration(recordingDuration, 'seconds').format('mm:ss')}</Text>
+          {recording && <Alert message="录音进行中" type="info" showIcon />}
+          {recordingError && <Alert type="error" message={recordingError} showIcon />}
+          <Text type="secondary">
+            1. 点击“开始录音”开始采集音频；录完后先点击“停止录音”，确认无误后再点击“上传录音”保存到会议音频列表。
+          </Text>
+        </Space>
+      </Modal>
+
+      <Modal
+        title="上传会议录音"
+        open={uploadAudioModalVisible}
+        onCancel={() => setUploadAudioModalVisible(false)}
+        footer={null}
+      >
+        <Upload.Dragger
+          multiple
+          accept="audio/*"
+          customRequest={handleAudioUpload}
+          showUploadList
+          disabled={!hasSelectedMeeting}
+        >
+          <p className="ant-upload-drag-icon">
+            <AudioOutlined />
+          </p>
+          <p className="ant-upload-text">点击或拖拽音频文件到此处上传</p>
+          <p className="ant-upload-hint">支持 mp3、wav、m4a 等常见音频格式</p>
+        </Upload.Dragger>
+      </Modal>
+
+      <Modal
+        title="上传会议资料"
+        open={uploadFileModalVisible}
+        onCancel={() => setUploadFileModalVisible(false)}
+        footer={null}
+      >
+        <Upload.Dragger
+          multiple
+          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt"
+          customRequest={handleFileUpload}
+          showUploadList
+          disabled={!hasSelectedMeeting}
+          style={{ padding: '24px 0' }}
+        >
+          <p className="ant-upload-drag-icon">
+            <CloudUploadOutlined />
+          </p>
+          <p className="ant-upload-text">点击或拖拽会议相关文件到此处上传</p>
+          <p className="ant-upload-hint">支持 PDF、Word、PPT、TXT 等常见文档格式</p>
+        </Upload.Dragger>
       </Modal>
     </PageContainer>
   );

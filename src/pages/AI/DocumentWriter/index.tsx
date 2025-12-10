@@ -2173,14 +2173,15 @@ const DocumentWriter: React.FC = () => {
         lineHeight: 1.75,
       });
 
-      if (response.success && response.data) {
+      const responseData = response.data;
+      if (response.success && responseData) {
         message.success('PDF 导出成功');
         // 触发下载
-        const resolvedUrl = resolveAssetUrl(response.data.url);
+        const resolvedUrl = resolveAssetUrl(responseData.url);
         setDocumentAssets((prev) => ({
           ...prev,
           pdfUrl: resolvedUrl,
-          pdfPath: response.data.url ?? prev.pdfPath,
+          pdfPath: responseData.url ?? prev.pdfPath,
         }));
         window.open(resolvedUrl, '_blank');
       } else {
@@ -2279,14 +2280,15 @@ const DocumentWriter: React.FC = () => {
         lineHeight: 1.75,
       });
 
-      if (response.success && response.data) {
+      const responseData = response.data;
+      if (response.success && responseData) {
         message.success('Word 文档导出成功');
         // 触发下载
-        const resolvedUrl = resolveAssetUrl(response.data.url);
+        const resolvedUrl = resolveAssetUrl(responseData.url);
         setDocumentAssets((prev) => ({
           ...prev,
           wordUrl: resolvedUrl,
-          wordPath: response.data.url ?? prev.wordPath,
+          wordPath: responseData.url ?? prev.wordPath,
         }));
         window.open(resolvedUrl, '_blank');
       } else {
@@ -2752,7 +2754,7 @@ const DocumentWriter: React.FC = () => {
                           setScenario('');
                         }}
                         style={{ width: '100%' }}
-                        options={DOCUMENT_TYPE_OPTIONS}
+                        options={Array.from(DOCUMENT_TYPE_OPTIONS)}
                       />
                     </div>
 

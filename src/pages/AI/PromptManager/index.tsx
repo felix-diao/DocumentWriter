@@ -6,6 +6,7 @@ import {
 } from '@ant-design/icons';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { useModel } from '@umijs/max';
 import {
   Badge,
   Button,
@@ -53,7 +54,7 @@ const CATEGORY_COLOR_MAP: Record<string, string> = {
 };
 
 const PromptManager: React.FC = () => {
-  const actionRef = useRef<ActionType>();
+  const actionRef = useRef<ActionType | null>(null);
   const [form] = Form.useForm();
   const [modalVisible, setModalVisible] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
@@ -64,10 +65,28 @@ const PromptManager: React.FC = () => {
     null,
   );
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const { initialState } = useModel('@@initialState');
+  const currentUserId = initialState?.currentUser?.user_id;
+  const isAdmin = initialState?.currentUser?.role === 'admin';
+  const permissionTip = '仅管理员或模板创建者可以执行此操作';
+
+  const canManagePrompt = (prompt?: PromptTemplate | null) => {
+    if (isAdmin) {
+      return true;
+    }
+    if (!prompt) {
+      return false;
+    }
+    return !prompt.isPublic && prompt.userId === currentUserId;
+  };
 
   // 打开创建/编辑对话框
   const handleOpenModal = (record?: PromptTemplate) => {
     if (record) {
+      if (!canManagePrompt(record)) {
+        message.warning(permissionTip);
+        return;
+      }
       setEditingPrompt(record);
       form.setFieldsValue({
         ...record,
@@ -76,7 +95,7 @@ const PromptManager: React.FC = () => {
     } else {
       setEditingPrompt(null);
       form.resetFields();
-      form.setFieldsValue({ isActive: true });
+      form.setFieldsValue({ isActive: true, isPublic: false });
     }
     setModalVisible(true);
   };
@@ -96,6 +115,9 @@ const PromptManager: React.FC = () => {
         ...values,
         variables,
       };
+      if (!isAdmin) {
+        promptData.isPublic = editingPrompt?.isPublic ?? false;
+      }
 
       if (editingPrompt) {
         await updatePrompt(editingPrompt.id, promptData);
@@ -113,9 +135,13 @@ const PromptManager: React.FC = () => {
   };
 
   // 删除单个 Prompt
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (record: PromptTemplate) => {
+    if (!canManagePrompt(record)) {
+      message.warning(permissionTip);
+      return;
+    }
     try {
-      await deletePrompt(id);
+      await deletePrompt(record.id);
       message.success('删除成功');
       actionRef.current?.reload();
     } catch (error) {
@@ -141,6 +167,10 @@ const PromptManager: React.FC = () => {
 
   // 切换启用状态
   const handleToggleActive = async (record: PromptTemplate) => {
+    if (!canManagePrompt(record)) {
+      message.warning(permissionTip);
+      return;
+    }
     try {
       await togglePromptActive(record.id, !record.isActive);
       message.success(record.isActive ? '已禁用' : '已启用');
@@ -189,6 +219,38 @@ const PromptManager: React.FC = () => {
       ),
     },
     {
+      title: '权限',
+      dataIndex: 'isPublic',
+      width: 120,
+      valueType: 'select',
+      valueEnum: {
+        true: { text: '公共模板' },
+        false: { text: '个人模板' },
+      },
+      filters: isAdmin
+        ? [
+            { text: '公共模板', value: true },
+            { text: '个人模板', value: false },
+          ]
+        : undefined,
+      render: (_, record) => (
+        <Tag color={record.isPublic ? 'blue' : 'default'}>
+          {record.isPublic ? '公共模板' : '个人模板'}
+        </Tag>
+      ),
+    },
+    {
+      title: '所属用户',
+      dataIndex: 'userId',
+      width: 160,
+      hideInTable: !isAdmin,
+      render: (_, record) => (
+        <Tag color={record.userId === currentUserId ? 'gold' : 'default'}>
+          {record.userId === currentUserId ? '自己' : record.userId}
+        </Tag>
+      ),
+    },
+    {
       title: '描述',
       dataIndex: 'description',
       ellipsis: true,
@@ -217,14 +279,25 @@ const PromptManager: React.FC = () => {
         true: { text: '启用', status: 'Success' },
         false: { text: '禁用', status: 'Default' },
       },
-      render: (_, record) => (
-        <Switch
-          checked={record.isActive}
-          onChange={() => handleToggleActive(record)}
-          checkedChildren="启用"
-          unCheckedChildren="禁用"
-        />
-      ),
+      render: (_, record) => {
+        const disabled = !canManagePrompt(record);
+        const switchNode = (
+          <Switch
+            checked={record.isActive}
+            onChange={() => handleToggleActive(record)}
+            checkedChildren="启用"
+            unCheckedChildren="禁用"
+            disabled={disabled}
+          />
+        );
+        return disabled ? (
+          <Tooltip title={permissionTip}>
+            <span>{switchNode}</span>
+          </Tooltip>
+        ) : (
+          switchNode
+        );
+      },
     },
     {
       title: '更新时间',
@@ -240,44 +313,80 @@ const PromptManager: React.FC = () => {
       width: 200,
       fixed: 'right',
       search: false,
-      render: (_, record) => (
-        <Space>
-          <Tooltip title="预览">
-            <Button
-              type="link"
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => handlePreview(record)}
-            />
-          </Tooltip>
-          <Tooltip title="编辑">
-            <Button
-              type="link"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => handleOpenModal(record)}
-            />
-          </Tooltip>
-          <Popconfirm
-            title="确认删除"
-            description="确定要删除这个 Prompt 模板吗？"
-            onConfirm={() => handleDelete(record.id)}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Tooltip title="删除">
+      render: (_, record) => {
+        const canEdit = canManagePrompt(record);
+        const editButton = (
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => handleOpenModal(record)}
+            disabled={!canEdit}
+          />
+        );
+        const deleteButton = (
+          <Button
+            type="link"
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            disabled={!canEdit}
+          />
+        );
+        return (
+          <Space>
+            <Tooltip title="预览">
               <Button
                 type="link"
                 size="small"
-                danger
-                icon={<DeleteOutlined />}
+                icon={<EyeOutlined />}
+                onClick={() => handlePreview(record)}
               />
             </Tooltip>
-          </Popconfirm>
-        </Space>
-      ),
+            <Tooltip title={canEdit ? '编辑' : permissionTip}>
+              <span>{editButton}</span>
+            </Tooltip>
+            {canEdit ? (
+              <Popconfirm
+                title="确认删除"
+                description="确定要删除这个 Prompt 模板吗？"
+                onConfirm={() => handleDelete(record)}
+                okText="确定"
+                cancelText="取消"
+              >
+                <Tooltip title="删除">
+                  {deleteButton}
+                </Tooltip>
+              </Popconfirm>
+            ) : (
+              <Tooltip title={permissionTip}>
+                <span>{deleteButton}</span>
+              </Tooltip>
+            )}
+          </Space>
+        );
+      },
     },
   ];
+  const previewFooter: React.ReactNode[] = [
+    <Button key="close" onClick={() => setPreviewVisible(false)}>
+      关闭
+    </Button>,
+  ];
+  if (previewPrompt && canManagePrompt(previewPrompt)) {
+    previewFooter.push(
+      <Button
+        key="edit"
+        type="primary"
+        onClick={() => {
+          setPreviewVisible(false);
+          handleOpenModal(previewPrompt);
+        }}
+      >
+        编辑
+      </Button>,
+    );
+  }
 
   return (
     <PageContainer
@@ -291,8 +400,16 @@ const PromptManager: React.FC = () => {
         actionRef={actionRef}
         cardBordered
         request={async (params, sort, filter) => {
+          const filters: Record<string, any> = {};
+          const isPublicFilter = filter?.isPublic as (boolean | string)[] | undefined;
+          if (isPublicFilter && isPublicFilter.length > 0) {
+            const value = isPublicFilter[0];
+            filters.isPublic =
+              typeof value === 'string' ? value === 'true' : Boolean(value);
+          }
           const response = await getPrompts({
             ...params,
+            ...filters,
             current: params.current,
             pageSize: params.pageSize,
           });
@@ -342,6 +459,9 @@ const PromptManager: React.FC = () => {
         rowSelection={{
           selectedRowKeys,
           onChange: setSelectedRowKeys,
+          getCheckboxProps: (record) => ({
+            disabled: !canManagePrompt(record),
+          }),
         }}
       />
 
@@ -354,7 +474,11 @@ const PromptManager: React.FC = () => {
         width={800}
         destroyOnClose
       >
-        <Form form={form} layout="vertical" initialValues={{ isActive: true }}>
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{ isActive: true, isPublic: false }}
+        >
           <Form.Item
             name="name"
             label="模板名称"
@@ -406,6 +530,21 @@ const PromptManager: React.FC = () => {
             />
           </Form.Item>
 
+          {isAdmin ? (
+            <Form.Item
+              name="isPublic"
+              label="权限"
+              valuePropName="checked"
+              tooltip="公共模板对所有用户可见，仅管理员可设置"
+            >
+              <Switch checkedChildren="公共" unCheckedChildren="私有" />
+            </Form.Item>
+          ) : (
+            <Form.Item label="权限">
+              <Tag color="default">仅自己可见</Tag>
+            </Form.Item>
+          )}
+
           <Form.Item name="isActive" label="状态" valuePropName="checked">
             <Switch checkedChildren="启用" unCheckedChildren="禁用" />
           </Form.Item>
@@ -417,23 +556,7 @@ const PromptManager: React.FC = () => {
         title="Prompt 预览"
         open={previewVisible}
         onCancel={() => setPreviewVisible(false)}
-        footer={[
-          <Button key="close" onClick={() => setPreviewVisible(false)}>
-            关闭
-          </Button>,
-          <Button
-            key="edit"
-            type="primary"
-            onClick={() => {
-              setPreviewVisible(false);
-              if (previewPrompt) {
-                handleOpenModal(previewPrompt);
-              }
-            }}
-          >
-            编辑
-          </Button>,
-        ]}
+        footer={previewFooter}
         width={700}
       >
         {previewPrompt && (
@@ -458,6 +581,16 @@ const PromptManager: React.FC = () => {
                 {previewPrompt.description}
               </div>
             )}
+            <div>
+              <strong>权限：</strong>
+              <Tag color={previewPrompt.isPublic ? 'blue' : 'default'}>
+                {previewPrompt.isPublic
+                  ? '公共模板（管理员维护）'
+                  : previewPrompt.userId === currentUserId
+                    ? '仅自己可见'
+                    : '私人模板'}
+              </Tag>
+            </div>
             {previewPrompt.variables && previewPrompt.variables.length > 0 && (
               <div>
                 <strong>变量：</strong>
@@ -466,6 +599,14 @@ const PromptManager: React.FC = () => {
                     {`{${v}}`}
                   </Tag>
                 ))}
+              </div>
+            )}
+            {isAdmin && (
+              <div>
+                <strong>创建者：</strong>
+                <Tag color={previewPrompt.userId === currentUserId ? 'gold' : 'default'}>
+                  {previewPrompt.userId === currentUserId ? '自己' : previewPrompt.userId}
+                </Tag>
               </div>
             )}
             <div>

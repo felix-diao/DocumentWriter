@@ -58,12 +58,12 @@ export default [
       },
     ],
   },
-  {
-    name: 'list.table-list',
-    icon: 'table',
-    path: '/list',
-    component: './table-list',
-  },
+  // {
+  //   name: 'list.table-list',
+  //   icon: 'table',
+  //   path: '/list',
+  //   component: './table-list',
+  // },
   {
     path: '/AI/calendar',
     icon: 'calendar',
@@ -81,17 +81,17 @@ export default [
         name: 'AI 公文生成器',
         component: './AI/DocumentWriter',
       },
-      // {
-      //   path: '/AI/conversation-history',
-      //   name: '会话历史',
-      //   icon: 'message',
-      //   component: './AI/ConversationHistory',
-      // },
       {
-        path: '/AI/meeting-assistant',
-        name: 'AI 会议助手',
-        component: './AI/MeetingAssistant',
+        path: '/AI/conversation-history',
+        name: '会话历史',
+        icon: 'message',
+        component: './AI/ConversationHistory',
       },
+      // {
+      //   path: '/AI/meeting-assistant',
+      //   name: 'AI 会议助手',
+      //   component: './AI/MeetingAssistant',
+      // },
       {
         path: '/AI/prompt-manager',
         name: 'Prompt 管理',

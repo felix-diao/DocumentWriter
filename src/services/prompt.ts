@@ -9,6 +9,8 @@ export interface PromptTemplate {
   description?: string;
   variables?: string[];
   isActive: boolean;
+  isPublic: boolean;
+  userId: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -23,6 +25,7 @@ export async function getPrompts(params?: {
   name?: string;
   category?: string;
   isActive?: boolean;
+  isPublic?: boolean;
   current?: number;
   pageSize?: number;
 }) {
@@ -52,14 +55,14 @@ export async function getPromptById(id: string) {
  * 创建 Prompt 模板
  */
 export async function createPrompt(
-  data: Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'>,
+  data: Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt' | 'userId'>,
 ) {
   return request<{
     data: PromptTemplate;
     success: boolean;
   }>(PROMPT_API_BASE, {
     method: 'POST',
-    data,
+    data: transformPromptPayload(data),
   });
 }
 
@@ -68,14 +71,14 @@ export async function createPrompt(
  */
 export async function updatePrompt(
   id: string,
-  data: Partial<Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'>>,
+  data: Partial<Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt' | 'userId'>>,
 ) {
   return request<{
     data: PromptTemplate;
     success: boolean;
   }>(`${PROMPT_API_BASE}/${id}`, {
     method: 'PUT',
-    data,
+    data: transformPromptPayload(data),
   });
 }
 
@@ -126,3 +129,18 @@ export async function togglePromptActive(id: string, isActive: boolean) {
   });
 }
 
+function transformPromptPayload(payload: Record<string, any>) {
+  const data: Record<string, any> = { ...payload };
+  if ('isActive' in data) {
+    data.is_active = data.isActive;
+    delete data.isActive;
+  }
+  if ('isPublic' in data) {
+    data.is_public = data.isPublic;
+    delete data.isPublic;
+  }
+  if ('userId' in data) {
+    delete data.userId;
+  }
+  return data;
+}
