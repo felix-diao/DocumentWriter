@@ -81,6 +81,16 @@ export default {
       changeOrigin: true,
       pathRewrite: { '^/api/meeting/create': '/api/meetings' }
     },
+    'api/meetings/audio/download': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/meetings/audio/download': '/api/meetings/audio/download' }
+    },
+    'api/meetings/files/download': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/meetings/files/download': '/api/meetings/files/download' }
+    },
     '/api/meetings': {
       target: ragTarget,
       changeOrigin: true,

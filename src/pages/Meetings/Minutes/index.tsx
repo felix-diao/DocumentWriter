@@ -750,7 +750,7 @@ const MeetingMinutes: React.FC = () => {
               >
                 智能生成纪要
               </Button>
-              <Button
+              {/* <Button
                 icon={<DownloadOutlined />}
                 disabled={!selectedMeetingId}
                 onClick={() =>
@@ -758,7 +758,7 @@ const MeetingMinutes: React.FC = () => {
                 }
               >
                 导出 Word
-              </Button>
+              </Button> */}
             </Space>
           </Col>
         </Row>

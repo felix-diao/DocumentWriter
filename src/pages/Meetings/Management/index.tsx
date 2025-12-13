@@ -237,6 +237,30 @@ const MeetingManagement: React.FC = () => {
     }
   };
 
+  const handleDownloadBlob = async (getBlob: () => Promise<{ blob: Blob; filename: string }>) => {
+    try {
+      const { blob, filename } = await getBlob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename || 'download';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      message.error(error?.message || '下载失败，请稍后重试');
+    }
+  };
+
+  const handleDownloadFile = (file: MeetingFile) => {
+    handleDownloadBlob(() => meetingsApi.downloadMeetingFile(file.meeting_id, file.id));
+  };
+
+  const handleDownloadAudio = (audio: MeetingAudio) => {
+    handleDownloadBlob(() => meetingsApi.downloadMeetingAudio(audio.meeting_id, audio.id));
+  };
+
   const fileUploadProps: UploadProps = {
     name: 'files',
     multiple: true,
@@ -268,39 +292,48 @@ const MeetingManagement: React.FC = () => {
   const columns: ColumnsType<Meeting> = [
     {
       title: '会议标题',
+      width: 220,
       dataIndex: 'title',
-      render: (value: string, record) => (
-        <Button type="link" onClick={() => openMeetingDrawer(record)} icon={<EyeOutlined />}>
-          {value}
-        </Button>
-      ),
+      render: (value: string) => <Typography.Text strong ellipsis={{ tooltip: value }}>{value}</Typography.Text>,
     },
     {
       title: '会议时间',
+      width: 170,
       dataIndex: 'date',
       render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm'),
     },
     {
       title: '地点',
+      width: 220,
       dataIndex: 'location',
       ellipsis: true,
     },
     {
       title: '主持人',
+      width: 120,
       dataIndex: 'host',
       ellipsis: true,
     },
     {
       title: '会议状态',
+      width: 120,
       dataIndex: 'status',
       render: (value: string) => renderStatusTag(value),
     },
     {
       title: '操作',
       key: 'actions',
-      width: 260,
+      width: 340,
       render: (_, record) => (
         <Space size="small" wrap>
+          <Button
+            size="small"
+            type="primary"
+            icon={<EyeOutlined />}
+            onClick={() => openMeetingDrawer(record)}
+          >
+            查看
+          </Button>
           <Button size="small" onClick={() => openEditModal(record)} icon={<EditOutlined />}>
             编辑
           </Button>
@@ -370,7 +403,7 @@ const MeetingManagement: React.FC = () => {
                 key="download"
                 type="link"
                 icon={<DownloadOutlined />}
-                onClick={() => window.open(meetingFileDownloadUrl(item.meeting_id, item.id), '_blank')}
+                onClick={() => handleDownloadFile(item)}
               >
                 下载
               </Button>,
@@ -428,7 +461,7 @@ const MeetingManagement: React.FC = () => {
                 key="dl"
                 type="link"
                 icon={<DownloadOutlined />}
-                onClick={() => window.open(meetingAudioDownloadUrl(item.meeting_id, item.id), '_blank')}
+                onClick={() => handleDownloadAudio(item)}
               >
                 下载音频
               </Button>,

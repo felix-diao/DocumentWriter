@@ -130,11 +130,32 @@ const deleteAudio = async (meetingId: number, audioId: number): Promise<void> =>
   });
 };
 
-export const meetingFileDownloadUrl = (meetingId: number, fileId: number) =>
-  `/api/meetings/files/download/${meetingId}/${fileId}`;
+const downloadBlob = async (url: string) => {
+  const response = await request(url, {
+    method: 'GET',
+    responseType: 'blob',
+    getResponse: true,
+  });
+  const disposition = response.response?.headers?.get('content-disposition');
+  let filename = 'download';
+  if (disposition) {
+    const match = disposition.match(/filename\*?=(?:UTF-8'')?\"?([^\";]+)/i);
+    if (match?.[1]) {
+      filename = decodeURIComponent(match[1]);
+    }
+  }
+  return { blob: response.data as Blob, filename };
+};
 
-export const meetingAudioDownloadUrl = (meetingId: number, audioId: number) =>
-  `/api/meetings/audio/download/${meetingId}/${audioId}`;
+const downloadMeetingFile = async (meetingId: number, fileId: number) => {
+  const url = `/api/meetings/files/download/${meetingId}/${fileId}`;
+  return downloadBlob(url);
+};
+
+const downloadMeetingAudio = async (meetingId: number, audioId: number) => {
+  const url = `/api/meetings/audio/download/${meetingId}/${audioId}`;
+  return downloadBlob(url);
+};
 
 export const meetingsApi = {
   list: listMeetings,
@@ -148,6 +169,8 @@ export const meetingsApi = {
   listAudios,
   uploadAudios,
   deleteAudio,
+  downloadMeetingFile,
+  downloadMeetingAudio,
 };
 
 export default meetingsApi;

@@ -53,6 +53,8 @@ import { getPrompts } from '@/services/prompt';
 const { TextArea } = Input;
 const { Title, Text } = Typography;
 
+const SAVED_DOCS_STORAGE_KEY = 'documentWriter:savedDocs';
+
 interface SavedDocument {
   id: string;
   title: string;
@@ -67,6 +69,10 @@ interface SavedDocument {
   pdfPath?: string;
   wordPath?: string;
 }
+
+type SavedDocumentSnapshot = Omit<SavedDocument, 'createdAt'> & {
+  createdAt: string;
+};
 
 interface DocumentAssets {
   pdfUrl?: string;
@@ -1070,6 +1076,41 @@ function OfficialDocumentMeta({ data }: { data: OfficialDocumentData }) {
   );
 }
 
+const loadSavedDocsFromStorage = (): SavedDocument[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(SAVED_DOCS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as SavedDocumentSnapshot[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => ({
+        ...item,
+        createdAt: new Date(item.createdAt),
+      }))
+      .filter((item) => !Number.isNaN(item.createdAt.getTime()));
+  } catch (error) {
+    console.warn('Failed to parse saved docs from localStorage', error);
+    return [];
+  }
+};
+
+const persistSavedDocs = (docs: SavedDocument[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    const snapshot: SavedDocumentSnapshot[] = docs.map((item) => ({
+      ...item,
+      createdAt: item.createdAt.toISOString(),
+    }));
+    window.localStorage.setItem(
+      SAVED_DOCS_STORAGE_KEY,
+      JSON.stringify(snapshot),
+    );
+  } catch (error) {
+    console.warn('Failed to persist saved docs to localStorage', error);
+  }
+};
+
 const DocumentWriter: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -1086,7 +1127,9 @@ const DocumentWriter: React.FC = () => {
     'medium',
   );
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
-  const [savedDocs, setSavedDocs] = useState<SavedDocument[]>([]);
+  const [savedDocs, setSavedDocs] = useState<SavedDocument[]>(() =>
+    loadSavedDocsFromStorage(),
+  );
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(true);
 
@@ -2068,7 +2111,9 @@ const DocumentWriter: React.FC = () => {
         pdfPath: documentAssets.pdfPath,
         wordPath: documentAssets.wordPath,
       };
-      setSavedDocs([newDoc, ...savedDocs]);
+      const nextDocs = [newDoc, ...savedDocs];
+      setSavedDocs(nextDocs);
+      persistSavedDocs(nextDocs);
       message.success('文档已保存到云端');
       setShowSaveModal(false);
       setTitleInput('');
@@ -2097,7 +2142,9 @@ const DocumentWriter: React.FC = () => {
       title: '确认删除',
       content: '确定要删除这个文档吗？',
       onOk: () => {
-        setSavedDocs(savedDocs.filter((d) => d.id !== docId));
+        const nextDocs = savedDocs.filter((d) => d.id !== docId);
+        setSavedDocs(nextDocs);
+        persistSavedDocs(nextDocs);
         message.success('文档已删除');
       },
     });

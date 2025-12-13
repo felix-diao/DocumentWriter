@@ -14,14 +14,11 @@ import {
   Descriptions,
   Divider,
   Empty,
-  Form,
   Input,
   InputNumber,
   List,
-  Modal,
   Space,
   Spin,
-  Switch,
   Tag,
   Tooltip,
   Typography,
@@ -42,31 +39,33 @@ import type {
   FeedbackType,
 } from '@/services/conversation';
 import conversationService from '@/services/conversation';
-import { useModel } from '@umijs/max';
 
 const { Text, Paragraph } = Typography;
 
 const DEFAULT_PAGE_SIZE = 10;
 
+interface LoadListParams {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+  refreshDetail?: boolean;
+}
+
 const formatDateTime = (value?: string) =>
   value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-';
 
 const roleColorMap: Record<string, string> = {
-  user: 'blue',
-  assistant: 'green',
-  system: 'gold',
-  tool: 'purple',
+  query: 'blue',
+  answer: 'green',
 };
 
-const normalizeFeedbackType = (value?: string): FeedbackType => {
-  if (value === 'upvote' || value === 'downvote' || value === 'neutral') {
-    return value;
-  }
-  return 'upvote';
+const mapLikedToFeedbackType = (value?: boolean): FeedbackType => {
+  if (value === true) return 'upvote';
+  if (value === false) return 'downvote';
+  return 'neutral';
 };
 
 const ConversationHistoryPage: React.FC = () => {
-  const { initialState } = useModel('@@initialState');
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -80,16 +79,7 @@ const ConversationHistoryPage: React.FC = () => {
   });
   const [feedbackType, setFeedbackType] = useState<FeedbackType>('upvote');
   const [feedbackWeight, setFeedbackWeight] = useState<number>(1);
-  const [feedbackComment, setFeedbackComment] = useState('');
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
-  const [createModalVisible, setCreateModalVisible] = useState(false);
-  const [creatingConversation, setCreatingConversation] = useState(false);
-  const [createForm] = Form.useForm<{
-    query: string;
-    answer: string;
-    weight?: number;
-    liked?: boolean;
-  }>();
   const selectedIdRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
@@ -102,18 +92,11 @@ const ConversationHistoryPage: React.FC = () => {
     try {
       const data = await conversationService.get(conversationId);
       setDetail(data);
-      if (data.feedback) {
-        setFeedbackType(normalizeFeedbackType(data.feedback.type));
-        if (typeof data.feedback.weight === 'number') {
-          setFeedbackWeight(data.feedback.weight);
-        } else {
-          setFeedbackWeight(1);
-        }
-        setFeedbackComment(data.feedback.comment || '');
+      setFeedbackType(mapLikedToFeedbackType(data.liked));
+      if (typeof data.weight === 'number') {
+        setFeedbackWeight(Number(data.weight.toFixed(2)));
       } else {
-        setFeedbackType('upvote');
-        setFeedbackWeight(1);
-        setFeedbackComment('');
+        setFeedbackWeight(0.8);
       }
     } catch (error) {
       console.error(error);
@@ -125,30 +108,16 @@ const ConversationHistoryPage: React.FC = () => {
 
   const loadList = useCallback(
     async ({
-      page,
-      pageSize,
+      page = 1,
+      pageSize = DEFAULT_PAGE_SIZE,
       keyword,
       refreshDetail = false,
-    }: {
-      page?: number;
-      pageSize?: number;
-      keyword?: string;
-      refreshDetail?: boolean;
-    } = {}) => {
+    }: LoadListParams = {}) => {
       setListLoading(true);
-      try {
-        const res = await conversationService.list({
-          page,
-          pageSize,
-          keyword: keyword?.trim() ? keyword.trim() : undefined,
-        });
-        setConversations(res.items);
-        setPagination({
-          current: res.page,
-          pageSize: res.pageSize,
-          total: res.total,
-        });
-        if (res.items.length === 0) {
+      const trimmedKeyword = keyword?.trim();
+
+      const updateSelection = async (items: ConversationSummary[]) => {
+        if (items.length === 0) {
           setSelectedId(undefined);
           setDetail(null);
           return;
@@ -156,9 +125,9 @@ const ConversationHistoryPage: React.FC = () => {
 
         const currentSelected = selectedIdRef.current;
         const exists =
-          currentSelected &&
-          res.items.some((item) => item.id === currentSelected);
-        const nextId = exists ? currentSelected : res.items[0]?.id;
+          currentSelected && items.some((item) => item.id === currentSelected);
+        const nextId = exists ? currentSelected : items[0]?.id;
+
         if (!nextId) return;
 
         if (!exists) {
@@ -166,6 +135,38 @@ const ConversationHistoryPage: React.FC = () => {
           await loadDetail(nextId);
         } else if (refreshDetail) {
           await loadDetail(nextId);
+        }
+      };
+
+      try {
+        if (trimmedKeyword) {
+          const searchResults = await conversationService.search({
+            query: trimmedKeyword,
+            topK: pageSize,
+          });
+          setConversations(searchResults);
+          setPagination({
+            current: 1,
+            pageSize,
+            total: searchResults.length,
+          });
+          await updateSelection(searchResults);
+        } else {
+          const res = await conversationService.list({
+            page,
+            pageSize,
+          });
+          setConversations(res.items);
+          const total =
+            res.items.length < pageSize
+              ? (page - 1) * pageSize + res.items.length
+              : page * pageSize + 1;
+          setPagination({
+            current: res.page,
+            pageSize: res.pageSize,
+            total,
+          });
+          await updateSelection(res.items);
         }
       } catch (error) {
         console.error(error);
@@ -206,60 +207,48 @@ const ConversationHistoryPage: React.FC = () => {
   };
 
   const handleFeedbackSubmit = async () => {
-    if (!selectedId) {
+    if (!selectedId || !detail) {
       message.warning('请选择需要反馈的会话');
       return;
     }
+    const payload: {
+      liked?: boolean;
+      weightDelta?: number;
+    } = {};
+
+    if (feedbackType === 'upvote') {
+      payload.liked = true;
+    } else if (feedbackType === 'downvote') {
+      payload.liked = false;
+    }
+
+    if (typeof feedbackWeight === 'number' && typeof detail.weight === 'number') {
+      const delta = Number((feedbackWeight - detail.weight).toFixed(4));
+      if (Math.abs(delta) >= 0.0001) {
+        payload.weightDelta = delta;
+      }
+    }
+
+    if (payload.liked === undefined && payload.weightDelta === undefined) {
+      message.warning('请调整点赞状态或权重后再提交');
+      return;
+    }
+
     setSubmittingFeedback(true);
     try {
-      await conversationService.feedback(selectedId, {
-        type: feedbackType,
-        weight: feedbackWeight,
-        comment: feedbackComment || undefined,
-      });
+      await conversationService.feedback(selectedId, payload);
       message.success('反馈已提交');
       await loadDetail(selectedId);
+      await loadList({
+        page: searchKeyword.trim() ? 1 : pagination.current,
+        pageSize: pagination.pageSize,
+        keyword: searchKeyword,
+      });
     } catch (error) {
       console.error(error);
       message.error('提交反馈失败');
     } finally {
       setSubmittingFeedback(false);
-    }
-  };
-
-  const handleCreateConversation = async () => {
-    try {
-      const values = await createForm.validateFields();
-      if (!initialState?.currentUser?.user_id) {
-        message.error('无法获取当前用户信息，请重新登录');
-        return;
-      }
-      setCreatingConversation(true);
-      await conversationService.create({
-        user_id: initialState.currentUser.user_id,
-        query: values.query.trim(),
-        answer: values.answer.trim(),
-        weight:
-          typeof values.weight === 'number' ? values.weight : undefined,
-        liked: values.liked,
-      });
-      message.success('会话已添加');
-      setCreateModalVisible(false);
-      createForm.resetFields();
-      await loadList({
-        page: 1,
-        pageSize: pagination.pageSize,
-        keyword: searchKeyword,
-        refreshDetail: true,
-      });
-    } catch (error: any) {
-      if (error?.errorFields) {
-        return;
-      }
-      console.error(error);
-      message.error(error?.message || '添加会话失败');
-    } finally {
-      setCreatingConversation(false);
     }
   };
 
@@ -271,11 +260,11 @@ const ConversationHistoryPage: React.FC = () => {
       style={{
         marginBottom: 12,
         borderColor:
-          messageItem.role === 'user'
+          messageItem.role === 'query'
             ? '#d9d9d9'
             : 'rgba(22, 119, 255, 0.3)',
         background:
-          messageItem.role === 'user'
+          messageItem.role === 'query'
             ? '#fff'
             : 'rgba(22, 119, 255, 0.03)',
       }}
@@ -371,20 +360,6 @@ const ConversationHistoryPage: React.FC = () => {
                   onClick={handleRefresh}
                 />
               </Tooltip>
-              <Button
-                size="small"
-                type="primary"
-                onClick={() => {
-                  createForm.resetFields();
-                  createForm.setFieldsValue({
-                    weight: 0.8,
-                    liked: false,
-                  });
-                  setCreateModalVisible(true);
-                }}
-              >
-                新增会话
-              </Button>
             </Space>
           }
           bodyStyle={{ paddingRight: 8 }}
@@ -397,20 +372,24 @@ const ConversationHistoryPage: React.FC = () => {
               dataSource={conversations}
               loading={listLoading}
               rowKey={(item) => item.id}
-              pagination={{
-                current: pagination.current,
-                pageSize: pagination.pageSize,
-                total: pagination.total,
-                size: 'small',
-                hideOnSinglePage: pagination.total <= pagination.pageSize,
-                onChange: (page, pageSize) =>
-                  loadList({
-                    page,
-                    pageSize,
-                    keyword: searchKeyword,
-                    refreshDetail: true,
-                  }),
-              }}
+              pagination={
+                searchKeyword.trim()
+                  ? false
+                  : {
+                      current: pagination.current,
+                      pageSize: pagination.pageSize,
+                      total: pagination.total,
+                      size: 'small',
+                      hideOnSinglePage: pagination.total <= pagination.pageSize,
+                      onChange: (page, pageSize) =>
+                        loadList({
+                          page,
+                          pageSize,
+                          keyword: searchKeyword,
+                          refreshDetail: true,
+                        }),
+                    }
+              }
               renderItem={(item) => (
                 <List.Item
                   style={{
@@ -482,26 +461,11 @@ const ConversationHistoryPage: React.FC = () => {
           extra={
             detail && (
               <Space size="small">
-                {detail.feedback?.type && (
-                  <Tag
-                    color={
-                      detail.feedback.type === 'downvote'
-                        ? 'red'
-                        : detail.feedback.type === 'neutral'
-                          ? 'default'
-                          : 'green'
-                    }
-                  >
-                    当前反馈：{detail.feedback.type}
-                    {typeof detail.feedback.weight === 'number'
-                      ? `（${detail.feedback.weight}）`
-                      : ''}
-                  </Tag>
-                )}
-                {detail.feedback?.updatedAt && (
-                  <Text type="secondary">
-                    最后反馈时间：{formatDateTime(detail.feedback.updatedAt)}
-                  </Text>
+                <Tag color={detail.liked ? 'green' : 'default'}>
+                  {detail.liked ? '已点赞' : '未点赞'}
+                </Tag>
+                {typeof detail.weight === 'number' && (
+                  <Tag color="blue">权重：{detail.weight.toFixed(2)}</Tag>
                 )}
               </Space>
             )
@@ -540,6 +504,14 @@ const ConversationHistoryPage: React.FC = () => {
                 <Descriptions.Item label="用户">
                   {detail.userId || '未知'}
                 </Descriptions.Item>
+                <Descriptions.Item label="当前权重">
+                  {typeof detail.weight === 'number'
+                    ? detail.weight.toFixed(2)
+                    : '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="点赞状态">
+                  {detail.liked ? '已点赞' : '未点赞'}
+                </Descriptions.Item>
               </Descriptions>
 
               <Divider />
@@ -571,22 +543,14 @@ const ConversationHistoryPage: React.FC = () => {
                   </Button>
                   <InputNumber
                     value={feedbackWeight}
-                    min={-10}
-                    max={10}
-                    step={0.5}
+                    min={0.1}
+                    max={1}
+                    step={0.05}
                     onChange={(value) =>
                       setFeedbackWeight(
                         typeof value === 'number' ? value : feedbackWeight,
                       )
                     }
-                    disabled={!selectedId}
-                  />
-                  <Input.TextArea
-                    value={feedbackComment}
-                    onChange={(e) => setFeedbackComment(e.target.value)}
-                    placeholder="添加备注（可选）"
-                    autoSize={{ minRows: 1, maxRows: 3 }}
-                    style={{ width: 220 }}
                     disabled={!selectedId}
                   />
                   <Button
@@ -662,63 +626,6 @@ const ConversationHistoryPage: React.FC = () => {
           )}
         </ProCard>
       </ProCard>
-      <Modal
-        title="新增会话"
-        open={createModalVisible}
-        onCancel={() => setCreateModalVisible(false)}
-        onOk={handleCreateConversation}
-        confirmLoading={creatingConversation}
-        destroyOnClose
-        okText="保存"
-      >
-        <Form
-          layout="vertical"
-          form={createForm}
-          initialValues={{ weight: 0.8, liked: false }}
-        >
-          <Form.Item
-            name="query"
-            label="用户提问"
-            rules={[{ required: true, message: '请输入提问内容' }]}
-          >
-            <Input.TextArea rows={3} placeholder="请输入用户提问" />
-          </Form.Item>
-          <Form.Item
-            name="answer"
-            label="模型回答"
-            rules={[{ required: true, message: '请输入回答内容' }]}
-          >
-            <Input.TextArea rows={4} placeholder="请输入模型回答" />
-          </Form.Item>
-          <Form.Item
-            name="weight"
-            label="权重（0-1）"
-            rules={[
-              {
-                type: 'number',
-                min: 0,
-                max: 1,
-                message: '权重范围应在 0 到 1',
-              },
-            ]}
-          >
-            <InputNumber
-              min={0}
-              max={1}
-              step={0.1}
-              style={{ width: '100%' }}
-              placeholder="默认 0.8"
-            />
-          </Form.Item>
-          <Form.Item
-            name="liked"
-            label="是否点赞"
-            valuePropName="checked"
-          >
-            <Switch />
-          </Form.Item>
-        </Form>
-      </Modal>
     </PageContainer>
   );
 };
