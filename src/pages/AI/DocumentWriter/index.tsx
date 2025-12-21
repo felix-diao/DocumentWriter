@@ -1,8 +1,5 @@
 import {
   CloudUploadOutlined,
-  CopyOutlined,
-  DeleteOutlined,
-  DownloadOutlined,
   EditOutlined,
   ExportOutlined,
   EyeOutlined,
@@ -12,6 +9,7 @@ import {
   LeftOutlined,
   ReloadOutlined,
   RightOutlined,
+  SearchOutlined,
   UndoOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
@@ -27,12 +25,14 @@ import {
   Input,
   List,
   Modal,
+  Popover,
   message,
   Progress,
   Row,
   Select,
   Space,
   Spin,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -54,6 +54,7 @@ const { TextArea } = Input;
 const { Title, Text } = Typography;
 
 const SAVED_DOCS_STORAGE_KEY = 'documentWriter:savedDocs';
+const OPTIMIZE_HISTORY_STORAGE_KEY = 'documentWriter:optimizeHistory';
 
 interface SavedDocument {
   id: string;
@@ -63,11 +64,12 @@ interface SavedDocument {
   scenario?: string;
   url?: string;
   createdAt: Date;
-  size?: number;
+  size?: number | string;
   pdfUrl?: string;
   wordUrl?: string;
   pdfPath?: string;
   wordPath?: string;
+  aiRate?: number | null;
 }
 
 type SavedDocumentSnapshot = Omit<SavedDocument, 'createdAt'> & {
@@ -80,6 +82,118 @@ interface DocumentAssets {
   pdfPath?: string;
   wordPath?: string;
 }
+
+interface OptimizeHistoryItem extends DocumentAssets {
+  id: string;
+  instruction: string;
+  types: string[];
+  originalContent: string;
+  optimizedContent: string;
+  timestamp: Date;
+  aiRate: number | null;
+}
+
+type OptimizeHistorySnapshot = Omit<OptimizeHistoryItem, 'timestamp'> & {
+  timestamp: string;
+};
+
+const FILE_SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
+const FILE_SIZE_UNIT_MAP: Record<string, number> = {
+  B: 1,
+  KB: 1024,
+  MB: 1024 ** 2,
+  GB: 1024 ** 3,
+  TB: 1024 ** 4,
+};
+
+const parseFileSizeToBytes = (value: unknown): number | null => {
+  if (typeof value === 'number') {
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+    return null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const match = trimmed.match(/^([\d.,]+)\s*(B|KB|MB|GB|TB)?$/i);
+    if (match) {
+      const numeric = parseFloat(match[1].replace(/,/g, ''));
+      if (Number.isNaN(numeric)) {
+        return null;
+      }
+      const unit = (match[2]?.toUpperCase() ?? 'B').replace('IB', 'B');
+      const multiplier = FILE_SIZE_UNIT_MAP[unit] ?? 1;
+      return numeric * multiplier;
+    }
+    const sanitized = trimmed.replace(/[^0-9.]/g, '');
+    if (!sanitized) {
+      return null;
+    }
+    const numeric = parseFloat(sanitized);
+    if (Number.isNaN(numeric)) {
+      return null;
+    }
+    return numeric;
+  }
+  return null;
+};
+
+const formatFileSize = (value: unknown, fallbackBytes?: number): string => {
+  const fallback =
+    typeof fallbackBytes === 'number' && Number.isFinite(fallbackBytes) && fallbackBytes > 0
+      ? fallbackBytes
+      : null;
+  const bytes = parseFileSizeToBytes(value) ?? fallback;
+  if (!bytes) {
+    return '--';
+  }
+  let unitIndex = 0;
+  let size = bytes;
+  while (size >= 1024 && unitIndex < FILE_SIZE_UNITS.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  let display = '';
+  if (unitIndex === 0) {
+    display = size.toFixed(0);
+  } else if (size >= 100) {
+    display = size.toFixed(0);
+  } else if (size >= 10) {
+    display = size.toFixed(1);
+  } else {
+    display = size.toFixed(2);
+  }
+  display = display.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
+  return `${display} ${FILE_SIZE_UNITS[unitIndex]}`;
+};
+
+const normalizeUploadFileSize = (value: unknown, fallbackBytes: number): number => {
+  const parsed = parseFileSizeToBytes(value);
+  if (parsed && Number.isFinite(parsed)) {
+    return parsed;
+  }
+  return fallbackBytes;
+};
+
+const estimateTextByteSize = (text: string): number => {
+  if (!text) {
+    return 0;
+  }
+  if (typeof TextEncoder !== 'undefined') {
+    return new TextEncoder().encode(text).length;
+  }
+  if (typeof Blob !== 'undefined') {
+    try {
+      return new Blob([text]).size;
+    } catch {
+      return text.length;
+    }
+  }
+  return text.length;
+};
 
 const DOCUMENT_TYPE_OPTIONS = [
   { label: '通知', value: 'notice' },
@@ -142,6 +256,16 @@ const SCENARIO_OPTIONS: Record<
     { label: '专题会议纪要', value: 'thematic_meeting' },
     { label: '座谈会纪要', value: 'symposium_meeting' },
   ],
+};
+
+const OPTIMIZE_TYPE_LABELS: Record<string, string> = {
+  all: '全面优化',
+  grammar: '语法纠正',
+  style: '文风优化',
+  clarity: '清晰度',
+  logic: '逻辑梳理',
+  format: '格式规范',
+  tone: '语气调整',
 };
 
 const getScenarioLabel = (typeValue: string, scenarioValue?: string) => {
@@ -1111,6 +1235,49 @@ const persistSavedDocs = (docs: SavedDocument[]) => {
   }
 };
 
+const loadOptimizeHistoryFromStorage = (): OptimizeHistoryItem[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(OPTIMIZE_HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as OptimizeHistorySnapshot[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => {
+        const { timestamp: timestampString, ...rest } = item;
+        const timestamp = new Date(timestampString);
+        if (Number.isNaN(timestamp.getTime())) {
+          return null;
+        }
+        return {
+          ...rest,
+          timestamp,
+          types: Array.isArray(rest.types) ? rest.types : [],
+        } as OptimizeHistoryItem;
+      })
+      .filter((item): item is OptimizeHistoryItem => Boolean(item));
+  } catch (error) {
+    console.warn('Failed to parse optimize history from localStorage', error);
+    return [];
+  }
+};
+
+const persistOptimizeHistory = (history: OptimizeHistoryItem[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    const snapshot: OptimizeHistorySnapshot[] = history.map((item) => ({
+      ...item,
+      timestamp: item.timestamp.toISOString(),
+    }));
+    window.localStorage.setItem(
+      OPTIMIZE_HISTORY_STORAGE_KEY,
+      JSON.stringify(snapshot),
+    );
+  } catch (error) {
+    console.warn('Failed to persist optimize history to localStorage', error);
+  }
+};
+
 const DocumentWriter: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -1160,17 +1327,22 @@ const DocumentWriter: React.FC = () => {
   const [selectedOptimizeTypes, setSelectedOptimizeTypes] = useState<string[]>([
     'all',
   ]);
-  const [optimizeHistory, setOptimizeHistory] = useState<
-    Array<{
-      id: string;
-      instruction: string;
-      types: string[];
-      originalContent: string;
-      optimizedContent: string;
-      timestamp: Date;
-      aiRate: number | null;
-    }>
-  >([]);
+  const [optimizeHistory, setOptimizeHistory] = useState<OptimizeHistoryItem[]>(
+    () => loadOptimizeHistoryFromStorage(),
+  );
+  const [activeLibraryTab, setActiveLibraryTab] = useState<'optimize' | 'drafts'>(
+    'optimize',
+  );
+  const [optimizeHistorySearch, setOptimizeHistorySearch] = useState('');
+  const [optimizeHistoryTypeFilter, setOptimizeHistoryTypeFilter] =
+    useState('__all__');
+  const [optimizeHistorySort, setOptimizeHistorySort] = useState<'desc' | 'asc'>(
+    'desc',
+  );
+  const [draftsSearch, setDraftsSearch] = useState('');
+  const [draftsTypeFilter, setDraftsTypeFilter] =
+    useState<string>('all');
+  const [draftsSort, setDraftsSort] = useState<'desc' | 'asc'>('desc');
 
   // 进度条相关状态
   const [generateProgress, setGenerateProgress] = useState(0);
@@ -1194,6 +1366,79 @@ const DocumentWriter: React.FC = () => {
       ),
     [selectedPrompts],
   );
+  const filteredOptimizeHistory = useMemo(() => {
+    const normalizedSearch = optimizeHistorySearch.trim().toLowerCase();
+    const bySearch = (text: string) =>
+      text.toLowerCase().includes(normalizedSearch);
+    return [...optimizeHistory]
+      .filter((item) => {
+        if (!normalizedSearch) {
+          return true;
+        }
+        return (
+          bySearch(item.instruction || '') ||
+          bySearch(item.originalContent) ||
+          bySearch(item.optimizedContent) ||
+          bySearch(
+            item.types
+              .map((type) => OPTIMIZE_TYPE_LABELS[type] || type)
+              .join(' '),
+          ) ||
+          bySearch(
+            item.timestamp
+              ? item.timestamp.toLocaleString('zh-CN')
+              : '',
+          ) ||
+          bySearch(
+            item.aiRate !== null && item.aiRate !== undefined
+              ? formatAiRateDisplay(item.aiRate)
+              : '',
+          )
+        );
+      })
+      .filter((item) => {
+        if (optimizeHistoryTypeFilter === '__all__') {
+          return true;
+        }
+        return item.types.includes(optimizeHistoryTypeFilter);
+      })
+      .sort((a, b) => {
+        const diff =
+          a.timestamp.getTime() - b.timestamp.getTime();
+        return optimizeHistorySort === 'asc' ? diff : -diff;
+      });
+  }, [
+    optimizeHistory,
+    optimizeHistorySearch,
+    optimizeHistoryTypeFilter,
+    optimizeHistorySort,
+  ]);
+  const filteredSavedDocs = useMemo(() => {
+    const normalizedSearch = draftsSearch.trim().toLowerCase();
+    return [...savedDocs]
+      .filter((doc) => {
+        if (!normalizedSearch) {
+          return true;
+        }
+        const scenarioLabel = getScenarioLabel(doc.type, doc.scenario) || '';
+        return (
+          doc.title.toLowerCase().includes(normalizedSearch) ||
+          doc.content.toLowerCase().includes(normalizedSearch) ||
+          scenarioLabel.toLowerCase().includes(normalizedSearch)
+        );
+      })
+      .filter((doc) => {
+        if (draftsTypeFilter === 'all') {
+          return true;
+        }
+        return doc.type === draftsTypeFilter;
+      })
+      .sort((a, b) => {
+        const diff =
+          a.createdAt.getTime() - b.createdAt.getTime();
+        return draftsSort === 'asc' ? diff : -diff;
+      });
+  }, [savedDocs, draftsSearch, draftsTypeFilter, draftsSort]);
 
   useEffect(() => {
     setPromptVariableValues((prev) => {
@@ -1726,16 +1971,29 @@ const DocumentWriter: React.FC = () => {
         ? resolveAssetUrl(wordPathFromResponse)
         : undefined;
 
-      setDocumentAssets({
-        pdfUrl: resolvedPdfUrl ?? undefined,
-        wordUrl: resolvedWordUrl,
-        pdfPath: pdfPathFromResponse ?? undefined,
-        wordPath: wordPathFromResponse ?? undefined,
-      });
-      setPdfPreviewUrl(resolvedPdfUrl);
+      const nextDocumentAssets: DocumentAssets = {
+        ...documentAssets,
+      };
+      if (pdfPathFromResponse) {
+        nextDocumentAssets.pdfPath = pdfPathFromResponse;
+        nextDocumentAssets.pdfUrl = resolvedPdfUrl ?? nextDocumentAssets.pdfUrl;
+      }
+      if (wordPathFromResponse) {
+        nextDocumentAssets.wordPath = wordPathFromResponse;
+        nextDocumentAssets.wordUrl = resolvedWordUrl ?? nextDocumentAssets.wordUrl;
+      }
+      setDocumentAssets(nextDocumentAssets);
+      const nextPreviewUrl =
+        nextDocumentAssets.pdfUrl ||
+        (nextDocumentAssets.pdfPath
+          ? resolveAssetUrl(nextDocumentAssets.pdfPath)
+          : null);
+      if (nextPreviewUrl) {
+        setPdfPreviewUrl(nextPreviewUrl);
+      }
 
       // 保存到优化历史
-      const historyItem = {
+      const historyItem: OptimizeHistoryItem = {
         id: Date.now().toString(),
         instruction: optimizeInstruction || '智能优化',
         types: [...selectedOptimizeTypes],
@@ -1743,8 +2001,14 @@ const DocumentWriter: React.FC = () => {
         optimizedContent,
         timestamp: new Date(),
         aiRate: aiRateValue,
+        pdfUrl: nextDocumentAssets.pdfUrl,
+        pdfPath: nextDocumentAssets.pdfPath,
+        wordUrl: nextDocumentAssets.wordUrl,
+        wordPath: nextDocumentAssets.wordPath,
       };
-      setOptimizeHistory([historyItem, ...optimizeHistory.slice(0, 9)]); // 只保留最近10条
+      const nextHistory = [historyItem, ...optimizeHistory.slice(0, 9)];
+      setOptimizeHistory(nextHistory); // 只保留最近10条
+      persistOptimizeHistory(nextHistory);
 
       // 延迟隐藏进度条
       setTimeout(() => {
@@ -1774,6 +2038,7 @@ const DocumentWriter: React.FC = () => {
     setContent(lastHistory.originalContent);
     setHtmlContent(formatContentToHTML(lastHistory.originalContent));
     setOptimizeHistory(restHistory);
+    persistOptimizeHistory(restHistory);
     setOptimizeAiRate(restHistory[0]?.aiRate ?? null);
     message.success('已撤销优化');
   };
@@ -1848,17 +2113,7 @@ const DocumentWriter: React.FC = () => {
   };
 
   // 查看优化对比
-  const handleCompareOptimize = (historyItem: (typeof optimizeHistory)[0]) => {
-    const optimizeTypeLabels: Record<string, string> = {
-      all: '全面优化',
-      grammar: '语法',
-      style: '风格',
-      clarity: '清晰度',
-      logic: '逻辑',
-      format: '格式',
-      tone: '语气',
-    };
-
+  const handleCompareOptimize = (historyItem: OptimizeHistoryItem) => {
     Modal.info({
       title: '优化对比',
       width: 1000,
@@ -1946,7 +2201,7 @@ const DocumentWriter: React.FC = () => {
               <Space style={{ marginLeft: '8px' }}>
                 {historyItem.types.map((t) => (
                   <Tag key={t} color="blue">
-                    {optimizeTypeLabels[t] || t}
+                    {OPTIMIZE_TYPE_LABELS[t] || t}
                   </Tag>
                 ))}
               </Space>
@@ -2057,19 +2312,114 @@ const DocumentWriter: React.FC = () => {
     });
   };
 
-  const handleCopy = () => {
-    if (!content.trim()) {
-      message.warning('暂无可复制内容');
-      return;
+  const handlePreviewOptimizeHistory = (historyItem: OptimizeHistoryItem) => {
+    Modal.info({
+      title: '优化结果预览',
+      width: 820,
+      icon: null,
+      content: (
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <div>
+            <strong>优化指令：</strong>
+            <span style={{ marginLeft: '8px' }}>
+              {historyItem.instruction || '全面优化'}
+            </span>
+          </div>
+          <div>
+            <strong>优化类型：</strong>
+            <Space style={{ marginLeft: '8px' }}>
+              {historyItem.types.map((type) => (
+                <Tag key={type} color="blue">
+                  {OPTIMIZE_TYPE_LABELS[type] || type}
+                </Tag>
+              ))}
+            </Space>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '12px',
+            }}
+          >
+            <div
+              style={{
+                background: '#fafafa',
+                borderRadius: '4px',
+                padding: '12px',
+                border: '1px solid #d9d9d9',
+                minHeight: '200px',
+              }}
+            >
+              <strong style={{ color: '#999' }}>优化前</strong>
+              <div
+                style={{
+                  marginTop: '8px',
+                  whiteSpace: 'pre-wrap',
+                  lineHeight: 1.8,
+                  maxHeight: '320px',
+                  overflow: 'auto',
+                }}
+              >
+                {historyItem.originalContent}
+              </div>
+            </div>
+            <div
+              style={{
+                background: '#f0f9ff',
+                borderRadius: '4px',
+                padding: '12px',
+                border: '1px solid #91d5ff',
+                minHeight: '200px',
+              }}
+            >
+              <strong style={{ color: '#1890ff' }}>优化后</strong>
+              <div
+                style={{
+                  marginTop: '8px',
+                  whiteSpace: 'pre-wrap',
+                  lineHeight: 1.8,
+                  maxHeight: '320px',
+                  overflow: 'auto',
+                }}
+              >
+                {historyItem.optimizedContent}
+              </div>
+            </div>
+          </div>
+        </Space>
+      ),
+    });
+  };
+
+  const handleApplyOptimizeHistory = (historyItem: OptimizeHistoryItem) => {
+    setOfficialDocumentData(null);
+    setGenerateAiRate(null);
+    setContent(historyItem.optimizedContent);
+    setHtmlContent(formatContentToHTML(historyItem.optimizedContent));
+    setOptimizeAiRate(historyItem.aiRate ?? null);
+    const assetSnapshot: DocumentAssets = {};
+    if (historyItem.pdfPath) {
+      assetSnapshot.pdfPath = historyItem.pdfPath;
     }
-    if (!navigator.clipboard) {
-      message.error('当前环境暂不支持快速复制');
-      return;
+    if (historyItem.pdfUrl) {
+      assetSnapshot.pdfUrl = historyItem.pdfUrl;
     }
-    navigator.clipboard
-      .writeText(content)
-      .then(() => message.success('已复制到剪贴板'))
-      .catch(() => message.error('复制失败，请重试'));
+    if (historyItem.wordPath) {
+      assetSnapshot.wordPath = historyItem.wordPath;
+    }
+    if (historyItem.wordUrl) {
+      assetSnapshot.wordUrl = historyItem.wordUrl;
+    }
+    setDocumentAssets(assetSnapshot);
+    const previewUrl =
+      historyItem.pdfUrl
+        ? resolveAssetUrl(historyItem.pdfUrl)
+        : historyItem.pdfPath
+          ? resolveAssetUrl(historyItem.pdfPath)
+          : null;
+    setPdfPreviewUrl(previewUrl);
+    message.success('已应用该优化版本');
   };
 
   const handleSaveToCloud = () => {
@@ -2097,6 +2447,10 @@ const DocumentWriter: React.FC = () => {
         folder: 'documents',
         onProgress: (percent) => setUploadProgress(percent),
       });
+      const resolvedSize = normalizeUploadFileSize(
+        result?.size,
+        file.size,
+      );
       const newDoc: SavedDocument = {
         id: Date.now().toString(),
         title: titleInput,
@@ -2105,11 +2459,12 @@ const DocumentWriter: React.FC = () => {
         scenario,
         url: result.url,
         createdAt: new Date(),
-        size: result.size,
+        size: resolvedSize,
         pdfUrl: documentAssets.pdfUrl,
         wordUrl: documentAssets.wordUrl,
         pdfPath: documentAssets.pdfPath,
         wordPath: documentAssets.wordPath,
+        aiRate: optimizeAiRate ?? generateAiRate ?? null,
       };
       const nextDocs = [newDoc, ...savedDocs];
       setSavedDocs(nextDocs);
@@ -2152,7 +2507,7 @@ const DocumentWriter: React.FC = () => {
 
   const handleLoadDocument = (doc: SavedDocument) => {
     setOfficialDocumentData(null);
-    setGenerateAiRate(null);
+    setGenerateAiRate(doc.aiRate ?? null);
     setOptimizeAiRate(null);
     const nextAssets: DocumentAssets = {};
     const pdfSource = doc.pdfPath || doc.pdfUrl;
@@ -2181,6 +2536,59 @@ const DocumentWriter: React.FC = () => {
       : '';
     setScenario(matchedScenario || '');
     message.success('文档已加载');
+  };
+
+  const handlePreviewSavedDocument = (doc: SavedDocument) => {
+    const fileSizeText = formatFileSize(
+      doc.size,
+      estimateTextByteSize(doc.content),
+    );
+    Modal.info({
+      title: `草稿预览：${doc.title}`,
+      width: 820,
+      icon: null,
+      content: (
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <div>
+            <Space size="small" wrap>
+              <Tag color="blue">{getDocumentTypeLabel(doc.type)}</Tag>
+              {doc.scenario && (
+                <Tag>{getScenarioLabel(doc.type, doc.scenario)}</Tag>
+              )}
+              <Tag color="purple">字数：{doc.content.length}</Tag>
+            </Space>
+            {fileSizeText !== '--' && (
+              <div
+                style={{
+                  marginTop: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <Text type="secondary">文件大小：</Text>
+                <Text>{fileSizeText}</Text>
+              </div>
+            )}
+          </div>
+          <div
+            style={{
+              whiteSpace: 'pre-wrap',
+              background: '#fafafa',
+              borderRadius: '4px',
+              padding: '12px',
+              border: '1px solid #d9d9d9',
+              maxHeight: '420px',
+              overflow: 'auto',
+              lineHeight: 1.8,
+            }}
+          >
+            {doc.content}
+          </div>
+        </Space>
+      ),
+    });
   };
 
   // 导出为 PDF
@@ -3140,133 +3548,401 @@ const DocumentWriter: React.FC = () => {
                   </Space>
                 </ProCard>
 
-                {/* 优化历史记录 */}
-                {optimizeHistory.length > 0 && (
-                  <ProCard title="优化历史" bordered>
-                    <List
-                      dataSource={optimizeHistory}
-                      locale={{ emptyText: '暂无优化记录' }}
-                      renderItem={(item, index) => (
-                        <List.Item
-                          actions={[
-                            <Button
-                              key="compare"
-                              type="link"
-                              size="small"
-                              icon={<EyeOutlined />}
-                              onClick={() => handleCompareOptimize(item)}
-                            >
-                              对比
-                            </Button>,
-                          ]}
-                        >
-                          <List.Item.Meta
-                            avatar={
-                              <ReloadOutlined
-                                style={{ fontSize: 18, color: '#667eea' }}
-                              />
-                            }
-                            title={
-                              <Space>
-                                <span>{item.instruction}</span>
-                                {index === 0 && <Tag color="green">最新</Tag>}
-                              </Space>
-                            }
-                            description={
-                              <Space direction="vertical" size={0}>
-                                <span style={{ fontSize: '12px' }}>
-                                  类型: {item.types.join(', ')}
-                                </span>
-                                {item.aiRate !== null &&
-                                  item.aiRate !== undefined && (
-                                    <span
-                                      style={{
-                                        fontSize: '12px',
-                                        color: '#722ed1',
-                                      }}
+                <ProCard title="智能文档库" bordered>
+                  <Tabs
+                    activeKey={activeLibraryTab}
+                    onChange={(key) =>
+                      setActiveLibraryTab(key as 'optimize' | 'drafts')
+                    }
+                    items={[
+                      {
+                        key: 'optimize',
+                        label: `优化历史 (${optimizeHistory.length})`,
+                        children: (
+                          <Space
+                            direction="vertical"
+                            style={{ width: '100%' }}
+                            size="middle"
+                          >
+                            <Row gutter={[12, 12]}>
+                              <Col xs={24} md={12}>
+                                <Input
+                                  allowClear
+                                  placeholder="搜索指令或内容"
+                                  prefix={<SearchOutlined />}
+                                  value={optimizeHistorySearch}
+                                  onChange={(e) =>
+                                    setOptimizeHistorySearch(e.target.value)
+                                  }
+                                />
+                              </Col>
+                              <Col xs={12} md={6}>
+                                <Select
+                                  value={optimizeHistoryTypeFilter}
+                                  onChange={(value) =>
+                                    setOptimizeHistoryTypeFilter(
+                                      value as string,
+                                    )
+                                  }
+                                  style={{ width: '100%' }}
+                                  options={[
+                                    { label: '全部类型', value: '__all__' },
+                                    ...Object.entries(OPTIMIZE_TYPE_LABELS).map(
+                                      ([value, label]) => ({
+                                        label,
+                                        value,
+                                      }),
+                                    ),
+                                  ]}
+                                />
+                              </Col>
+                              <Col xs={12} md={6}>
+                                <Select
+                                  value={optimizeHistorySort}
+                                  onChange={(value) =>
+                                    setOptimizeHistorySort(value as 'asc' | 'desc')
+                                  }
+                                  style={{ width: '100%' }}
+                                  options={[
+                                    { label: '最近优先', value: 'desc' },
+                                    { label: '最早优先', value: 'asc' },
+                                  ]}
+                                />
+                              </Col>
+                            </Row>
+                            <List
+                              rowKey={(item) => item.id}
+                              dataSource={filteredOptimizeHistory}
+                              locale={{ emptyText: '暂无优化记录' }}
+                              renderItem={(item, index) => (
+                                <List.Item
+                                  actions={[
+                                    <Button
+                                      key="preview"
+                                      type="link"
+                                      size="small"
+                                      onClick={() =>
+                                        handlePreviewOptimizeHistory(item)
+                                      }
                                     >
-                                      AI率：{formatAiRateDisplay(item.aiRate)}
-                                    </span>
-                                  )}
-                                <span
-                                  style={{ fontSize: '12px', color: '#999' }}
+                                      预览
+                                    </Button>,
+                                    <Button
+                                      key="apply"
+                                      type="link"
+                                      size="small"
+                                      onClick={() =>
+                                        handleApplyOptimizeHistory(item)
+                                      }
+                                    >
+                                      恢复
+                                    </Button>,
+                                    <Button
+                                      key="compare"
+                                      type="link"
+                                      size="small"
+                                      onClick={() => handleCompareOptimize(item)}
+                                    >
+                                      对比
+                                    </Button>,
+                                  ]}
                                 >
-                                  {item.timestamp.toLocaleString('zh-CN')}
-                                </span>
-                              </Space>
-                            }
-                          />
-                        </List.Item>
-                      )}
-                    />
-                  </ProCard>
-                )}
-
-                {/* 已保存文档列表 */}
-                <ProCard title="已保存的文档" bordered>
-                  <List
-                    dataSource={savedDocs}
-                    locale={{ emptyText: '暂无保存的文档' }}
-                    renderItem={(doc) => {
-                      const typeLabel = getDocumentTypeLabel(doc.type);
-                      const scenarioLabel = getScenarioLabel(
-                        doc.type,
-                        doc.scenario,
-                      );
-                      return (
-                        <List.Item
-                          actions={[
-                            <Button
-                              key="load"
-                              type="link"
-                              size="small"
-                              onClick={() => handleLoadDocument(doc)}
-                            >
-                              加载
-                            </Button>,
-                            <Button
-                              key="download"
-                              type="link"
-                              size="small"
-                              icon={<DownloadOutlined />}
-                              onClick={() => handleDownload(doc)}
-                            />,
-                            <Button
-                              key="delete"
-                              type="link"
-                              size="small"
-                              danger
-                              icon={<DeleteOutlined />}
-                              onClick={() => handleDelete(doc.id)}
-                            />,
-                          ]}
-                        >
-                          <List.Item.Meta
-                            avatar={
-                              <FileTextOutlined
-                                style={{ fontSize: 20, color: '#1890ff' }}
-                              />
-                            }
-                            title={doc.title}
-                            description={
-                              <Space direction="vertical" size={0}>
-                                <span style={{ fontSize: '12px' }}>
-                                  类型: {typeLabel}
-                                </span>
-                                {scenarioLabel && (
-                                  <span style={{ fontSize: '12px' }}>
-                                    场景: {scenarioLabel}
-                                  </span>
-                                )}
-                                <span style={{ fontSize: '12px' }}>
-                                  {doc.createdAt.toLocaleDateString('zh-CN')}
-                                </span>
-                              </Space>
-                            }
-                          />
-                        </List.Item>
-                      );
-                    }}
+                                  <Popover
+                                    content={
+                                      <div style={{ maxWidth: 360 }}>
+                                        <div
+                                          style={{
+                                            fontSize: '12px',
+                                            color: '#999',
+                                            marginBottom: '4px',
+                                          }}
+                                        >
+                                          优化后片段
+                                        </div>
+                                        <div
+                                          style={{
+                                            whiteSpace: 'pre-wrap',
+                                            lineHeight: 1.7,
+                                            maxHeight: '200px',
+                                            overflow: 'auto',
+                                          }}
+                                        >
+                                          {item.optimizedContent || '暂无内容'}
+                                        </div>
+                                      </div>
+                                    }
+                                    mouseEnterDelay={0.2}
+                                    placement="left"
+                                  >
+                                    <div>
+                                      <List.Item.Meta
+                                        avatar={
+                                          <ReloadOutlined
+                                            style={{ fontSize: 18, color: '#667eea' }}
+                                          />
+                                        }
+                                        title={(() => {
+                                          const instructionLabel =
+                                            (item.instruction || '智能优化')
+                                              .replace(/\s+/g, ' ')
+                                              .trim() || '智能优化';
+                                          return (
+                                            <Space size="small">
+                                              <span
+                                                style={{
+                                                  maxWidth: 220,
+                                                  display: 'inline-block',
+                                                  overflow: 'hidden',
+                                                  textOverflow: 'ellipsis',
+                                                  whiteSpace: 'nowrap',
+                                                  verticalAlign: 'middle',
+                                                }}
+                                                title={item.instruction || '智能优化'}
+                                              >
+                                                {instructionLabel}
+                                              </span>
+                                              {index === 0 && (
+                                                <Tag color="green">最新</Tag>
+                                              )}
+                                            </Space>
+                                          );
+                                        })()}
+                                        description={
+                                          <Space
+                                            direction="vertical"
+                                            size={4}
+                                            style={{ width: '100%' }}
+                                          >
+                                            <Space size="small" wrap>
+                                              {item.types.map((type) => (
+                                                <Tag key={type} color="blue">
+                                                  {OPTIMIZE_TYPE_LABELS[type] ||
+                                                    type}
+                                                </Tag>
+                                              ))}
+                                            </Space>
+                                            <Space size="small" wrap>
+                                              <Tag color="purple">
+                                                字数 {item.optimizedContent.length}
+                                              </Tag>
+                                              {item.aiRate !== null &&
+                                                item.aiRate !== undefined && (
+                                                  <Tag color="magenta">
+                                                    AI率{' '}
+                                                    {formatAiRateDisplay(
+                                                      item.aiRate,
+                                                    )}
+                                                  </Tag>
+                                                )}
+                                              <Text type="secondary">
+                                                {item.timestamp.toLocaleString(
+                                                  'zh-CN',
+                                                )}
+                                              </Text>
+                                            </Space>
+                                          </Space>
+                                        }
+                                      />
+                                    </div>
+                                  </Popover>
+                                </List.Item>
+                              )}
+                            />
+                          </Space>
+                        ),
+                      },
+                      {
+                        key: 'drafts',
+                        label: `草稿库 (${savedDocs.length})`,
+                        children: (
+                          <Space
+                            direction="vertical"
+                            style={{ width: '100%' }}
+                            size="middle"
+                          >
+                            <Row gutter={[12, 12]}>
+                              <Col xs={24} md={12}>
+                                <Input
+                                  allowClear
+                                  placeholder="搜索标题、场景或内容"
+                                  prefix={<SearchOutlined />}
+                                  value={draftsSearch}
+                                  onChange={(e) => setDraftsSearch(e.target.value)}
+                                />
+                              </Col>
+                              <Col xs={12} md={6}>
+                                <Select
+                                  value={draftsTypeFilter}
+                                  onChange={(value) =>
+                                    setDraftsTypeFilter(value as string)
+                                  }
+                                  style={{ width: '100%' }}
+                                  options={[
+                                    { label: '全部类型', value: 'all' },
+                                    ...DOCUMENT_TYPE_OPTIONS.map((option) => ({
+                                      label: option.label,
+                                      value: option.value,
+                                    })),
+                                  ]}
+                                />
+                              </Col>
+                              <Col xs={12} md={6}>
+                                <Select
+                                  value={draftsSort}
+                                  onChange={(value) =>
+                                    setDraftsSort(value as 'asc' | 'desc')
+                                  }
+                                  style={{ width: '100%' }}
+                                  options={[
+                                    { label: '最近保存', value: 'desc' },
+                                    { label: '最早保存', value: 'asc' },
+                                  ]}
+                                />
+                              </Col>
+                            </Row>
+                            <List
+                              rowKey={(doc) => doc.id}
+                              dataSource={filteredSavedDocs}
+                              locale={{ emptyText: '暂无保存的文档' }}
+                              renderItem={(doc) => {
+                                const typeLabel = getDocumentTypeLabel(doc.type);
+                                const scenarioLabel =
+                                  getScenarioLabel(doc.type, doc.scenario);
+                                const fileSizeText = formatFileSize(
+                                  doc.size,
+                                  estimateTextByteSize(doc.content),
+                                );
+                                return (
+                                  <List.Item
+                                    actions={[
+                                      <Button
+                                        key="preview"
+                                        type="link"
+                                        size="small"
+                                        onClick={() => handlePreviewSavedDocument(doc)}
+                                      >
+                                        预览
+                                      </Button>,
+                                      <Button
+                                        key="load"
+                                        type="link"
+                                        size="small"
+                                        onClick={() => handleLoadDocument(doc)}
+                                      >
+                                        恢复
+                                      </Button>,
+                                      <Button
+                                        key="download"
+                                        type="link"
+                                        size="small"
+                                        onClick={() => handleDownload(doc)}
+                                      >
+                                        下载
+                                      </Button>,
+                                      <Button
+                                        key="delete"
+                                        type="link"
+                                        size="small"
+                                        danger
+                                        onClick={() => handleDelete(doc.id)}
+                                      >
+                                        删除
+                                      </Button>,
+                                    ]}
+                                  >
+                                    <Popover
+                                      content={
+                                        <div style={{ maxWidth: 360 }}>
+                                          <div
+                                            style={{
+                                              fontSize: '12px',
+                                              color: '#999',
+                                              marginBottom: '4px',
+                                            }}
+                                          >
+                                            内容预览
+                                          </div>
+                                          <div
+                                            style={{
+                                              whiteSpace: 'pre-wrap',
+                                              lineHeight: 1.7,
+                                              maxHeight: '200px',
+                                              overflow: 'auto',
+                                            }}
+                                          >
+                                            {doc.content || '暂无内容'}
+                                          </div>
+                                        </div>
+                                      }
+                                      mouseEnterDelay={0.2}
+                                      placement="left"
+                                    >
+                                      <div>
+                                        <List.Item.Meta
+                                          avatar={
+                                            <FileTextOutlined
+                                              style={{ fontSize: 20, color: '#1890ff' }}
+                                            />
+                                          }
+                                          title={
+                                            <Space size="small" wrap>
+                                              <span>{doc.title}</span>
+                                              <Tag color="blue">{typeLabel}</Tag>
+                                              {scenarioLabel && (
+                                                <Tag>{scenarioLabel}</Tag>
+                                              )}
+                                            </Space>
+                                          }
+                                          description={
+                                            <div style={{ width: '100%' }}>
+                                              <Space size="small" wrap>
+                                                <Tag color="purple">
+                                                  字数 {doc.content.length}
+                                                </Tag>
+                                                {doc.aiRate !== null &&
+                                                  doc.aiRate !== undefined && (
+                                                    <Tag color="magenta">
+                                                      AI率{' '}
+                                                      {formatAiRateDisplay(
+                                                        doc.aiRate,
+                                                      )}
+                                                    </Tag>
+                                                  )}
+                                                <Text type="secondary">
+                                                  {doc.createdAt.toLocaleString(
+                                                    'zh-CN',
+                                                  )}
+                                                </Text>
+                                              </Space>
+                                              {fileSizeText !== '--' && (
+                                                <div
+                                                  style={{
+                                                    marginTop: 4,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 4,
+                                                    whiteSpace: 'nowrap',
+                                                  }}
+                                                >
+                                                  <Text type="secondary">
+                                                    文件大小：
+                                                  </Text>
+                                                  <Text>{fileSizeText}</Text>
+                                                </div>
+                                              )}
+                                            </div>
+                                          }
+                                        />
+                                      </div>
+                                    </Popover>
+                                  </List.Item>
+                                );
+                              }}
+                            />
+                          </Space>
+                        ),
+                      },
+                    ]}
                   />
                 </ProCard>
               </Space>
