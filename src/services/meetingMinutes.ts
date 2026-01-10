@@ -1,4 +1,5 @@
 import { request } from '@umijs/max';
+import type { VolcMeetingAudio } from './meetings';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -37,6 +38,47 @@ export interface MeetingInsights {
   summary?: MeetingSummary | null;
   action_items: MeetingActionItem[];
   decision_items: MeetingDecisionItem[];
+}
+
+export interface VolcMeetingSummary {
+  id: number;
+  meeting_id: number;
+  paragraph: string;
+  title?: string | null;
+  source_audio_id?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VolcMeetingTodo {
+  id: number;
+  meeting_id: number;
+  content: string;
+  executor?: string | null;
+  execution_time?: string | null;
+  source_audio_id?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VolcMeetingMinutes {
+  summary?: VolcMeetingSummary | null;
+  todos: VolcMeetingTodo[];
+}
+
+export interface VolcMeetingSummaryPayload {
+  paragraph: string;
+  meeting_id?: number;
+  title?: string | null;
+  source_audio_id?: number | null;
+}
+
+export interface VolcMeetingTodoPayload {
+  content: string;
+  executor?: string | null;
+  execution_time?: string | null;
+  meeting_id?: number;
+  source_audio_id?: number | null;
 }
 
 export interface GenerateMinutesPayload {
@@ -157,6 +199,63 @@ const deleteDecisionItem = async (meetingId: number, itemId: number): Promise<vo
   });
 };
 
+const getVolcMinutes = async (meetingId: number): Promise<VolcMeetingMinutes> => {
+  const res = await request<ApiResponse<VolcMeetingMinutes>>(`/api/minutes/volc/${meetingId}`, {
+    method: 'GET',
+  });
+  return res?.data ?? { summary: null, todos: [] };
+};
+
+const submitVolcAudio = async (audioId: number): Promise<VolcMeetingAudio> => {
+  const res = await request<ApiResponse<VolcMeetingAudio>>(`/api/minutes/volc/audio/${audioId}/submit`, {
+    method: 'POST',
+  });
+  return res.data;
+};
+
+const updateVolcSummary = async (
+  meetingId: number,
+  payload: VolcMeetingSummaryPayload,
+): Promise<VolcMeetingSummary> => {
+  const res = await request<ApiResponse<VolcMeetingSummary>>(`/api/minutes/volc/${meetingId}/summary`, {
+    method: 'PUT',
+    data: payload,
+  });
+  return res.data;
+};
+
+const createVolcTodo = async (
+  meetingId: number,
+  payload: VolcMeetingTodoPayload,
+): Promise<VolcMeetingTodo> => {
+  const res = await request<ApiResponse<VolcMeetingTodo>>(`/api/minutes/volc/${meetingId}/todos`, {
+    method: 'POST',
+    data: payload,
+  });
+  return res.data;
+};
+
+const updateVolcTodo = async (
+  meetingId: number,
+  todoId: number,
+  payload: VolcMeetingTodoPayload,
+): Promise<VolcMeetingTodo> => {
+  const res = await request<ApiResponse<VolcMeetingTodo>>(
+    `/api/minutes/volc/${meetingId}/todos/${todoId}`,
+    {
+      method: 'PUT',
+      data: payload,
+    },
+  );
+  return res.data;
+};
+
+const deleteVolcTodo = async (meetingId: number, todoId: number): Promise<void> => {
+  await request<ApiResponse<null>>(`/api/minutes/volc/${meetingId}/todos/${todoId}`, {
+    method: 'DELETE',
+  });
+};
+
 export const meetingMinutesApi = {
   getInsights,
   generateInsights,
@@ -167,6 +266,12 @@ export const meetingMinutesApi = {
   createDecisionItem,
   updateDecisionItem,
   deleteDecisionItem,
+  getVolcMinutes,
+  submitVolcAudio,
+  updateVolcSummary,
+  createVolcTodo,
+  updateVolcTodo,
+  deleteVolcTodo,
 };
 
 export const getMinutesDocxUrl = (meetingId: number) =>

@@ -46,6 +46,20 @@ export interface MeetingAudio {
   uploaded_at: string;
 }
 
+export interface VolcMeetingAudio {
+  id: number;
+  meeting_id: number;
+  file_name: string;
+  object_key: string;
+  file_url: string;
+  file_type?: string | null;
+  status?: string | null;
+  task_id?: string | null;
+  error_msg?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 const listMeetings = async (): Promise<Meeting[]> => {
   const res = await request<ApiResponse<Meeting[]>>('/api/meetings', {
     method: 'GET',
@@ -157,6 +171,35 @@ const downloadMeetingAudio = async (meetingId: number, audioId: number) => {
   return downloadBlob(url);
 };
 
+const listVolcAudios = async (meetingId: number): Promise<VolcMeetingAudio[]> => {
+  const res = await request<ApiResponse<VolcMeetingAudio[]>>(`/api/meetings/volc/audio/${meetingId}`, {
+    method: 'GET',
+  });
+  return res?.data ?? [];
+};
+
+const uploadVolcAudio = async (meetingId: number, file: File): Promise<VolcMeetingAudio> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await request<ApiResponse<VolcMeetingAudio>>(`/api/meetings/volc/audio/${meetingId}`, {
+    method: 'POST',
+    data: formData,
+    requestType: 'form',
+  });
+  return res.data;
+};
+
+const deleteVolcAudio = async (meetingId: number, audioId: number): Promise<void> => {
+  await request<ApiResponse<VolcMeetingAudio>>(`/api/meetings/volc/audio/${meetingId}/${audioId}`, {
+    method: 'DELETE',
+  });
+};
+
+const downloadVolcAudio = async (meetingId: number, audioId: number) => {
+  const url = `/api/meetings/volc/audio/download/${meetingId}/${audioId}`;
+  return downloadBlob(url);
+};
+
 export const meetingsApi = {
   list: listMeetings,
   detail: getMeetingDetail,
@@ -171,6 +214,10 @@ export const meetingsApi = {
   deleteAudio,
   downloadMeetingFile,
   downloadMeetingAudio,
+  listVolcAudios,
+  uploadVolcAudio,
+  deleteVolcAudio,
+  downloadVolcAudio,
 };
 
 export default meetingsApi;
