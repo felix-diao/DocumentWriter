@@ -196,6 +196,8 @@ const MeetingMinutes: React.FC = () => {
 	>('idle');
 	const [volcStreamError, setVolcStreamError] = useState<string | null>(null);
 	const [volcStreamSessionId, setVolcStreamSessionId] = useState<number | null>(null);
+	// 'live' = 在线录音来源，'upload' = 上传音频来源（无流式转写步骤）
+	const [volcInputMode, setVolcInputMode] = useState<'live' | 'upload'>('live');
 	const [volcTranscriptDraft, setVolcTranscriptDraft] = useState('');
 	const [savingVolcTranscript, setSavingVolcTranscript] = useState(false);
 	const [volcMinutesStatus, setVolcMinutesStatus] = useState<{
@@ -518,6 +520,7 @@ const MeetingMinutes: React.FC = () => {
 		setVolcStreamType('idle');
 		setVolcStreamError(null);
 		setVolcStreamSessionId(null);
+		setVolcInputMode('live');
 		setVolcTranscriptDraft('');
 		setVolcSummaryTitle('');
 		setVolcSummaryDraft('');
@@ -855,6 +858,7 @@ const MeetingMinutes: React.FC = () => {
 
 		// 覆盖式：先清空展示与数据库，再开始录音
 		clearVolcMinutesDisplay();
+		setVolcInputMode('live');
 		try {
 			await meetingMinutesApi.clearVolcMinutes(selectedMeetingId);
 		} catch {
@@ -2043,10 +2047,9 @@ const MeetingMinutes: React.FC = () => {
 						description="在线录音：边录边转写，停止后自动生成会议纪要。查看已有音频：选择或上传音频后点击「生成会议纪要」，直接生成精确转写、摘要与待办。"
 					/>
 
-					{(volcStreamType === 'live_connecting' || volcStreamType === 'live_streaming' || (volcStreamType === 'completed' && volcStreamText)) && (
 					<div ref={volcStreamCardRef}>
 					<ProCard
-						title="流式转写（实时出字）"
+						title="第一步：流式转写（实时出字）"
 						style={{ marginBottom: 16 }}
 						extra={
 							<Space>
@@ -2058,27 +2061,33 @@ const MeetingMinutes: React.FC = () => {
 							</Space>
 						}
 					>
-						<Space direction="vertical" style={{ width: '100%' }} size="middle">
-							<Space wrap>
-								<Tag color={volcStreamType === 'completed' ? 'green' : 'processing'}>
-									{volcStreamStatusLabel[volcStreamType] || volcStreamType}
-								</Tag>
+						{volcInputMode === 'upload' ? (
+							<Space direction="vertical" style={{ width: '100%' }} size="small">
+								<Tag color="default">无</Tag>
+								<Text type="secondary">上传音频模式不经过流式转写，直接提交至语音妙记生成精确内容。</Text>
 							</Space>
-							{volcStreamError && <Alert type="error" showIcon message={volcStreamError} />}
-							<TextArea
-								rows={8}
-								value={volcStreamText}
-								placeholder="实时录音中，这里会实时输出识别文本。"
-								readOnly
-							/>
-							<Text type="secondary">流式转写仅用于实时展示，录音结束后会自动生成更精准的转写、摘要与待办。</Text>
-						</Space>
+						) : (
+							<Space direction="vertical" style={{ width: '100%' }} size="middle">
+								<Space wrap>
+									<Tag color={volcStreamType === 'error' ? 'red' : volcStreamType === 'completed' ? 'green' : volcStreamType === 'idle' ? 'default' : 'processing'}>
+										{volcStreamStatusLabel[volcStreamType] || volcStreamType}
+									</Tag>
+								</Space>
+								{volcStreamError && <Alert type="error" showIcon message={volcStreamError} />}
+								<TextArea
+									rows={8}
+									value={volcStreamText}
+									placeholder="开始在线录音后，这里会实时输出识别文本。"
+									readOnly
+								/>
+								<Text type="secondary">流式转写仅用于实时展示，录音结束后自动提交语音妙记生成精确转写、摘要与待办。</Text>
+							</Space>
+						)}
 					</ProCard>
 					</div>
-					)}
 
 					<ProCard
-						title="火山纪要结果"
+						title="第二步：语音妙记结果（精确转写 / 摘要 / 待办）"
 						extra={
 							<Button icon={<ReloadOutlined />} onClick={handleRefreshVolcMinutes}>
 								刷新纪要
@@ -2463,6 +2472,7 @@ const MeetingMinutes: React.FC = () => {
 						onClick={async () => {
 							if (!selectedVolcAudioId || !selectedMeetingId) return;
 							clearVolcMinutesDisplay();
+							setVolcInputMode('upload');
 							try {
 								await meetingMinutesApi.clearVolcMinutes(selectedMeetingId);
 							} catch {
