@@ -226,6 +226,12 @@ const submitVolcMinutes = async (meetingId: number): Promise<VolcMeetingAudio> =
   return res.data;
 };
 
+const clearVolcMinutes = async (meetingId: number): Promise<void> => {
+  await request<ApiResponse<null>>(`/api/minutes/volc/${meetingId}/clear`, {
+    method: 'POST',
+  });
+};
+
 const uploadVolcMinutesAudio = async (meetingId: number, file: File): Promise<VolcMeetingAudio> => {
   const formData = new FormData();
   formData.append('file', file);
@@ -303,6 +309,7 @@ export const meetingMinutesApi = {
   deleteDecisionItem,
   getVolcMinutes,
   submitVolcMinutes,
+  clearVolcMinutes,
   uploadVolcMinutesAudio,
   updateVolcTranscript,
   updateVolcSummary,
