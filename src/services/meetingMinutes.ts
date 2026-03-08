@@ -61,7 +61,16 @@ export interface VolcMeetingTodo {
   updated_at: string;
 }
 
+export interface SpeakerSegment {
+  speaker: string;
+  text: string;
+  start_ms?: number | null;
+  end_ms?: number | null;
+}
+
 export interface VolcMeetingMinutes {
+  transcript_text?: string | null;
+  speaker_segments: SpeakerSegment[];
   summary?: VolcMeetingSummary | null;
   todos: VolcMeetingTodo[];
 }
@@ -79,6 +88,10 @@ export interface VolcMeetingTodoPayload {
   execution_time?: string | null;
   meeting_id?: number;
   source_audio_id?: number | null;
+}
+
+export interface VolcTranscriptPayload {
+  transcript_text: string;
 }
 
 export interface GenerateMinutesPayload {
@@ -203,12 +216,34 @@ const getVolcMinutes = async (meetingId: number): Promise<VolcMeetingMinutes> =>
   const res = await request<ApiResponse<VolcMeetingMinutes>>(`/api/minutes/volc/${meetingId}`, {
     method: 'GET',
   });
-  return res?.data ?? { summary: null, todos: [] };
+  return res?.data ?? { transcript_text: null, speaker_segments: [], summary: null, todos: [] };
 };
 
-const submitVolcAudio = async (audioId: number): Promise<VolcMeetingAudio> => {
-  const res = await request<ApiResponse<VolcMeetingAudio>>(`/api/minutes/volc/audio/${audioId}/submit`, {
+const submitVolcMinutes = async (meetingId: number): Promise<VolcMeetingAudio> => {
+  const res = await request<ApiResponse<VolcMeetingAudio>>(`/api/minutes/volc/${meetingId}/submit`, {
     method: 'POST',
+  });
+  return res.data;
+};
+
+const uploadVolcMinutesAudio = async (meetingId: number, file: File): Promise<VolcMeetingAudio> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await request<ApiResponse<VolcMeetingAudio>>(`/api/minutes/volc/${meetingId}/upload`, {
+    method: 'POST',
+    data: formData,
+    requestType: 'form',
+  });
+  return res.data;
+};
+
+const updateVolcTranscript = async (
+  meetingId: number,
+  payload: VolcTranscriptPayload,
+): Promise<VolcMeetingAudio> => {
+  const res = await request<ApiResponse<VolcMeetingAudio>>(`/api/minutes/volc/${meetingId}/transcript`, {
+    method: 'PUT',
+    data: payload,
   });
   return res.data;
 };
@@ -219,7 +254,7 @@ const updateVolcSummary = async (
 ): Promise<VolcMeetingSummary> => {
   const res = await request<ApiResponse<VolcMeetingSummary>>(`/api/minutes/volc/${meetingId}/summary`, {
     method: 'PUT',
-    data: payload,
+    data: { ...payload, meeting_id: meetingId },
   });
   return res.data;
 };
@@ -230,7 +265,7 @@ const createVolcTodo = async (
 ): Promise<VolcMeetingTodo> => {
   const res = await request<ApiResponse<VolcMeetingTodo>>(`/api/minutes/volc/${meetingId}/todos`, {
     method: 'POST',
-    data: payload,
+    data: { ...payload, meeting_id: meetingId },
   });
   return res.data;
 };
@@ -244,7 +279,7 @@ const updateVolcTodo = async (
     `/api/minutes/volc/${meetingId}/todos/${todoId}`,
     {
       method: 'PUT',
-      data: payload,
+      data: { ...payload, meeting_id: meetingId },
     },
   );
   return res.data;
@@ -267,7 +302,9 @@ export const meetingMinutesApi = {
   updateDecisionItem,
   deleteDecisionItem,
   getVolcMinutes,
-  submitVolcAudio,
+  submitVolcMinutes,
+  uploadVolcMinutesAudio,
+  updateVolcTranscript,
   updateVolcSummary,
   createVolcTodo,
   updateVolcTodo,

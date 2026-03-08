@@ -94,12 +94,20 @@ export default {
     '/api/meetings': {
       target: ragTarget,
       changeOrigin: true,
+      ws: true,
       pathRewrite: { '^/api/meetings': '/api/meetings' }
     },
+    
+    '/api/minutes/volc/': {
+      target: ragTarget,
+      changeOrigin: true,
+      ws: true,
+    },
+    // 不设置 ws:true，避免与 /api/minutes/volc/ 双重代理同一连接导致 code=1006
     '/api/minutes': {
       target: ragTarget,
       changeOrigin: true,
-      pathRewrite: { '^/api/minutes': '/api/minutes' }
+      pathRewrite: { '^/api/minutes': '/api/minutes' },
     },
  
     '/api/prompts': {
