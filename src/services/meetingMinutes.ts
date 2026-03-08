@@ -70,6 +70,8 @@ export interface SpeakerSegment {
 
 export interface VolcMeetingMinutes {
   transcript_text?: string | null;
+  stream_transcript_text?: string | null;  // 粗 ASR 流式转写结果（退出重进后恢复流式文本框）
+  audio_status?: string | null;            // 妙记处理状态，'completed' 表示妙记精确转写已就绪
   speaker_segments: SpeakerSegment[];
   summary?: VolcMeetingSummary | null;
   todos: VolcMeetingTodo[];
@@ -219,8 +221,11 @@ const getVolcMinutes = async (meetingId: number): Promise<VolcMeetingMinutes> =>
   return res?.data ?? { transcript_text: null, speaker_segments: [], summary: null, todos: [] };
 };
 
-const submitVolcMinutes = async (meetingId: number): Promise<VolcMeetingAudio> => {
-  const res = await request<ApiResponse<VolcMeetingAudio>>(`/api/minutes/volc/${meetingId}/submit`, {
+const submitVolcMinutes = async (meetingId: number, audioId?: number): Promise<VolcMeetingAudio> => {
+  const url = audioId != null
+    ? `/api/minutes/volc/${meetingId}/submit?audio_id=${audioId}`
+    : `/api/minutes/volc/${meetingId}/submit`;
+  const res = await request<ApiResponse<VolcMeetingAudio>>(url, {
     method: 'POST',
   });
   return res.data;

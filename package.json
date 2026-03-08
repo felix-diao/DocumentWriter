@@ -54,7 +54,8 @@
     "lucide-react": "^0.545.0",
     "md5": "^2.3.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0"
   },
   "devDependencies": {
     "@ant-design/pro-cli": "^3.3.0",

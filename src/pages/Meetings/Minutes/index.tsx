@@ -75,6 +75,50 @@ interface VolcTodoFormValues {
 	execution_time?: string;
 }
 
+/** 简单 Markdown 渲染：支持 **bold**、`- list`、空行段落，满足妙记摘要格式 */
+const renderSimpleMarkdown = (text: string): React.ReactNode => {
+	const lines = text.split('\n');
+	const nodes: React.ReactNode[] = [];
+	let key = 0;
+
+	// 渲染行内格式：**bold** → <strong>
+	const renderInline = (line: string): React.ReactNode => {
+		const parts = line.split(/(\*\*[^*]+\*\*)/g);
+		return parts.map((part, i) => {
+			if (part.startsWith('**') && part.endsWith('**')) {
+				return <strong key={i}>{part.slice(2, -2)}</strong>;
+			}
+			return part;
+		});
+	};
+
+	// 计算行的缩进级别（以2空格或4空格为一级）
+	const getIndent = (line: string): number => {
+		const spaces = line.match(/^(\s*)/)?.[1]?.length ?? 0;
+		return Math.floor(spaces / 2);
+	};
+
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		const trimmed = line.trim();
+		if (!trimmed) {
+			nodes.push(<br key={key++} />);
+		} else if (/^[-*]\s/.test(trimmed)) {
+			const indent = getIndent(line);
+			const content = trimmed.slice(2); // 去掉 "- " 或 "* "
+			nodes.push(
+				<div key={key++} style={{ paddingLeft: 16 + indent * 16, display: 'flex', gap: 6, margin: '1px 0' }}>
+					<span style={{ flexShrink: 0 }}>{indent === 0 ? '•' : '◦'}</span>
+					<span>{renderInline(content)}</span>
+				</div>
+			);
+		} else {
+			nodes.push(<p key={key++} style={{ margin: '3px 0' }}>{renderInline(trimmed)}</p>);
+		}
+	}
+	return nodes;
+};
+
 const actionStatusOptions = [
 	{ value: 'pending', label: '待跟进', color: 'default' },
 	{ value: 'in_progress', label: '处理中', color: 'blue' },
@@ -175,7 +219,7 @@ const MeetingMinutes: React.FC = () => {
 	const volcStreamTypeRef = useRef<typeof volcStreamType>('idle');
 	const volcSseRef = useRef<EventSource | null>(null);
 	const volcSseAudioIdRef = useRef<number | null>(null);
-	const volcStreamCompleteCallbackRef = useRef<(() => void) | null>(null);
+	const volcStreamCompleteCallbackRef = useRef<((audioId?: number) => void) | null>(null);
 	const volcAudioContextRef = useRef<AudioContext | null>(null);
 	const volcMediaStreamRef = useRef<MediaStream | null>(null);
 	const volcProcessorRef = useRef<ScriptProcessorNode | null>(null);
@@ -183,7 +227,10 @@ const MeetingMinutes: React.FC = () => {
 	const volcLiveFirstAudioTimerRef = useRef<number | null>(null);
 	const volcLiveWsOpenedRef = useRef(false);
 	const volcLiveWsConnectTimerRef = useRef<number | null>(null);
-	const volcLiveSessionIdRef = useRef(0);  // ← 加这一行
+	const volcLiveSessionIdRef = useRef(0);
+	const volcStreamCardRef = useRef<HTMLDivElement | null>(null);
+	// 记录当前激活的 meetingId 请求，用于竞态防护
+	const loadingMeetingIdRef = useRef<number | null>(null);
 	const hasSelectedMeeting = typeof selectedMeetingId === 'number';
 
 	const queryMeetingId = useMemo(() => {
@@ -279,30 +326,53 @@ const MeetingMinutes: React.FC = () => {
 	}, [selectedVolcAudioId]);
 
 	const loadVolcMinutesData = useCallback(async (meetingId: number, showToast = false) => {
+		// 竞态保护：记录本次请求对应的 meetingId，返回后若已切换到其他会议则丢弃结果
+		loadingMeetingIdRef.current = meetingId;
 		setLoadingVolcMinutes(true);
 		try {
 			const result = await meetingMinutesApi.getVolcMinutes(meetingId);
-			setVolcMinutes(result);
-			// 仅当妙记已返回完整结果（文本+摘要或todos）时再填充精确转写/摘要，避免展示中间状态
-			const hasTranscript = !!(result.transcript_text || (result.speaker_segments?.length ?? 0));
-			const hasSummaryOrTodos = !!(result.summary || (result.todos?.length ?? 0));
-			if (hasTranscript && hasSummaryOrTodos) {
-				setVolcTranscriptDraft(result.transcript_text || '');
-				setVolcSummaryTitle(result.summary?.title || '');
-				setVolcSummaryDraft(result.summary?.paragraph || '');
-			} else {
-				setVolcTranscriptDraft('');
-				setVolcSummaryTitle('');
-				setVolcSummaryDraft('');
-			}
-			// 流式转写结果从数据库恢复（切换页面再回来仍可见，仅在新生成纪要时被清空）
-			if (result.transcript_text) {
-				setVolcStreamText(result.transcript_text);
-				setVolcStreamType('completed');
-			} else {
-				setVolcStreamText('');
-				setVolcStreamType('idle');
-			}
+
+			// 请求返回时若 meetingId 已改变，丢弃旧结果，防止覆盖新会议数据
+			if (loadingMeetingIdRef.current !== meetingId) return;
+
+			// 过滤后端异常写入的 JSON fallback（如 {"paragraph":"","title":""}）
+			const _isJsonGarbage = (s: string | null | undefined) => {
+				if (!s) return false;
+				const t = s.trimStart();
+				return t.startsWith('{') || t.startsWith('[');
+			};
+			const cleanParagraph = _isJsonGarbage(result.summary?.paragraph) ? '' : (result.summary?.paragraph || '');
+			const cleanTitle = _isJsonGarbage(result.summary?.title) ? '' : (result.summary?.title || '');
+			const hasSummary = !!(cleanParagraph || cleanTitle);
+
+			setVolcMinutes({
+				...result,
+				summary: hasSummary && result.summary ? { ...result.summary, paragraph: cleanParagraph, title: cleanTitle || null } : null,
+			});
+
+			// 精确转写：只有妙记真正跑完（audio_status === 'completed'）才填入
+			// 粗 ASR 阶段 audio_status 不是 'completed'，不应填入精确转写框
+			const miaojiCompleted = result.audio_status === 'completed';
+			const hasTranscript = miaojiCompleted && !!(result.transcript_text || (result.speaker_segments?.length ?? 0));
+			setVolcTranscriptDraft(hasTranscript ? (result.transcript_text || '') : '');
+			// 摘要：有内容才填入；无内容时清空
+			setVolcSummaryTitle(cleanTitle);
+			setVolcSummaryDraft(cleanParagraph);
+
+			// 流式转写文本：
+			//   - 若当前正在本会议的流式转写/录音中（file_streaming/live_*），保留实时内容不覆盖
+			//   - 其他情况（包括切换会议后的恢复）直接用数据库结果刷新
+			setVolcStreamText((prev) => {
+				const streamType = volcStreamTypeRef.current;
+				const isStreaming = streamType === 'file_streaming' || streamType === 'live_streaming' || streamType === 'live_connecting';
+				if (isStreaming && prev) return prev;
+				return result.stream_transcript_text || '';
+			});
+			setVolcStreamType((prev) => {
+				const isActive = prev === 'file_streaming' || prev === 'live_streaming' || prev === 'live_connecting';
+				if (isActive) return prev;
+				return result.stream_transcript_text ? 'completed' : 'idle';
+			});
 			if (showToast) {
 				if (result.transcript_text || result.summary || result.todos.length) {
 					message.success('已刷新火山纪要');
@@ -311,6 +381,7 @@ const MeetingMinutes: React.FC = () => {
 				}
 			}
 		} catch (error: any) {
+			if (loadingMeetingIdRef.current !== meetingId) return;
 			message.error(error?.message || '获取火山纪要失败');
 			setVolcMinutes(null);
 			setVolcTranscriptDraft('');
@@ -319,7 +390,7 @@ const MeetingMinutes: React.FC = () => {
 			setVolcStreamText('');
 			setVolcStreamType('idle');
 		} finally {
-			setLoadingVolcMinutes(false);
+			if (loadingMeetingIdRef.current === meetingId) setLoadingVolcMinutes(false);
 		}
 	}, []);
 
@@ -387,6 +458,11 @@ const MeetingMinutes: React.FC = () => {
 					}
 
 					if (payload.type === 'volc_minutes_completed') {
+						const streamType = volcStreamTypeRef.current;
+						// 新生成进行中时不应用可能过期的完成消息，避免覆盖已清空的展示
+						if (streamType === 'file_streaming' || streamType === 'live_streaming' || streamType === 'live_connecting') {
+							return;
+						}
 						setVolcMinutesStatus({
 							status: payload.status,
 							task_id: payload.task_id,
@@ -430,6 +506,23 @@ const MeetingMinutes: React.FC = () => {
 	);
 
 	useEffect(() => {
+		// 无论切换到哪个会议（或置空），先把与上个会议相关的展示状态全部清空，
+		// 防止切换后仍显示上一个会议的内容（竞态 + 旧 state 残留）
+		stopVolcSseStream();
+		void stopVolcLiveWs(true);
+		setVolcMinutes(null);
+		setVolcMinutesStatus(null);
+		setSelectedVolcAudioId(null);
+		setVolcLatestAudioId(null);
+		setVolcStreamText('');
+		setVolcStreamType('idle');
+		setVolcStreamError(null);
+		setVolcStreamSessionId(null);
+		setVolcTranscriptDraft('');
+		setVolcSummaryTitle('');
+		setVolcSummaryDraft('');
+		setVolcAudios([]);
+
 		if (typeof selectedMeetingId === 'number') {
 			loadInsights(selectedMeetingId);
 			loadAssets(selectedMeetingId);
@@ -438,25 +531,11 @@ const MeetingMinutes: React.FC = () => {
 			loadVolcAudioList(selectedMeetingId);
 			loadVolcMinutesData(selectedMeetingId);
 		} else {
-			stopVolcSseStream();
-			void stopVolcLiveWs(true);
 			setVolcLiveModalVisible(false);
 			setVolcUploadModalVisible(false);
 			setInsights(null);
 			setAvailableFiles([]);
 			setAvailableAudios([]);
-			setVolcAudios([]);
-			setVolcMinutes(null);
-			setSelectedVolcAudioId(null);
-			setVolcLatestAudioId(null);
-			setVolcStreamText('');
-			setVolcStreamType('idle');
-			setVolcStreamError(null);
-			setVolcStreamSessionId(null);
-			setVolcTranscriptDraft('');
-			setVolcMinutesStatus(null);
-			setVolcSummaryTitle('');
-			setVolcSummaryDraft('');
 			stopRecordingTimer();
 			if (recording) stopRecording();
 		}
@@ -721,6 +800,11 @@ const MeetingMinutes: React.FC = () => {
 		const es = new EventSource(url);
 		volcSseRef.current = es;
 
+		// 弹窗关闭后滚动到流式转写区域，使用户能看到实时出字
+		setTimeout(() => {
+			volcStreamCardRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+		}, 100);
+
 		es.onmessage = (event) => {
 			try {
 				const data = JSON.parse(String(event.data || '{}'));
@@ -729,13 +813,14 @@ const MeetingMinutes: React.FC = () => {
 				if (data.type === 'completed') {
 					if (typeof data.transcript === 'string') setVolcStreamText(data.transcript);
 					setVolcStreamType('completed');
-					if (volcSseAudioIdRef.current != null) setVolcLatestAudioId(volcSseAudioIdRef.current);
+					const completedAudioId = volcSseAudioIdRef.current ?? data.audio_id;
+					if (completedAudioId != null) setVolcLatestAudioId(completedAudioId);
 					stopVolcSseStream();
 					const cb = volcStreamCompleteCallbackRef.current;
 					volcStreamCompleteCallbackRef.current = null;
 					if (cb) {
 						message.success('转写完成，正在自动生成会议纪要…');
-						cb();
+						cb(completedAudioId ?? undefined);
 					} else {
 						message.success('流式转写完成');
 					}
@@ -937,15 +1022,17 @@ const MeetingMinutes: React.FC = () => {
 				if (typeof data.accumulated === 'string') setVolcStreamText(data.accumulated);
 				if (data.type === 'completed') {
 					if (typeof data.transcript === 'string') setVolcStreamText(data.transcript);
-					if (typeof data.audio_id === 'number') {
-						setVolcLatestAudioId(data.audio_id);
-						setSelectedVolcAudioId(data.audio_id);
+					const liveAudioId = typeof data.audio_id === 'number' ? data.audio_id : undefined;
+					if (liveAudioId != null) {
+						setVolcLatestAudioId(liveAudioId);
+						setSelectedVolcAudioId(liveAudioId);
 					}
 					setVolcStreamType('completed');
 					await stopVolcLiveWs(true);
 					if (selectedMeetingId) await loadVolcAudioList(selectedMeetingId);
 					message.success('录音已完成，正在自动生成会议纪要…');
-					handleSubmitVolcMinutes();
+					// 直接传 liveAudioId，避免 setState 异步导致读到旧 volcLatestAudioId
+					handleSubmitVolcMinutes(liveAudioId);
 				}
 				if (data.type === 'error') {
 					setVolcStreamType('error');
@@ -1021,18 +1108,19 @@ const MeetingMinutes: React.FC = () => {
 		}, 5000);
 	};
 
-	const handleSubmitVolcMinutes = async () => {
+	const handleSubmitVolcMinutes = async (audioId?: number) => {
 		if (!selectedMeetingId) {
 			message.warning('请选择会议');
 			return;
 		}
-		if (!volcLatestAudioId) {
+		const idToSubmit = audioId ?? volcLatestAudioId;
+		if (!idToSubmit) {
 			message.warning('请先完成转写（在线录音或上传后流式转写）');
 			return;
 		}
 		setSubmittingVolcMinutes(true);
 		try {
-			const record = await meetingMinutesApi.submitVolcMinutes(selectedMeetingId);
+			const record = await meetingMinutesApi.submitVolcMinutes(selectedMeetingId, idToSubmit);
 			setVolcMinutesStatus({
 				status: record.status || 'submitted',
 				task_id: record.task_id || undefined,
@@ -1051,10 +1139,6 @@ const MeetingMinutes: React.FC = () => {
 	const handleSaveVolcSummary = async () => {
 		if (!selectedMeetingId) {
 			message.warning('请选择会议');
-			return;
-		}
-		if (!volcSummaryDraft.trim()) {
-			message.warning('请填写会议摘要内容');
 			return;
 		}
 		setSavingVolcSummary(true);
@@ -1959,6 +2043,7 @@ const MeetingMinutes: React.FC = () => {
 						description="在线录音：边录边转写，停止后自动生成会议纪要。查看已有音频：在弹窗中选择或上传音频，点击「生成会议纪要」即开始转写，转写完自动生成纪要并展示。"
 					/>
 
+					<div ref={volcStreamCardRef}>
 					<ProCard
 						title="流式转写（实时出字）"
 						style={{ marginBottom: 16 }}
@@ -1999,6 +2084,7 @@ const MeetingMinutes: React.FC = () => {
 							<Text type="secondary">流式转写仅用于实时展示，点击「生成纪要」后会生成更精准的转写、摘要与待办。</Text>
 						</Space>
 					</ProCard>
+					</div>
 
 					<ProCard
 						title="火山纪要结果"
@@ -2009,93 +2095,98 @@ const MeetingMinutes: React.FC = () => {
 						}
 					>
 						<Space direction="vertical" style={{ width: '100%' }} size="middle">
-							{volcMinutesStatus && (
-								<Alert
-									showIcon
-									type={volcMinutesStatus?.error ? 'error' : 'info'}
-									message={`妙记状态：${({ completed: '已完成', succeeded: '已完成', success: '已完成', finished: '已完成', failed: '失败', error: '失败', processing: '处理中', submitted: '处理中', running: '运行中', pending: '等待中' }[String(volcMinutesStatus.status ?? '').toLowerCase()]) || volcMinutesStatus.status || '—'}`}
-									description={
-										<Space direction="vertical" size={0}>
-											<Text type="secondary">任务 ID：{volcMinutesStatus.task_id || '—'}</Text>
-											<Text type="secondary">音频 ID：{volcMinutesStatus.audio_id || '—'}</Text>
-											{volcMinutesStatus.error && <Text type="danger">错误：{volcMinutesStatus.error}</Text>}
-										</Space>
+						{volcMinutesStatus && (
+							<Alert
+								showIcon
+								type={volcMinutesStatus?.error ? 'error' : 'info'}
+								message={`妙记状态：${({ completed: '已完成', succeeded: '已完成', success: '已完成', finished: '已完成', failed: '失败', error: '失败', processing: '处理中', submitted: '处理中', running: '运行中', pending: '等待中' }[String(volcMinutesStatus.status ?? '').toLowerCase()]) || volcMinutesStatus.status || '—'}`}
+								description={volcMinutesStatus.error ? <Text type="danger">错误：{volcMinutesStatus.error}</Text> : undefined}
+							/>
+						)}
+
+					{/* 精确转写：框始终展示，妙记刷新成功后才填入文字内容 */}
+					{(() => {
+						// 只有妙记真正完成（audio_status === 'completed'）才算有精确转写结果
+						const hasTranscript = !!(volcMinutes &&
+							volcMinutes.audio_status === 'completed' &&
+							(volcMinutes.transcript_text != null || (volcMinutes.speaker_segments?.length ?? 0) > 0));
+							return (
+								<ProCard
+									title="精确转写"
+									extra={
+										<Button
+											type="link"
+											onClick={handleSaveVolcTranscript}
+											loading={savingVolcTranscript}
+											disabled={!hasTranscript}
+										>
+											保存转写
+										</Button>
 									}
+									style={{ marginBottom: 16 }}
+								>
+									<Space direction="vertical" style={{ width: '100%' }} size="small">
+										<TextArea
+											rows={14}
+											placeholder="火山纪要刷新成功后将在此显示精确转写内容。"
+											value={volcTranscriptDraft}
+											onChange={(e) => setVolcTranscriptDraft(e.target.value)}
+										/>
+										<Text type="secondary">
+											流式转写仅作实时预览；生成纪要后得到带说话人的精确转写，可在此修订并保存。
+										</Text>
+									</Space>
+								</ProCard>
+							);
+						})()}
+
+						{/* 会议摘要：始终显示 */}
+						<ProCard
+							title="会议摘要"
+							extra={
+								<Button
+									type="link"
+									onClick={handleSaveVolcSummary}
+									loading={savingVolcSummary}
+									disabled={!selectedMeetingId}
+								>
+									保存会议摘要
+								</Button>
+							}
+							style={{ marginBottom: 16 }}
+						>
+							<Space direction="vertical" style={{ width: '100%' }} size="middle">
+								<Input
+									placeholder="请输入会议摘要标题（可选）"
+									value={volcSummaryTitle}
+									onChange={(e) => setVolcSummaryTitle(e.target.value)}
+									allowClear
 								/>
-							)}
-
-							{/* 精确转写：框始终展示，内容等语音妙记返回结果后再显示 */}
-							{(() => {
-								const hasFullResult = volcMinutes &&
-									(volcMinutes.transcript_text != null || (volcMinutes.speaker_segments?.length ?? 0) > 0) &&
-									(volcMinutes.summary != null || (volcMinutes.todos?.length ?? 0) > 0);
-								return (
-									<ProCard
-										title="精确转写"
-										extra={
-											<Button
-												type="link"
-												onClick={handleSaveVolcTranscript}
-												loading={savingVolcTranscript}
-												disabled={!hasFullResult}
-											>
-												保存转写
-											</Button>
-										}
-										style={{ marginBottom: 16 }}
+								{/* 摘要正文预览 */}
+								{volcSummaryDraft ? (
+									<div
+										style={{
+											minHeight: 240,
+											padding: '12px 16px',
+											border: '1px solid #d9d9d9',
+											borderRadius: 6,
+											background: '#fafafa',
+											lineHeight: 1.85,
+											fontSize: 14,
+										}}
 									>
-										<Space direction="vertical" style={{ width: '100%' }} size="small">
-											<TextArea
-												rows={14}
-												placeholder={hasFullResult ? '可在此修订并保存。' : '语音妙记返回结果后将在此显示精确转写内容。'}
-												value={volcTranscriptDraft}
-												onChange={(e) => setVolcTranscriptDraft(e.target.value)}
-											/>
-											<Text type="secondary">
-												流式转写仅作实时预览；生成纪要后得到带说话人的精确转写，可在此修订并保存。
-											</Text>
-										</Space>
-									</ProCard>
-								);
-							})()}
-
-							{/* 会议摘要、待办事项上下排列 */}
-							<ProCard
-								title="会议摘要"
-								extra={
-									<Button
-										type="link"
-										onClick={handleSaveVolcSummary}
-										loading={savingVolcSummary}
-										disabled={!selectedMeetingId}
-									>
-										保存会议摘要
-									</Button>
-								}
-								style={{ marginBottom: 16 }}
-							>
-								<Space direction="vertical" style={{ width: '100%' }} size="middle">
-									<Input
-										placeholder="请输入会议摘要标题（可选）"
-										value={volcSummaryTitle}
-										onChange={(e) => setVolcSummaryTitle(e.target.value)}
-										allowClear
-									/>
-									<TextArea
-										rows={6}
-										placeholder="请输入会议摘要内容"
-										value={volcSummaryDraft}
-										onChange={(e) => setVolcSummaryDraft(e.target.value)}
-									/>
-									{volcMinutes?.summary?.source_audio_id && (
-										<Text type="secondary">来源音频 ID：{volcMinutes.summary.source_audio_id}</Text>
-									)}
-									{!volcMinutes?.summary && <Text type="secondary">尚未生成会议摘要，可手动编写并保存。</Text>}
-									{volcMinutes?.summary && !volcSummaryDraft?.trim() && (
-										<Text type="secondary">摘要内容为空时，可手动填写上方内容后点击「保存会议摘要」。</Text>
-									)}
-								</Space>
-							</ProCard>
+										{renderSimpleMarkdown(volcSummaryDraft)}
+									</div>
+							) : null}
+								{/* 编辑框：始终显示，方便手动补充 */}
+								<TextArea
+									rows={6}
+									placeholder="可在此编辑摘要内容（支持 Markdown），修改后点击「保存会议摘要」"
+									value={volcSummaryDraft}
+									onChange={(e) => setVolcSummaryDraft(e.target.value)}
+								/>
+							</Space>
+						</ProCard>
 
 							<ProCard
 								title="待办事项"
@@ -2388,8 +2479,8 @@ const MeetingMinutes: React.FC = () => {
 								// 忽略清空失败
 							}
 							setVolcAudiosModalVisible(false);
-							volcStreamCompleteCallbackRef.current = () => {
-								handleSubmitVolcMinutes();
+							volcStreamCompleteCallbackRef.current = (completedAudioId?: number) => {
+								handleSubmitVolcMinutes(completedAudioId);
 							};
 							startVolcSseStream(selectedVolcAudioId);
 							message.info('已开始转写，转写完成后将自动生成会议纪要');
