@@ -192,7 +192,7 @@ const MeetingMinutes: React.FC = () => {
 	const [volcLatestAudioId, setVolcLatestAudioId] = useState<number | null>(null);
 	const [volcStreamText, setVolcStreamText] = useState('');
 	const [volcStreamType, setVolcStreamType] = useState<
-		'idle' | 'live_connecting' | 'live_streaming' | 'file_streaming' | 'completed' | 'error'
+		'idle' | 'live_connecting' | 'live_streaming' | 'live_stopping' | 'live_saving' | 'live_uploading' | 'file_streaming' | 'completed' | 'error'
 	>('idle');
 	const [volcStreamError, setVolcStreamError] = useState<string | null>(null);
 	const [volcStreamSessionId, setVolcStreamSessionId] = useState<number | null>(null);
@@ -366,12 +366,12 @@ const MeetingMinutes: React.FC = () => {
 			//   - 其他情况（包括切换会议后的恢复）直接用数据库结果刷新
 			setVolcStreamText((prev) => {
 				const streamType = volcStreamTypeRef.current;
-				const isStreaming = streamType === 'file_streaming' || streamType === 'live_streaming' || streamType === 'live_connecting';
+				const isStreaming = streamType === 'file_streaming' || streamType === 'live_streaming' || streamType === 'live_connecting' || streamType === 'live_stopping' || streamType === 'live_saving' || streamType === 'live_uploading';
 				if (isStreaming && prev) return prev;
 				return result.stream_transcript_text || '';
 			});
 			setVolcStreamType((prev) => {
-				const isActive = prev === 'file_streaming' || prev === 'live_streaming' || prev === 'live_connecting';
+				const isActive = prev === 'file_streaming' || prev === 'live_streaming' || prev === 'live_connecting' || prev === 'live_stopping' || prev === 'live_saving' || prev === 'live_uploading';
 				if (isActive) return prev;
 				return result.stream_transcript_text ? 'completed' : 'idle';
 			});
@@ -462,7 +462,7 @@ const MeetingMinutes: React.FC = () => {
 					if (payload.type === 'volc_minutes_completed') {
 						const streamType = volcStreamTypeRef.current;
 						// 新生成进行中时不应用可能过期的完成消息，避免覆盖已清空的展示
-						if (streamType === 'file_streaming' || streamType === 'live_streaming' || streamType === 'live_connecting') {
+						if (streamType === 'file_streaming' || streamType === 'live_streaming' || streamType === 'live_connecting' || streamType === 'live_stopping' || streamType === 'live_saving' || streamType === 'live_uploading') {
 							return;
 						}
 						setVolcMinutesStatus({
@@ -1024,6 +1024,12 @@ const MeetingMinutes: React.FC = () => {
 				const data = JSON.parse(String(event.data || '{}'));
 				if (data.type === 'session_created') setVolcStreamSessionId(data.session_id || null);
 				if (typeof data.accumulated === 'string') setVolcStreamText(data.accumulated);
+				if (data.type === 'saving_audio') {
+					setVolcStreamType('live_saving');
+				}
+				if (data.type === 'uploading_audio') {
+					setVolcStreamType('live_uploading');
+				}
 				if (data.type === 'completed') {
 					if (typeof data.transcript === 'string') setVolcStreamText(data.transcript);
 					const liveAudioId = typeof data.audio_id === 'number' ? data.audio_id : undefined;
@@ -1034,7 +1040,7 @@ const MeetingMinutes: React.FC = () => {
 					setVolcStreamType('completed');
 					await stopVolcLiveWs(true);
 					if (selectedMeetingId) await loadVolcAudioList(selectedMeetingId);
-					message.success('录音已完成，正在自动生成会议纪要…');
+					message.success('上传成功，正在自动生成会议纪要。');
 					// 直接传 liveAudioId，避免 setState 异步导致读到旧 volcLatestAudioId
 					handleSubmitVolcMinutes(liveAudioId);
 				}
@@ -1130,7 +1136,10 @@ const MeetingMinutes: React.FC = () => {
 				task_id: record.task_id || undefined,
 				audio_id: record.id,
 			});
-			message.success('已提交生成纪要，后台处理中（完成后将通过会议 WS 推送）');
+			// 上传音频模式只在此处提示；在线录音模式在 WS completed 时已提示
+			if (volcInputMode === 'upload') {
+				message.success('上传成功，正在自动生成会议纪要。');
+			}
 			loadVolcAudioList(selectedMeetingId);
 			loadVolcMinutesData(selectedMeetingId);
 		} catch (error: any) {
@@ -1886,6 +1895,9 @@ const MeetingMinutes: React.FC = () => {
 		idle: '空闲',
 		live_connecting: '连接中（WS）',
 		live_streaming: '实时录音中（WS）',
+		live_stopping: '正在保存并上传录音。',
+		live_saving: '保存音频中…',
+		live_uploading: '上传音频中…',
 		file_streaming: '流式转写中（SSE）',
 		completed: '已完成',
 		error: '失败',
@@ -1945,9 +1957,9 @@ const MeetingMinutes: React.FC = () => {
 						<Button
 								icon={<AudioOutlined />}
 								onClick={() => void startVolcLiveRecording()}
-								disabled={!hasSelectedMeeting || volcStreamType === 'live_streaming' || volcStreamType === 'live_connecting'}
+								disabled={!hasSelectedMeeting || volcStreamType === 'live_streaming' || volcStreamType === 'live_connecting' || volcStreamType === 'live_stopping' || volcStreamType === 'live_saving' || volcStreamType === 'live_uploading'}
 							>
-								{volcStreamType === 'live_streaming' || volcStreamType === 'live_connecting' ? '录音中…' : '在线录音'}
+								{(volcStreamType === 'live_streaming' || volcStreamType === 'live_connecting' || volcStreamType === 'live_stopping' || volcStreamType === 'live_saving' || volcStreamType === 'live_uploading') ? '录音/处理中…' : '在线录音'}
 							</Button>
 						<Button icon={<UnorderedListOutlined />} disabled={!hasSelectedMeeting} onClick={openVolcAudiosModal}>
 							查看已有音频
@@ -2053,8 +2065,16 @@ const MeetingMinutes: React.FC = () => {
 						style={{ marginBottom: 16 }}
 						extra={
 							<Space>
-								{(volcStreamType === 'live_streaming' || volcStreamType === 'live_connecting') && (
-									<Button danger onClick={() => void stopVolcLiveWs(false)}>
+								{(volcStreamType === 'live_streaming' || volcStreamType === 'live_connecting' || volcStreamType === 'live_stopping' || volcStreamType === 'live_saving' || volcStreamType === 'live_uploading') && (
+									<Button
+										danger
+										disabled={volcStreamType === 'live_stopping' || volcStreamType === 'live_saving' || volcStreamType === 'live_uploading'}
+										onClick={() => {
+											setVolcStreamType('live_stopping');
+											message.info('录音已停止，正在保存并上传录音。');
+											void stopVolcLiveWs(false);
+										}}
+									>
 										停止录音
 									</Button>
 								)}
@@ -2420,7 +2440,7 @@ const MeetingMinutes: React.FC = () => {
 					<Button
 						key="start"
 						type="primary"
-						disabled={!selectedMeetingId || volcStreamType === 'live_streaming' || volcStreamType === 'live_connecting'}
+						disabled={!selectedMeetingId || volcStreamType === 'live_streaming' || volcStreamType === 'live_connecting' || volcStreamType === 'live_stopping' || volcStreamType === 'live_saving' || volcStreamType === 'live_uploading'}
 						onClick={startVolcLiveRecording}
 					>
 						开始实时录音
@@ -2429,7 +2449,11 @@ const MeetingMinutes: React.FC = () => {
 						key="stop"
 						danger
 						disabled={volcStreamType !== 'live_streaming' && volcStreamType !== 'live_connecting'}
-						onClick={() => void stopVolcLiveWs(false)}
+						onClick={() => {
+							setVolcStreamType('live_stopping');
+							message.info('录音已停止，正在保存并上传录音。');
+							void stopVolcLiveWs(false);
+						}}
 					>
 						停止并保存
 					</Button>,
