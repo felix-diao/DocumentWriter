@@ -60,6 +60,21 @@ export interface VolcMeetingAudio {
   updated_at: string;
 }
 
+export interface LocalMeetingAudio {
+  id: number;
+  meeting_id: number;
+  file_name: string;
+  object_key: string;
+  file_url: string;
+  file_type?: string | null;
+  status?: string | null;
+  transcript_text?: string | null;
+  source_asr_session_id?: number | null;
+  error_msg?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 const listMeetings = async (): Promise<Meeting[]> => {
   const res = await request<ApiResponse<Meeting[]>>('/api/meetings', {
     method: 'GET',
@@ -145,12 +160,18 @@ const deleteAudio = async (meetingId: number, audioId: number): Promise<void> =>
 };
 
 const downloadBlob = async (url: string) => {
-  const response = await request(url, {
+  const response: any = await request(url, {
     method: 'GET',
     responseType: 'blob',
     getResponse: true,
   });
-  const disposition = response.response?.headers?.get('content-disposition');
+  const headers =
+    response?.response?.headers ??
+    response?.headers;
+  const disposition =
+    headers?.get?.('content-disposition') ??
+    headers?.['content-disposition'] ??
+    headers?.['Content-Disposition'];
   let filename = 'download';
   if (disposition) {
     const match = disposition.match(/filename\*?=(?:UTF-8'')?\"?([^\";]+)/i);
@@ -170,6 +191,12 @@ const downloadMeetingAudio = async (meetingId: number, audioId: number) => {
   const url = `/api/meetings/audio/download/${meetingId}/${audioId}`;
   return downloadBlob(url);
 };
+
+export const meetingFileDownloadUrl = (meetingId: number, fileId: number) =>
+  `/api/meetings/files/download/${meetingId}/${fileId}`;
+
+export const meetingAudioDownloadUrl = (meetingId: number, audioId: number) =>
+  `/api/meetings/audio/download/${meetingId}/${audioId}`;
 
 const listVolcAudios = async (meetingId: number): Promise<VolcMeetingAudio[]> => {
   const res = await request<ApiResponse<VolcMeetingAudio[]>>(`/api/meetings/volc/audio/${meetingId}`, {
@@ -200,6 +227,24 @@ const downloadVolcAudio = async (meetingId: number, audioId: number) => {
   return downloadBlob(url);
 };
 
+const listLocalAudios = async (meetingId: number): Promise<LocalMeetingAudio[]> => {
+  const res = await request<ApiResponse<LocalMeetingAudio[]>>(`/api/meetings/local/audio/${meetingId}`, {
+    method: 'GET',
+  });
+  return res?.data ?? [];
+};
+
+const deleteLocalAudio = async (meetingId: number, audioId: number): Promise<void> => {
+  await request<ApiResponse<LocalMeetingAudio>>(`/api/meetings/local/audio/${meetingId}/${audioId}`, {
+    method: 'DELETE',
+  });
+};
+
+const downloadLocalAudio = async (meetingId: number, audioId: number) => {
+  const url = `/api/meetings/local/audio/download/${meetingId}/${audioId}`;
+  return downloadBlob(url);
+};
+
 export const meetingsApi = {
   list: listMeetings,
   detail: getMeetingDetail,
@@ -218,6 +263,9 @@ export const meetingsApi = {
   uploadVolcAudio,
   deleteVolcAudio,
   downloadVolcAudio,
+  listLocalAudios,
+  deleteLocalAudio,
+  downloadLocalAudio,
 };
 
 export default meetingsApi;

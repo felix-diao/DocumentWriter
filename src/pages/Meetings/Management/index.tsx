@@ -4,7 +4,6 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
-  EyeOutlined,
   FileTextOutlined,
   InboxOutlined,
   LinkOutlined,
@@ -326,14 +325,6 @@ const MeetingManagement: React.FC = () => {
       width: 340,
       render: (_, record) => (
         <Space size="small" wrap>
-          <Button
-            size="small"
-            type="primary"
-            icon={<EyeOutlined />}
-            onClick={() => openMeetingDrawer(record)}
-          >
-            查看
-          </Button>
           <Button size="small" onClick={() => openEditModal(record)} icon={<EditOutlined />}>
             编辑
           </Button>

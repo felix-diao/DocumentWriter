@@ -302,6 +302,134 @@ const deleteVolcTodo = async (meetingId: number, todoId: number): Promise<void> 
   });
 };
 
+// ── 本地 Qwen3-ASR 会议纪要 Types ─────────────────────────────────────────────
+
+export interface LocalMeetingSummary {
+  id: number;
+  meeting_id: number;
+  title?: string | null;
+  paragraph: string;
+  source_audio_id?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LocalMeetingTodo {
+  id: number;
+  meeting_id: number;
+  content: string;
+  executor?: string | null;
+  execution_time?: string | null;
+  source_audio_id?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LocalMeetingAudioRecord {
+  id: number;
+  meeting_id: number;
+  file_name: string;
+  object_key: string;
+  file_url: string;
+  file_type?: string | null;
+  status: string;
+  transcript_text?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LocalMeetingMinutes {
+  transcript_text?: string | null;
+  stream_transcript_text?: string | null;
+  audio_status?: string | null;
+  summary?: LocalMeetingSummary | null;
+  todos: LocalMeetingTodo[];
+}
+
+export interface LocalMeetingSummaryPayload {
+  paragraph: string;
+  title?: string | null;
+  source_audio_id?: number | null;
+  meeting_id?: number;
+}
+
+export interface LocalMeetingTodoPayload {
+  content: string;
+  executor?: string | null;
+  execution_time?: string | null;
+  source_audio_id?: number | null;
+  meeting_id?: number;
+}
+
+// ── 本地 Qwen3-ASR API 函数 ───────────────────────────────────────────────────
+
+const getLocalMinutes = async (meetingId: number): Promise<LocalMeetingMinutes> => {
+  const res = await request<ApiResponse<LocalMeetingMinutes>>(`/api/minutes/local/${meetingId}`, {
+    method: 'GET',
+  });
+  return res?.data ?? { transcript_text: null, stream_transcript_text: null, audio_status: null, summary: null, todos: [] };
+};
+
+const generateLocalMinutes = async (meetingId: number): Promise<LocalMeetingMinutes> => {
+  const res = await request<ApiResponse<LocalMeetingMinutes>>(`/api/minutes/local/${meetingId}/generate`, {
+    method: 'POST',
+  });
+  return res?.data ?? { transcript_text: null, stream_transcript_text: null, audio_status: null, summary: null, todos: [] };
+};
+
+const clearLocalMinutes = async (meetingId: number): Promise<void> => {
+  await request<ApiResponse<null>>(`/api/minutes/local/${meetingId}/clear`, { method: 'POST' });
+};
+
+const uploadLocalAudio = async (meetingId: number, file: File): Promise<LocalMeetingAudioRecord> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await request<ApiResponse<LocalMeetingAudioRecord>>(`/api/minutes/local/${meetingId}/upload`, {
+    method: 'POST',
+    data: formData,
+    requestType: 'form',
+  });
+  return res.data;
+};
+
+const updateLocalSummary = async (
+  meetingId: number,
+  payload: LocalMeetingSummaryPayload,
+): Promise<LocalMeetingSummary> => {
+  const res = await request<ApiResponse<LocalMeetingSummary>>(
+    `/api/minutes/local/${meetingId}/summary`,
+    { method: 'PUT', data: { ...payload, meeting_id: meetingId } },
+  );
+  return res.data;
+};
+
+const createLocalTodo = async (
+  meetingId: number,
+  payload: LocalMeetingTodoPayload,
+): Promise<LocalMeetingTodo> => {
+  const res = await request<ApiResponse<LocalMeetingTodo>>(
+    `/api/minutes/local/${meetingId}/todos`,
+    { method: 'POST', data: { ...payload, meeting_id: meetingId } },
+  );
+  return res.data;
+};
+
+const updateLocalTodo = async (
+  meetingId: number,
+  todoId: number,
+  payload: LocalMeetingTodoPayload,
+): Promise<LocalMeetingTodo> => {
+  const res = await request<ApiResponse<LocalMeetingTodo>>(
+    `/api/minutes/local/${meetingId}/todos/${todoId}`,
+    { method: 'PUT', data: { ...payload, meeting_id: meetingId } },
+  );
+  return res.data;
+};
+
+const deleteLocalTodo = async (meetingId: number, todoId: number): Promise<void> => {
+  await request<ApiResponse<null>>(`/api/minutes/local/${meetingId}/todos/${todoId}`, { method: 'DELETE' });
+};
+
 export const meetingMinutesApi = {
   getInsights,
   generateInsights,
@@ -321,6 +449,15 @@ export const meetingMinutesApi = {
   createVolcTodo,
   updateVolcTodo,
   deleteVolcTodo,
+  // 本地 Qwen3-ASR
+  getLocalMinutes,
+  generateLocalMinutes,
+  clearLocalMinutes,
+  uploadLocalAudio,
+  updateLocalSummary,
+  createLocalTodo,
+  updateLocalTodo,
+  deleteLocalTodo,
 };
 
 export const getMinutesDocxUrl = (meetingId: number) =>
