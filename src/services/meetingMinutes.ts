@@ -96,6 +96,42 @@ export interface VolcTranscriptPayload {
   transcript_text: string;
 }
 
+export interface VolcSessionTodoItem {
+  content: string;
+  executor?: string | null;
+  execution_time?: string | null;
+  source_audio_id?: number | null;
+}
+
+export interface VolcMeetingMinutesSession {
+  id: number;
+  meeting_id: number;
+  source_audio_id?: number | null;
+  source_asr_session_id?: number | null;
+  volc_task_id?: string | null;
+  status: string;
+  error_msg?: string | null;
+  stream_transcript_text?: string | null;
+  transcript_text?: string | null;
+  speaker_segments: SpeakerSegment[];
+  summary_title?: string | null;
+  summary_paragraph?: string | null;
+  todos: VolcSessionTodoItem[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VolcMeetingMinutesSessionUpdatePayload {
+  status?: string | null;
+  error_msg?: string | null;
+  stream_transcript_text?: string | null;
+  transcript_text?: string | null;
+  speaker_segments?: SpeakerSegment[];
+  summary_title?: string | null;
+  summary_paragraph?: string | null;
+  todos?: VolcSessionTodoItem[];
+}
+
 export interface GenerateMinutesPayload {
   file_ids?: number[];
   audio_ids?: number[];
@@ -302,6 +338,39 @@ const deleteVolcTodo = async (meetingId: number, todoId: number): Promise<void> 
   });
 };
 
+const listVolcMinutesSessions = async (meetingId: number): Promise<VolcMeetingMinutesSession[]> => {
+  const res = await request<ApiResponse<VolcMeetingMinutesSession[]>>(`/api/minutes/volc/${meetingId}/sessions`, {
+    method: 'GET',
+  });
+  return res?.data ?? [];
+};
+
+const getVolcMinutesSession = async (
+  meetingId: number,
+  sessionId: number,
+): Promise<VolcMeetingMinutesSession> => {
+  const res = await request<ApiResponse<VolcMeetingMinutesSession>>(
+    `/api/minutes/volc/${meetingId}/sessions/${sessionId}`,
+    { method: 'GET' },
+  );
+  return res.data;
+};
+
+const updateVolcMinutesSession = async (
+  meetingId: number,
+  sessionId: number,
+  payload: VolcMeetingMinutesSessionUpdatePayload,
+): Promise<VolcMeetingMinutesSession> => {
+  const res = await request<ApiResponse<VolcMeetingMinutesSession>>(
+    `/api/minutes/volc/${meetingId}/sessions/${sessionId}`,
+    {
+      method: 'PUT',
+      data: payload,
+    },
+  );
+  return res.data;
+};
+
 // ── 本地 Qwen3-ASR 会议纪要 Types ─────────────────────────────────────────────
 
 export interface LocalMeetingSummary {
@@ -449,6 +518,9 @@ export const meetingMinutesApi = {
   createVolcTodo,
   updateVolcTodo,
   deleteVolcTodo,
+  listVolcMinutesSessions,
+  getVolcMinutesSession,
+  updateVolcMinutesSession,
   // 本地 Qwen3-ASR
   getLocalMinutes,
   generateLocalMinutes,

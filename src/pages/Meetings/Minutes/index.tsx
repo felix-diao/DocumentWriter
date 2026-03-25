@@ -1,6 +1,7 @@
 import {
 	AudioOutlined,
 	CloudUploadOutlined,
+	HistoryOutlined,
 	PauseCircleOutlined,
 	PlayCircleOutlined,
 	PlusOutlined,
@@ -53,7 +54,9 @@ import meetingMinutesApi, {
 	type MeetingInsights,
 	type SpeakerSegment,
 	type VolcMeetingMinutes,
+	type VolcMeetingMinutesSession,
 	type VolcMeetingTodo,
+	type VolcSessionTodoItem,
 } from '@/services/meetingMinutes';
 import { getToken } from '@/utils/auth';
 import { downsampleBuffer, float32ToInt16PCM } from '@/utils/pcm';
@@ -301,6 +304,24 @@ const MeetingMinutes: React.FC = () => {
 	const [editingVolcTodo, setEditingVolcTodo] = useState<VolcMeetingTodo | null>(null);
 	const [volcTodoForm] = Form.useForm<VolcTodoFormValues>();
 	const [savingVolcTodo, setSavingVolcTodo] = useState(false);
+	const [volcSessionsModalVisible, setVolcSessionsModalVisible] = useState(false);
+	const [loadingVolcSessions, setLoadingVolcSessions] = useState(false);
+	const [loadingVolcSessionDetail, setLoadingVolcSessionDetail] = useState(false);
+	const [volcSessionList, setVolcSessionList] = useState<VolcMeetingMinutesSession[]>([]);
+	const [selectedVolcSessionId, setSelectedVolcSessionId] = useState<number | null>(null);
+	const [selectedVolcSessionDetail, setSelectedVolcSessionDetail] = useState<VolcMeetingMinutesSession | null>(null);
+	const [volcSessionDraft, setVolcSessionDraft] = useState({
+		stream_transcript_text: '',
+		transcript_text: '',
+		summary_title: '',
+		summary_paragraph: '',
+		speaker_segments: [] as SpeakerSegment[],
+		todos: [] as VolcSessionTodoItem[],
+	});
+	const [savingVolcSessionDetail, setSavingVolcSessionDetail] = useState(false);
+	const [volcSessionTodoModalVisible, setVolcSessionTodoModalVisible] = useState(false);
+	const [editingVolcSessionTodoIndex, setEditingVolcSessionTodoIndex] = useState<number | null>(null);
+	const [volcSessionTodoForm] = Form.useForm<VolcTodoFormValues>();
 
 	// ── 本地 Qwen3-ASR 会议纪要 state ─────────────────────────────────────────
 	const [localMinutes, setLocalMinutes] = useState<LocalMeetingMinutes | null>(null);
@@ -555,6 +576,46 @@ const MeetingMinutes: React.FC = () => {
 		}
 	}, []);
 
+	const loadVolcSessions = useCallback(async (meetingId: number, keepSelection = true) => {
+		setLoadingVolcSessions(true);
+		try {
+			const list = await meetingMinutesApi.listVolcMinutesSessions(meetingId);
+			const normalized = [...(list || [])].sort((a, b) => dayjs(a.created_at).valueOf() - dayjs(b.created_at).valueOf());
+			setVolcSessionList(normalized);
+			const defaultId = normalized[normalized.length - 1]?.id ?? null;
+			const currentId = keepSelection ? selectedVolcSessionId : null;
+			const nextId = currentId && normalized.some((item) => item.id === currentId) ? currentId : defaultId;
+			setSelectedVolcSessionId(nextId);
+			if (!nextId) {
+				setSelectedVolcSessionDetail(null);
+				return;
+			}
+			const detail =
+				normalized.find((item) => item.id === nextId) ||
+				(await meetingMinutesApi.getVolcMinutesSession(meetingId, nextId));
+			setSelectedVolcSessionDetail(detail);
+		} catch (error: any) {
+			message.warning(error?.message || '加载会话历史失败');
+			setVolcSessionList([]);
+			setSelectedVolcSessionId(null);
+			setSelectedVolcSessionDetail(null);
+		} finally {
+			setLoadingVolcSessions(false);
+		}
+	}, [selectedVolcSessionId]);
+
+	const loadVolcSessionDetail = useCallback(async (meetingId: number, sessionId: number) => {
+		setLoadingVolcSessionDetail(true);
+		try {
+			const detail = await meetingMinutesApi.getVolcMinutesSession(meetingId, sessionId);
+			setSelectedVolcSessionDetail(detail);
+		} catch (error: any) {
+			message.warning(error?.message || '加载会话详情失败');
+		} finally {
+			setLoadingVolcSessionDetail(false);
+		}
+	}, []);
+
   const buildWsUrl = (path: string) => {
     if (typeof window === 'undefined') return path;
     // 开发模式下直连后端，绕过 Umi dev proxy（proxy ws:true 会为每个前端 WS 创建两条后端连接）
@@ -632,6 +693,9 @@ const MeetingMinutes: React.FC = () => {
 						if (payload.refresh) {
 							loadVolcMinutesData(meetingId, true);
 							loadVolcAudioList(meetingId);
+							if (volcSessionsModalVisible) {
+								loadVolcSessions(meetingId, true);
+							}
 						}
 					}
 				} catch {
@@ -663,7 +727,7 @@ const MeetingMinutes: React.FC = () => {
 				wsDebug('meetingWs error', event);
 			};
 		},
-		[closeMeetingWs, loadVolcMinutesData, loadVolcAudioList, wsDebug],
+		[closeMeetingWs, loadVolcMinutesData, loadVolcAudioList, loadVolcSessions, volcSessionsModalVisible, wsDebug],
 	);
 
 	useEffect(() => {
@@ -684,6 +748,10 @@ const MeetingMinutes: React.FC = () => {
 		setVolcSummaryTitle('');
 		setVolcSummaryDraft('');
 		setVolcAudios([]);
+		setVolcSessionList([]);
+		setSelectedVolcSessionId(null);
+		setSelectedVolcSessionDetail(null);
+		setVolcSessionsModalVisible(false);
 
 		// 本地模式清空
 		stopLocalSseStream();
@@ -752,6 +820,28 @@ const MeetingMinutes: React.FC = () => {
 	useEffect(() => {
 		localStreamTypeRef.current = localStreamType;
 	}, [localStreamType]);
+
+	useEffect(() => {
+		if (!selectedVolcSessionDetail) {
+			setVolcSessionDraft({
+				stream_transcript_text: '',
+				transcript_text: '',
+				summary_title: '',
+				summary_paragraph: '',
+				speaker_segments: [],
+				todos: [],
+			});
+			return;
+		}
+		setVolcSessionDraft({
+			stream_transcript_text: selectedVolcSessionDetail.stream_transcript_text || '',
+			transcript_text: selectedVolcSessionDetail.transcript_text || '',
+			summary_title: selectedVolcSessionDetail.summary_title || '',
+			summary_paragraph: selectedVolcSessionDetail.summary_paragraph || '',
+			speaker_segments: selectedVolcSessionDetail.speaker_segments || [],
+			todos: selectedVolcSessionDetail.todos || [],
+		});
+	}, [selectedVolcSessionDetail]);
 
 	const handleMeetingChange = (value: number) => {
 		setSelectedMeetingId(value);
@@ -944,6 +1034,71 @@ const MeetingMinutes: React.FC = () => {
 		}
 		setVolcAudiosModalVisible(true);
 		loadVolcAudioList(selectedMeetingId);
+	};
+
+	const openVolcSessionsModal = () => {
+		if (!selectedMeetingId) {
+			message.warning('请选择会议');
+			return;
+		}
+		setVolcSessionsModalVisible(true);
+		loadVolcSessions(selectedMeetingId, false);
+	};
+
+	const closeVolcSessionsModal = () => {
+		setVolcSessionsModalVisible(false);
+		if (selectedMeetingId) {
+			// 从历史会话返回主界面时强制刷新，确保联动修改可见。
+			loadVolcMinutesData(selectedMeetingId);
+			loadVolcAudioList(selectedMeetingId);
+		}
+	};
+
+	const persistVolcSessionDetail = async (
+		draft = volcSessionDraft,
+		successMessage = '会话历史已保存',
+	) => {
+		if (!selectedMeetingId || !selectedVolcSessionId) {
+			message.warning('请选择会议与会话');
+			return;
+		}
+
+		setSavingVolcSessionDetail(true);
+		try {
+			const updated = await meetingMinutesApi.updateVolcMinutesSession(
+				selectedMeetingId,
+				selectedVolcSessionId,
+				{
+					stream_transcript_text: draft.stream_transcript_text,
+					transcript_text: draft.transcript_text,
+					summary_title: draft.summary_title || null,
+					summary_paragraph: draft.summary_paragraph || null,
+					speaker_segments: draft.speaker_segments,
+					todos: draft.todos,
+				},
+			);
+			setSelectedVolcSessionDetail(updated);
+			let isLatestSession = false;
+			setVolcSessionList((prev) => {
+				if (!prev.length) return prev;
+				const latest = prev[prev.length - 1];
+				isLatestSession = latest?.id === updated.id;
+				return prev.map((item) => (item.id === updated.id ? updated : item));
+			});
+			if (isLatestSession) {
+				loadVolcMinutesData(selectedMeetingId);
+				loadVolcAudioList(selectedMeetingId);
+			}
+			message.success(successMessage);
+		} catch (error: any) {
+			message.error(error?.message || '保存会话历史失败');
+		} finally {
+			setSavingVolcSessionDetail(false);
+		}
+	};
+
+	const handleSaveVolcSessionDetail = async () => {
+		await persistVolcSessionDetail(volcSessionDraft, '会话历史已保存');
 	};
 
 	const openLocalAudiosModal = () => {
@@ -1358,6 +1513,9 @@ const MeetingMinutes: React.FC = () => {
 			}
 			loadVolcAudioList(selectedMeetingId);
 			loadVolcMinutesData(selectedMeetingId);
+			if (volcSessionsModalVisible) {
+				loadVolcSessions(selectedMeetingId, true);
+			}
 		} catch (error: any) {
 			message.error(error?.message || '提交失败');
 		} finally {
@@ -1383,6 +1541,9 @@ const MeetingMinutes: React.FC = () => {
 			);
 			setVolcSummaryTitle(summary.title || '');
 			setVolcSummaryDraft(summary.paragraph || '');
+			if (volcSessionsModalVisible) {
+				loadVolcSessions(selectedMeetingId, true);
+			}
 			message.success('火山会议摘要已保存');
 		} catch (error: any) {
 			message.error(error?.message || '保存火山会议摘要失败');
@@ -1406,6 +1567,9 @@ const MeetingMinutes: React.FC = () => {
 			message.success('转写文本已保存');
 			loadVolcMinutesData(selectedMeetingId);
 			loadVolcAudioList(selectedMeetingId);
+			if (volcSessionsModalVisible) {
+				loadVolcSessions(selectedMeetingId, true);
+			}
 		} catch (error: any) {
 			message.error(error?.message || '保存转写文本失败');
 		} finally {
@@ -1460,6 +1624,9 @@ const MeetingMinutes: React.FC = () => {
 			}
 			handleCloseVolcTodoModal();
 			loadVolcMinutesData(selectedMeetingId);
+			if (volcSessionsModalVisible) {
+				loadVolcSessions(selectedMeetingId, true);
+			}
 		} catch (error: any) {
 			if (!error?.errorFields) {
 				message.error(error?.message || '保存待办事项失败');
@@ -1478,6 +1645,9 @@ const MeetingMinutes: React.FC = () => {
 			await meetingMinutesApi.deleteVolcTodo(selectedMeetingId, todoId);
 			message.success('待办事项已删除');
 			loadVolcMinutesData(selectedMeetingId);
+			if (volcSessionsModalVisible) {
+				loadVolcSessions(selectedMeetingId, true);
+			}
 		} catch (error: any) {
 			message.error(error?.message || '删除待办事项失败');
 		}
@@ -1749,7 +1919,10 @@ const MeetingMinutes: React.FC = () => {
 					if (calcRms(input) < LOCAL_SILENCE_RMS_THRESHOLD) return;
 					const downsampled = downsampleBuffer(input, audioContext.sampleRate, 16000);
 					const pcm16 = float32ToInt16PCM(downsampled);
-					const payload = pcm16.buffer.slice(pcm16.byteOffset, pcm16.byteOffset + pcm16.byteLength);
+					const payload = new ArrayBuffer(pcm16.byteLength);
+					new Uint8Array(payload).set(
+						new Uint8Array(pcm16.buffer, pcm16.byteOffset, pcm16.byteLength),
+					);
 					localLiveChunkBuffersRef.current.push(payload);
 					localLiveChunkBytesRef.current += payload.byteLength;
 					flushLocalLiveChunkBuffer(false);
@@ -2672,6 +2845,153 @@ const MeetingMinutes: React.FC = () => {
 		},
 	];
 
+	const openVolcSessionTodoModal = (index?: number) => {
+		setEditingVolcSessionTodoIndex(typeof index === 'number' ? index : null);
+		if (typeof index === 'number' && volcSessionDraft.todos[index]) {
+			const item = volcSessionDraft.todos[index];
+			volcSessionTodoForm.setFieldsValue({
+				content: item.content,
+				executor: item.executor || undefined,
+				execution_time: item.execution_time || undefined,
+			});
+		} else {
+			volcSessionTodoForm.resetFields();
+		}
+		setVolcSessionTodoModalVisible(true);
+	};
+
+	const closeVolcSessionTodoModal = () => {
+		setVolcSessionTodoModalVisible(false);
+		setEditingVolcSessionTodoIndex(null);
+		volcSessionTodoForm.resetFields();
+	};
+
+	const submitVolcSessionTodo = async () => {
+		try {
+			const values = await volcSessionTodoForm.validateFields();
+			const nextTodos = [...volcSessionDraft.todos];
+			const payload: VolcSessionTodoItem = {
+				content: values.content,
+				executor: values.executor || null,
+				execution_time: values.execution_time || null,
+				source_audio_id: selectedVolcSessionDetail?.source_audio_id ?? null,
+			};
+			if (editingVolcSessionTodoIndex != null && nextTodos[editingVolcSessionTodoIndex]) {
+				nextTodos[editingVolcSessionTodoIndex] = {
+					...nextTodos[editingVolcSessionTodoIndex],
+					...payload,
+				};
+			} else {
+				nextTodos.push(payload);
+			}
+			const nextDraft = { ...volcSessionDraft, todos: nextTodos };
+			setVolcSessionDraft(nextDraft);
+			closeVolcSessionTodoModal();
+			await persistVolcSessionDetail(nextDraft, '待办事项已保存');
+		} catch (error: any) {
+			if (!error?.errorFields) {
+				message.error(error?.message || '保存会话待办失败');
+			}
+		}
+	};
+
+	const deleteVolcSessionTodo = async (index: number) => {
+		const nextDraft = {
+			...volcSessionDraft,
+			todos: volcSessionDraft.todos.filter((_, idx) => idx !== index),
+		};
+		setVolcSessionDraft(nextDraft);
+		await persistVolcSessionDetail(nextDraft, '待办事项已保存');
+	};
+
+	const volcSessionTodoColumns: ColumnsType<VolcSessionTodoItem> = [
+		{
+			title: '内容',
+			dataIndex: 'content',
+			ellipsis: true,
+		},
+		{
+			title: '执行人',
+			dataIndex: 'executor',
+			width: 140,
+			render: (value?: string | null) => value || '未指定',
+		},
+		{
+			title: '执行时间',
+			dataIndex: 'execution_time',
+			width: 160,
+			render: (value?: string | null) => value || '未指定',
+		},
+		{
+			title: '操作',
+			width: 160,
+			render: (_, __, index) => (
+				<Space>
+					<Button type="link" onClick={() => openVolcSessionTodoModal(index)}>
+						编辑
+					</Button>
+					<Button type="link" danger onClick={() => void deleteVolcSessionTodo(index)}>
+						删除
+					</Button>
+				</Space>
+			),
+		},
+	];
+
+	const volcSessionColumns: ColumnsType<VolcMeetingMinutesSession> = [
+		{
+			title: '会话ID',
+			dataIndex: 'id',
+			width: 90,
+		},
+		{
+			title: '创建时间',
+			dataIndex: 'created_at',
+			width: 170,
+			render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm:ss'),
+		},
+		{
+			title: '状态',
+			dataIndex: 'status',
+			width: 120,
+			render: (value?: string, record?) => {
+				const normalized = String(value ?? '').toLowerCase();
+				const color =
+					normalized === 'completed' || normalized === 'finished' || normalized === 'success' || normalized === 'succeeded'
+						? 'green'
+						: normalized === 'failed' || normalized === 'error'
+							? 'red'
+							: normalized === 'submitted' || normalized === 'processing' || normalized === 'running'
+								? 'processing'
+								: 'default';
+				const label = volcMinutesStatusLabel[normalized] || value || '未知';
+				const tag = <Tag color={color}>{label}</Tag>;
+				if (record?.error_msg) {
+					return <Tooltip title={record.error_msg}>{tag}</Tooltip>;
+				}
+				return tag;
+			},
+		},
+		{
+			title: '来源音频',
+			dataIndex: 'source_audio_id',
+			width: 100,
+			render: (value?: number | null) => value ?? '—',
+		},
+		{
+			title: 'ASR会话',
+			dataIndex: 'source_asr_session_id',
+			width: 100,
+			render: (value?: number | null) => value ?? '—',
+		},
+		{
+			title: 'TaskID',
+			dataIndex: 'volc_task_id',
+			ellipsis: true,
+			render: (value?: string | null) => value || '—',
+		},
+	];
+
 	const formatSegmentTime = (ms?: number | null) => {
 		if (typeof ms !== 'number') return null;
 		const seconds = Math.floor(ms / 1000);
@@ -2716,6 +3036,20 @@ const MeetingMinutes: React.FC = () => {
 				})}
 			</div>
 		);
+	};
+
+	const volcMinutesStatusLabel: Record<string, string> = {
+		completed: '已完成',
+		succeeded: '已完成',
+		success: '已完成',
+		finished: '已完成',
+		failed: '失败',
+		error: '失败',
+		processing: '处理中',
+		submitted: '处理中',
+		running: '运行中',
+		pending: '等待中',
+		uploaded: '已上传',
 	};
 
 	const volcStreamStatusLabel: Record<string, string> = {
@@ -2792,6 +3126,9 @@ const MeetingMinutes: React.FC = () => {
 							</Button>
 						<Button icon={<UnorderedListOutlined />} disabled={!hasSelectedMeeting} onClick={openVolcAudiosModal}>
 							查看已有音频
+						</Button>
+						<Button icon={<HistoryOutlined />} disabled={!hasSelectedMeeting} onClick={openVolcSessionsModal}>
+							会话历史
 						</Button>
 					</Space>
 				)}
@@ -3030,7 +3367,7 @@ const MeetingMinutes: React.FC = () => {
 							<Alert
 								showIcon
 								type={volcMinutesStatus?.error ? 'error' : 'info'}
-								message={`妙记状态：${({ completed: '已完成', succeeded: '已完成', success: '已完成', finished: '已完成', failed: '失败', error: '失败', processing: '处理中', submitted: '处理中', running: '运行中', pending: '等待中' }[String(volcMinutesStatus.status ?? '').toLowerCase()]) || volcMinutesStatus.status || '—'}`}
+								message={`妙记状态：${volcMinutesStatusLabel[String(volcMinutesStatus.status ?? '').toLowerCase()] || volcMinutesStatus.status || '—'}`}
 								description={volcMinutesStatus.error ? <Text type="danger">错误：{volcMinutesStatus.error}</Text> : undefined}
 							/>
 						)}
@@ -3447,6 +3784,212 @@ const MeetingMinutes: React.FC = () => {
 						rowSelection={volcAudioRowSelection}
 					/>
 			</Space>
+		</Modal>
+
+		<Modal
+			title="会话历史（火山纪要）"
+			open={volcSessionsModalVisible}
+			onCancel={closeVolcSessionsModal}
+			width={1100}
+			footer={[
+				<Button key="refresh" icon={<ReloadOutlined />} onClick={() => selectedMeetingId && loadVolcSessions(selectedMeetingId, true)}>
+					刷新
+				</Button>,
+				<Button key="close" onClick={closeVolcSessionsModal}>
+					关闭
+				</Button>,
+			]}
+		>
+			<Space direction="vertical" style={{ width: '100%' }} size="middle">
+				<Table<VolcMeetingMinutesSession>
+					rowKey="id"
+					size="small"
+					dataSource={volcSessionList}
+					columns={volcSessionColumns}
+					loading={loadingVolcSessions}
+					pagination={{ pageSize: 8, hideOnSinglePage: true }}
+					locale={{ emptyText: '暂无会话历史' }}
+					rowSelection={{
+						type: 'radio',
+						selectedRowKeys: selectedVolcSessionId ? [selectedVolcSessionId] : [],
+						onChange: (keys) => {
+							const [key] = keys;
+							const parsed = typeof key === 'number' ? key : Number(key);
+							if (!selectedMeetingId || Number.isNaN(parsed)) {
+								setSelectedVolcSessionId(null);
+								setSelectedVolcSessionDetail(null);
+								return;
+							}
+							setSelectedVolcSessionId(parsed);
+							void loadVolcSessionDetail(selectedMeetingId, parsed);
+						},
+					}}
+				/>
+
+				<Spin spinning={loadingVolcSessionDetail}>
+					{selectedVolcSessionDetail ? (
+						<Space direction="vertical" style={{ width: '100%' }} size="middle">
+							<ProCard title={`会话详情 #${selectedVolcSessionDetail.id}`}>
+								<Space wrap>
+									<Tag color="blue">状态：{volcMinutesStatusLabel[String(selectedVolcSessionDetail.status || '').toLowerCase()] || selectedVolcSessionDetail.status || '—'}</Tag>
+									<Tag>音频ID：{selectedVolcSessionDetail.source_audio_id ?? '—'}</Tag>
+									<Tag>ASR会话ID：{selectedVolcSessionDetail.source_asr_session_id ?? '—'}</Tag>
+									<Tag>TaskID：{selectedVolcSessionDetail.volc_task_id || '—'}</Tag>
+									<Text type="secondary">
+										创建于：{dayjs(selectedVolcSessionDetail.created_at).format('YYYY-MM-DD HH:mm:ss')}
+									</Text>
+								</Space>
+								{selectedVolcSessionDetail.error_msg ? (
+									<Alert
+										type="error"
+										showIcon
+										style={{ marginTop: 12 }}
+										message={`处理错误：${selectedVolcSessionDetail.error_msg}`}
+									/>
+								) : null}
+							</ProCard>
+
+							<ProCard title="流式转写">
+								{volcSessionDraft.stream_transcript_text ? (
+									<TextArea
+										rows={6}
+										value={volcSessionDraft.stream_transcript_text}
+										onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, stream_transcript_text: e.target.value }))}
+										placeholder="流式转写内容"
+									/>
+								) : (
+									<Space direction="vertical" style={{ width: '100%' }}>
+										<Tag color="default">无</Tag>
+										<Text type="secondary">
+											基于已有音频生成会议纪要时，该栏为空属于正常情况，无需填写。
+										</Text>
+									</Space>
+								)}
+							</ProCard>
+
+							{(() => {
+								const statusLower = String(selectedVolcSessionDetail.status || '').toLowerCase();
+								const hasTranscript =
+									(statusLower === 'completed' || statusLower === 'success' || statusLower === 'succeeded' || statusLower === 'finished') &&
+									(!!volcSessionDraft.transcript_text || (volcSessionDraft.speaker_segments?.length ?? 0) > 0);
+								return (
+									<ProCard
+										title="精确转写"
+										extra={
+											<Button
+												type="link"
+												onClick={handleSaveVolcSessionDetail}
+												loading={savingVolcSessionDetail}
+												disabled={!hasTranscript}
+											>
+												保存转写
+											</Button>
+										}
+									>
+										<Space direction="vertical" style={{ width: '100%' }} size="small">
+											<TextArea
+												rows={14}
+												value={volcSessionDraft.transcript_text}
+												onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, transcript_text: e.target.value }))}
+												placeholder="火山纪要刷新成功后将在此显示精确转写内容。"
+											/>
+											<Text type="secondary">
+												流式转写仅作实时预览；生成纪要后得到带说话人的精确转写，可在此修订并保存。
+											</Text>
+										</Space>
+									</ProCard>
+								);
+							})()}
+
+							<ProCard
+								title="会议摘要"
+								extra={
+									<Button
+										type="link"
+										onClick={handleSaveVolcSessionDetail}
+										loading={savingVolcSessionDetail}
+										disabled={!selectedVolcSessionId}
+									>
+										保存会议摘要
+									</Button>
+								}
+							>
+								<Space direction="vertical" style={{ width: '100%' }}>
+									<Input
+										value={volcSessionDraft.summary_title}
+										onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, summary_title: e.target.value }))}
+										placeholder="无摘要标题"
+									/>
+									{volcSessionDraft.summary_paragraph ? (
+										<div
+											style={{
+												minHeight: 160,
+												padding: '12px 16px',
+												border: '1px solid #d9d9d9',
+												borderRadius: 6,
+												background: '#fafafa',
+												lineHeight: 1.85,
+												fontSize: 14,
+											}}
+										>
+											{renderSimpleMarkdown(volcSessionDraft.summary_paragraph)}
+										</div>
+									) : null}
+									<TextArea
+										rows={6}
+										value={volcSessionDraft.summary_paragraph}
+										onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, summary_paragraph: e.target.value }))}
+										placeholder="可在此编辑摘要内容（支持 Markdown）"
+									/>
+								</Space>
+							</ProCard>
+
+							<ProCard
+								title="待办事项"
+								extra={
+									<Button type="link" icon={<PlusOutlined />} onClick={() => openVolcSessionTodoModal()}>
+										新增待办
+									</Button>
+								}
+							>
+								<Table<VolcSessionTodoItem>
+									rowKey={(record) =>
+										`${record.source_audio_id ?? 'none'}-${record.content}-${record.executor ?? ''}-${record.execution_time ?? ''}`
+									}
+									dataSource={volcSessionDraft.todos || []}
+									columns={volcSessionTodoColumns}
+									pagination={false}
+									size="small"
+									locale={{ emptyText: '暂无待办事项' }}
+								/>
+							</ProCard>
+						</Space>
+					) : (
+						<Empty description="请选择一个会话查看详情" />
+					)}
+				</Spin>
+			</Space>
+		</Modal>
+
+		<Modal
+			title={editingVolcSessionTodoIndex != null ? '编辑待办事项' : '新增待办事项'}
+			open={volcSessionTodoModalVisible}
+			onOk={submitVolcSessionTodo}
+			onCancel={closeVolcSessionTodoModal}
+			okText={editingVolcSessionTodoIndex != null ? '保存' : '新增'}
+			cancelText="取消"
+		>
+			<Form<VolcTodoFormValues> form={volcSessionTodoForm} layout="vertical" style={{ marginTop: 16 }}>
+				<Form.Item name="content" label="待办内容" rules={[{ required: true, message: '请输入待办内容' }]}>
+					<TextArea rows={3} placeholder="请输入待办事项内容" />
+				</Form.Item>
+				<Form.Item name="executor" label="负责人">
+					<Input placeholder="请输入负责人姓名" />
+				</Form.Item>
+				<Form.Item name="execution_time" label="截止时间">
+					<Input placeholder="例如：2026-03-20 或 本周五前" />
+				</Form.Item>
+			</Form>
 		</Modal>
 
 		<Modal
