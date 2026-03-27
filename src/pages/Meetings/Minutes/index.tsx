@@ -48,7 +48,9 @@ import meetingsApi, {
 } from '@/services/meetings';
 import meetingMinutesApi, {
 	type LocalMeetingMinutes,
+	type LocalMeetingMinutesSession,
 	type LocalMeetingTodo,
+	type LocalSessionTodoItem,
 	type MeetingActionItem,
 	type MeetingDecisionItem,
 	type MeetingInsights,
@@ -102,6 +104,8 @@ const LOCAL_LIVE_WS_CHUNK_BYTES = Math.max(
 	1,
 	Math.floor(LOCAL_LIVE_WS_CHUNK_SEC * LOCAL_LIVE_WS_SAMPLE_RATE * LOCAL_LIVE_WS_BYTES_PER_SAMPLE),
 );
+const MAX_AUDIO_UPLOAD_COUNT = 10;
+const MAX_ONLINE_RECORDING_COUNT = 10;
 
 const calcRms = (samples: Float32Array): number => {
 	if (!samples.length) return 0;
@@ -208,6 +212,42 @@ const normalizeSummaryMarkdown = (text: string): string => {
 		'**结论：**',
 		`- ${conclusion}`,
 	].join('\n');
+};
+
+/** 本地摘要展示/保存时压缩空行，避免视觉上过于松散 */
+const compactSummaryBlankLines = (text: string): string =>
+	(text || '')
+		.replace(/\r\n/g, '\n')
+		.replace(/\n[ \t]*\n+/g, '\n')
+		.trim();
+
+const resolveZhErrorMessage = (error: any, fallback: string): string => {
+	const detail = error?.response?.data?.detail;
+	if (typeof detail === 'string' && detail.trim()) return detail.trim();
+	const backendMsg = error?.response?.data?.errorMessage || error?.response?.data?.message;
+	if (typeof backendMsg === 'string' && backendMsg.trim()) return backendMsg.trim();
+	const raw = typeof error?.message === 'string' ? error.message : '';
+	if (/Request failed with status code\s*400/i.test(raw) || /Response status:400/i.test(raw)) {
+		return '纪要生成失败：当前转写为空，请先完成录音或音频转写后重试。';
+	}
+	if (/Request failed with status code/i.test(raw)) {
+		return `请求失败：${raw.replace(/^Request failed with status code\s*/i, 'HTTP ')}`;
+	}
+	return fallback;
+};
+
+const resolveVolcErrorMessage = (raw?: string | null): string => {
+	const text = String(raw || '').trim();
+	if (!text) return '';
+	const lower = text.toLowerCase();
+	if (lower.includes('audio empty')) return '音频为空：未检测到有效语音，请检查录音设备或重新上传音频。';
+	if (lower.includes('no speech')) return '未识别到语音内容，请确认音频中有人声。';
+	if (lower.includes('timeout')) return '处理超时：语音妙记处理耗时过长，请稍后重试。';
+	if (lower.includes('task not found')) return '任务不存在：妙记任务未找到，请重新提交生成。';
+	if (lower.includes('permission') || lower.includes('unauthorized') || lower.includes('forbidden')) {
+		return '权限不足：当前账号无权执行该操作。';
+	}
+	return text;
 };
 
 const actionStatusOptions = [
@@ -339,6 +379,7 @@ const MeetingMinutes: React.FC = () => {
 		status?: string;
 		error?: string;
 	} | null>(null);
+	const [showLocalMinutesStatus, setShowLocalMinutesStatus] = useState(false);
 	const [localSummaryTitle, setLocalSummaryTitle] = useState('');
 	const [localSummaryDraft, setLocalSummaryDraft] = useState('');
 	const [savingLocalSummary, setSavingLocalSummary] = useState(false);
@@ -351,6 +392,22 @@ const MeetingMinutes: React.FC = () => {
 	const [loadingLocalAudios, setLoadingLocalAudios] = useState(false);
 	const [selectedLocalAudioId, setSelectedLocalAudioId] = useState<number | null>(null);
 	const [uploadingLocalAudio, setUploadingLocalAudio] = useState(false);
+	const [localSessionsModalVisible, setLocalSessionsModalVisible] = useState(false);
+	const [loadingLocalSessions, setLoadingLocalSessions] = useState(false);
+	const [loadingLocalSessionDetail, setLoadingLocalSessionDetail] = useState(false);
+	const [localSessionList, setLocalSessionList] = useState<LocalMeetingMinutesSession[]>([]);
+	const [selectedLocalSessionId, setSelectedLocalSessionId] = useState<number | null>(null);
+	const [selectedLocalSessionDetail, setSelectedLocalSessionDetail] = useState<LocalMeetingMinutesSession | null>(null);
+	const [localSessionDraft, setLocalSessionDraft] = useState({
+		stream_transcript_text: '',
+		summary_title: '',
+		summary_paragraph: '',
+		todos: [] as LocalSessionTodoItem[],
+	});
+	const [savingLocalSessionDetail, setSavingLocalSessionDetail] = useState(false);
+	const [localSessionTodoModalVisible, setLocalSessionTodoModalVisible] = useState(false);
+	const [editingLocalSessionTodoIndex, setEditingLocalSessionTodoIndex] = useState<number | null>(null);
+	const [localSessionTodoForm] = Form.useForm<LocalTodoFormValues>();
 
 	const meetingWsRef = useRef<WebSocket | null>(null);
 	const meetingWsHeartbeatRef = useRef<number | null>(null);
@@ -393,6 +450,8 @@ const MeetingMinutes: React.FC = () => {
 	// 记录当前激活的 meetingId 请求，用于竞态防护
 	const loadingMeetingIdRef = useRef<number | null>(null);
 	const hasSelectedMeeting = typeof selectedMeetingId === 'number';
+	const buildOnlineRecordingLimitMessage = (count: number) =>
+		`每个会议最多支持 ${MAX_ONLINE_RECORDING_COUNT} 条在线录音，当前已 ${count} 条，请先删除旧音频后再录音。`;
 
 	const queryMeetingId = useMemo(() => {
 		const params = new URLSearchParams(location.search);
@@ -580,9 +639,9 @@ const MeetingMinutes: React.FC = () => {
 		setLoadingVolcSessions(true);
 		try {
 			const list = await meetingMinutesApi.listVolcMinutesSessions(meetingId);
-			const normalized = [...(list || [])].sort((a, b) => dayjs(a.created_at).valueOf() - dayjs(b.created_at).valueOf());
+			const normalized = [...(list || [])].sort((a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf());
 			setVolcSessionList(normalized);
-			const defaultId = normalized[normalized.length - 1]?.id ?? null;
+			const defaultId = normalized[0]?.id ?? null;
 			const currentId = keepSelection ? selectedVolcSessionId : null;
 			const nextId = currentId && normalized.some((item) => item.id === currentId) ? currentId : defaultId;
 			setSelectedVolcSessionId(nextId);
@@ -613,6 +672,47 @@ const MeetingMinutes: React.FC = () => {
 			message.warning(error?.message || '加载会话详情失败');
 		} finally {
 			setLoadingVolcSessionDetail(false);
+		}
+	}, []);
+
+	const loadLocalSessions = useCallback(async (meetingId: number, keepSelection = true) => {
+		setLoadingLocalSessions(true);
+		try {
+			const list = await meetingMinutesApi.listLocalMinutesSessions(meetingId);
+			// 本地会话历史按最新优先展示，失败会话可第一时间在首页看到。
+			const normalized = [...(list || [])].sort((a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf());
+			setLocalSessionList(normalized);
+			const defaultId = normalized[0]?.id ?? null;
+			const currentId = keepSelection ? selectedLocalSessionId : null;
+			const nextId = currentId && normalized.some((item) => item.id === currentId) ? currentId : defaultId;
+			setSelectedLocalSessionId(nextId);
+			if (!nextId) {
+				setSelectedLocalSessionDetail(null);
+				return;
+			}
+			const detail =
+				normalized.find((item) => item.id === nextId) ||
+				(await meetingMinutesApi.getLocalMinutesSession(meetingId, nextId));
+			setSelectedLocalSessionDetail(detail);
+		} catch (error: any) {
+			message.warning(error?.message || '加载会话历史失败');
+			setLocalSessionList([]);
+			setSelectedLocalSessionId(null);
+			setSelectedLocalSessionDetail(null);
+		} finally {
+			setLoadingLocalSessions(false);
+		}
+	}, [selectedLocalSessionId]);
+
+	const loadLocalSessionDetail = useCallback(async (meetingId: number, sessionId: number) => {
+		setLoadingLocalSessionDetail(true);
+		try {
+			const detail = await meetingMinutesApi.getLocalMinutesSession(meetingId, sessionId);
+			setSelectedLocalSessionDetail(detail);
+		} catch (error: any) {
+			message.warning(error?.message || '加载会话详情失败');
+		} finally {
+			setLoadingLocalSessionDetail(false);
 		}
 	}, []);
 
@@ -675,7 +775,7 @@ const MeetingMinutes: React.FC = () => {
 							status: payload.status,
 							task_id: payload.task_id,
 							audio_id: payload.audio_id,
-							error: payload.error,
+							error: resolveVolcErrorMessage(payload.error),
 						});
 					}
 
@@ -766,8 +866,13 @@ const MeetingMinutes: React.FC = () => {
 		setLocalStreamSessionId(null);
 		setLocalInputMode('live');
 		setLocalMinutesStatus(null);
+		setShowLocalMinutesStatus(false);
 		setLocalSummaryTitle('');
 		setLocalSummaryDraft('');
+		setLocalSessionList([]);
+		setSelectedLocalSessionId(null);
+		setSelectedLocalSessionDetail(null);
+		setLocalSessionsModalVisible(false);
 
 		if (typeof selectedMeetingId === 'number') {
 			loadInsights(selectedMeetingId);
@@ -842,6 +947,24 @@ const MeetingMinutes: React.FC = () => {
 			todos: selectedVolcSessionDetail.todos || [],
 		});
 	}, [selectedVolcSessionDetail]);
+
+	useEffect(() => {
+		if (!selectedLocalSessionDetail) {
+			setLocalSessionDraft({
+				stream_transcript_text: '',
+				summary_title: '',
+				summary_paragraph: '',
+				todos: [],
+			});
+			return;
+		}
+		setLocalSessionDraft({
+			stream_transcript_text: selectedLocalSessionDetail.stream_transcript_text || '',
+			summary_title: selectedLocalSessionDetail.summary_title || '',
+			summary_paragraph: selectedLocalSessionDetail.summary_paragraph || '',
+			todos: selectedLocalSessionDetail.todos || [],
+		});
+	}, [selectedLocalSessionDetail]);
 
 	const handleMeetingChange = (value: number) => {
 		setSelectedMeetingId(value);
@@ -1045,12 +1168,29 @@ const MeetingMinutes: React.FC = () => {
 		loadVolcSessions(selectedMeetingId, false);
 	};
 
+	const openLocalSessionsModal = () => {
+		if (!selectedMeetingId) {
+			message.warning('请选择会议');
+			return;
+		}
+		setLocalSessionsModalVisible(true);
+		loadLocalSessions(selectedMeetingId, false);
+	};
+
 	const closeVolcSessionsModal = () => {
 		setVolcSessionsModalVisible(false);
 		if (selectedMeetingId) {
 			// 从历史会话返回主界面时强制刷新，确保联动修改可见。
 			loadVolcMinutesData(selectedMeetingId);
 			loadVolcAudioList(selectedMeetingId);
+		}
+	};
+
+	const closeLocalSessionsModal = () => {
+		setLocalSessionsModalVisible(false);
+		if (selectedMeetingId) {
+			loadLocalMinutesData(selectedMeetingId);
+			loadLocalAudioList(selectedMeetingId);
 		}
 	};
 
@@ -1101,6 +1241,71 @@ const MeetingMinutes: React.FC = () => {
 		await persistVolcSessionDetail(volcSessionDraft, '会话历史已保存');
 	};
 
+	const handleDeleteVolcSession = async (sessionId: number) => {
+		if (!selectedMeetingId) {
+			message.warning('请选择会议');
+			return;
+		}
+		try {
+			await meetingMinutesApi.deleteVolcMinutesSession(selectedMeetingId, sessionId);
+			message.success('会话历史已删除');
+			const isSelected = selectedVolcSessionId === sessionId;
+			if (isSelected) {
+				setSelectedVolcSessionId(null);
+				setSelectedVolcSessionDetail(null);
+			}
+			await loadVolcSessions(selectedMeetingId, !isSelected);
+			loadVolcMinutesData(selectedMeetingId);
+			loadVolcAudioList(selectedMeetingId);
+		} catch (error: any) {
+			message.error(error?.message || '删除会话历史失败');
+		}
+	};
+
+	const persistLocalSessionDetail = async (
+		draft = localSessionDraft,
+		successMessage = '会话历史已保存',
+	) => {
+		if (!selectedMeetingId || !selectedLocalSessionId) {
+			message.warning('请选择会议与会话');
+			return;
+		}
+		setSavingLocalSessionDetail(true);
+		try {
+			const updated = await meetingMinutesApi.updateLocalMinutesSession(
+				selectedMeetingId,
+				selectedLocalSessionId,
+				{
+					stream_transcript_text: draft.stream_transcript_text,
+					summary_title: draft.summary_title || null,
+					summary_paragraph: draft.summary_paragraph || null,
+					todos: draft.todos,
+				},
+			);
+			setSelectedLocalSessionDetail(updated);
+			let isLatestSession = false;
+			setLocalSessionList((prev) => {
+				if (!prev.length) return prev;
+				const latest = prev[prev.length - 1];
+				isLatestSession = latest?.id === updated.id;
+				return prev.map((item) => (item.id === updated.id ? updated : item));
+			});
+			if (isLatestSession) {
+				loadLocalMinutesData(selectedMeetingId);
+				loadLocalAudioList(selectedMeetingId);
+			}
+			message.success(successMessage);
+		} catch (error: any) {
+			message.error(error?.message || '保存会话历史失败');
+		} finally {
+			setSavingLocalSessionDetail(false);
+		}
+	};
+
+	const handleSaveLocalSessionDetail = async () => {
+		await persistLocalSessionDetail(localSessionDraft, '会话历史已保存');
+	};
+
 	const openLocalAudiosModal = () => {
 		if (!selectedMeetingId) {
 			message.warning('请选择会议');
@@ -1114,6 +1319,12 @@ const MeetingMinutes: React.FC = () => {
 		if (!selectedMeetingId) {
 			message.warning('请选择会议');
 			onError?.(new Error('请选择会议'));
+			return;
+		}
+		if (volcAudios.length >= MAX_AUDIO_UPLOAD_COUNT) {
+			const errMsg = `每个会议最多上传 ${MAX_AUDIO_UPLOAD_COUNT} 个音频，请先删除旧音频后再上传`;
+			message.warning(errMsg);
+			onError?.(new Error(errMsg));
 			return;
 		}
 		setUploadingVolcMinutesAudio(true);
@@ -1137,6 +1348,12 @@ const MeetingMinutes: React.FC = () => {
 		if (!selectedMeetingId) {
 			message.warning('请选择会议');
 			onError?.(new Error('请选择会议'));
+			return;
+		}
+		if (localAudios.length >= MAX_AUDIO_UPLOAD_COUNT) {
+			const errMsg = `每个会议最多上传 ${MAX_AUDIO_UPLOAD_COUNT} 个音频，请先删除旧音频后再上传`;
+			message.warning(errMsg);
+			onError?.(new Error(errMsg));
 			return;
 		}
 		setUploadingLocalAudio(true);
@@ -1219,6 +1436,10 @@ const MeetingMinutes: React.FC = () => {
 	const startVolcLiveRecording = async () => {
 		if (!selectedMeetingId) {
 			message.warning('请选择会议');
+			return;
+		}
+		if (volcAudios.length >= MAX_ONLINE_RECORDING_COUNT) {
+			message.warning(buildOnlineRecordingLimitMessage(volcAudios.length));
 			return;
 		}
 		const token = getToken();
@@ -1670,10 +1891,8 @@ const MeetingMinutes: React.FC = () => {
 					: null,
 			});
 			setLocalSummaryTitle(cleanTitle);
-			setLocalSummaryDraft(normalizeSummaryMarkdown(cleanParagraph));
-			if (result.audio_status) {
-				setLocalMinutesStatus({ status: result.audio_status });
-			}
+			setLocalSummaryDraft(compactSummaryBlankLines(normalizeSummaryMarkdown(cleanParagraph)));
+			// 纪要状态仅在“提交生成后”显示，这里不从查询结果自动透出。
 			setLocalStreamText((prev) => {
 				const st = localStreamTypeRef.current;
 				const isStreaming = ['file_streaming', 'live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading'].includes(st);
@@ -1703,6 +1922,7 @@ const MeetingMinutes: React.FC = () => {
 		setLocalStreamError(null);
 		setLocalStreamSessionId(null);
 		setLocalMinutesStatus(null);
+		setShowLocalMinutesStatus(false);
 	}, []);
 
 	const resetLocalLiveChunkBuffer = useCallback(() => {
@@ -1779,19 +1999,27 @@ const MeetingMinutes: React.FC = () => {
 		const mid = meetingId ?? selectedMeetingId;
 		if (!mid) { message.warning('请选择会议'); return; }
 		setGeneratingLocalMinutes(true);
+		setShowLocalMinutesStatus(true);
 		setLocalMinutesStatus({ status: 'processing' });
 		try {
 			await meetingMinutesApi.generateLocalMinutes(mid);
 			setLocalMinutesStatus({ status: 'completed' });
 			message.success('会议纪要已生成');
 			await loadLocalMinutesData(mid);
+			if (localSessionsModalVisible) {
+				loadLocalSessions(mid, true);
+			}
 		} catch (error: any) {
-			setLocalMinutesStatus({ status: 'failed', error: error?.message || '生成会议纪要失败' });
-			message.error(error?.message || '生成会议纪要失败');
+			const errMsg = resolveZhErrorMessage(error, '生成会议纪要失败，请稍后重试。');
+			setLocalMinutesStatus({ status: 'failed', error: errMsg });
+			message.error(errMsg);
+			if (localSessionsModalVisible) {
+				loadLocalSessions(mid, true);
+			}
 		} finally {
 			setGeneratingLocalMinutes(false);
 		}
-	}, [selectedMeetingId, loadLocalMinutesData]);
+	}, [selectedMeetingId, loadLocalMinutesData, localSessionsModalVisible, loadLocalSessions]);
 
 	const startLocalSseStream = useCallback((audioId: number, meetingId: number) => {
 		stopLocalSseStream();
@@ -1800,6 +2028,7 @@ const MeetingMinutes: React.FC = () => {
 		if (!token) { message.error('未找到登录 token，请先登录'); setLocalStreamType('error'); setLocalStreamError('未找到登录 token'); return; }
 		setLocalStreamType('file_streaming');
 		setLocalMinutesStatus(null);
+		setShowLocalMinutesStatus(false);
 		const wsUrl = buildWsUrl(`/api/minutes/local/audio/${audioId}/ws?token=${encodeURIComponent(token)}`);
 		const ws = new WebSocket(wsUrl);
 		localFileWsRef.current = ws;
@@ -1821,15 +2050,21 @@ const MeetingMinutes: React.FC = () => {
 					void loadLocalAudioList(meetingId);
 					stopLocalSseStream();
 					if (!transcript.trim()) {
-						setLocalStreamType('error');
-						setLocalStreamError('转写结果为空：该音频可能是静音/无人声，或 ASR 未识别出文本');
-						message.warning('转写结果为空，已跳过纪要生成');
+							// 空转写场景仅在第二步展示“纪要状态失败”，避免第一步重复报错提示。
+							setLocalStreamType('completed');
+							setLocalStreamError(null);
+						void handleGenerateLocalMinutes(meetingId);
 						return;
 					}
+						// 统一状态机：提交生成后先显示“处理中”，再进入“已完成/失败”
+						setShowLocalMinutesStatus(true);
+						setLocalMinutesStatus({ status: 'processing' });
 					if (data.minutes_generated) {
-						setLocalMinutesStatus({ status: 'completed' });
-						message.success('转写完成，会议纪要已自动生成');
-						void loadLocalMinutesData(meetingId);
+						window.setTimeout(() => {
+							setLocalMinutesStatus({ status: 'completed' });
+							message.success('转写完成，会议纪要已自动生成');
+							void loadLocalMinutesData(meetingId);
+						}, 500);
 					} else {
 						if (data.minutes_error) message.warning(`自动生成失败，改用兜底生成：${data.minutes_error}`);
 						message.success('转写完成，正在自动生成会议纪要…');
@@ -1860,6 +2095,10 @@ const MeetingMinutes: React.FC = () => {
 
 	const startLocalLiveRecording = async () => {
 		if (!selectedMeetingId) { message.warning('请选择会议'); return; }
+		if (localAudios.length >= MAX_ONLINE_RECORDING_COUNT) {
+			message.warning(buildOnlineRecordingLimitMessage(localAudios.length));
+			return;
+		}
 		const token = getToken();
 		if (!token) { message.error('未找到登录 token，请先登录'); return; }
 
@@ -1876,6 +2115,7 @@ const MeetingMinutes: React.FC = () => {
 
 		setLocalStreamType('live_connecting');
 		setLocalMinutesStatus(null);
+		setShowLocalMinutesStatus(false);
 		localLiveStopRequestedRef.current = false;
 		localLiveFirstAudioSentRef.current = false;
 		localLiveWsOpenedRef.current = false;
@@ -1983,7 +2223,6 @@ const MeetingMinutes: React.FC = () => {
 					if (data.type === 'saving_audio') setLocalStreamType('live_saving');
 					if (data.type === 'uploading_audio') {
 						setLocalStreamType('live_uploading');
-						setLocalMinutesStatus({ status: 'processing' });
 					}
 					if (data.type === 'completed') {
 						const transcript = typeof data.transcript === 'string' ? data.transcript : '';
@@ -1993,18 +2232,21 @@ const MeetingMinutes: React.FC = () => {
 						setLocalStreamType('completed');
 						await stopLocalLiveWs(true);
 						if (!transcript.trim()) {
-							setLocalStreamType('error');
-							setLocalStreamError('转写结果为空：请确认麦克风采集正常或重试录音');
-							setLocalMinutesStatus({ status: 'failed', error: '转写结果为空，已跳过纪要生成' });
-							message.warning('转写结果为空，已跳过纪要生成');
+							// 空转写场景仅在第二步展示“纪要状态失败”，避免第一步重复报错提示。
+							setLocalStreamType('completed');
+							setLocalStreamError(null);
+							await handleGenerateLocalMinutes(selectedMeetingId ?? undefined);
 							return;
 						}
+						// 统一状态机：提交生成后先显示“处理中”，再进入“已完成/失败”
+						setShowLocalMinutesStatus(true);
+						setLocalMinutesStatus({ status: 'processing' });
 						if (data.minutes_generated) {
+							await new Promise((resolve) => window.setTimeout(resolve, 500));
 							setLocalMinutesStatus({ status: 'completed' });
 							message.success('录音完成，会议纪要已自动生成');
 							if (selectedMeetingId) await loadLocalMinutesData(selectedMeetingId);
 						} else {
-							setLocalMinutesStatus({ status: 'processing' });
 							if (data.minutes_error) message.warning(`自动生成失败，改用兜底生成：${data.minutes_error}`);
 							message.success('录音完成，正在自动生成会议纪要…');
 							await handleGenerateLocalMinutes(selectedMeetingId ?? undefined);
@@ -2071,10 +2313,14 @@ const MeetingMinutes: React.FC = () => {
 		if (!selectedMeetingId) { message.warning('请选择会议'); return; }
 		setSavingLocalSummary(true);
 		try {
-			const summary = await meetingMinutesApi.updateLocalSummary(selectedMeetingId, { paragraph: localSummaryDraft, title: localSummaryTitle || undefined });
+			const compactParagraph = compactSummaryBlankLines(localSummaryDraft);
+			const summary = await meetingMinutesApi.updateLocalSummary(selectedMeetingId, {
+				paragraph: compactParagraph,
+				title: localSummaryTitle || undefined,
+			});
 			setLocalMinutes((prev) => prev ? { ...prev, summary } : { transcript_text: null, summary, todos: [] });
 			setLocalSummaryTitle(summary.title || '');
-			setLocalSummaryDraft(normalizeSummaryMarkdown(summary.paragraph || ''));
+			setLocalSummaryDraft(compactSummaryBlankLines(normalizeSummaryMarkdown(summary.paragraph || '')));
 			message.success('会议摘要已保存');
 		} catch (error: any) {
 			message.error(error?.message || '保存摘要失败');
@@ -2130,6 +2376,27 @@ const MeetingMinutes: React.FC = () => {
 			loadLocalMinutesData(selectedMeetingId);
 		} catch (error: any) {
 			message.error(error?.message || '删除待办事项失败');
+		}
+	};
+
+	const handleDeleteLocalSession = async (sessionId: number) => {
+		if (!selectedMeetingId) {
+			message.warning('请选择会议');
+			return;
+		}
+		try {
+			await meetingMinutesApi.deleteLocalMinutesSession(selectedMeetingId, sessionId);
+			message.success('会话历史已删除');
+			const isSelected = selectedLocalSessionId === sessionId;
+			if (isSelected) {
+				setSelectedLocalSessionId(null);
+				setSelectedLocalSessionDetail(null);
+			}
+			await loadLocalSessions(selectedMeetingId, !isSelected);
+			loadLocalMinutesData(selectedMeetingId);
+			loadLocalAudioList(selectedMeetingId);
+		} catch (error: any) {
+			message.error(error?.message || '删除会话历史失败');
 		}
 	};
 
@@ -2711,7 +2978,7 @@ const MeetingMinutes: React.FC = () => {
 				const meta = volcStatusMeta[value] || { label: value || '未知', color: 'default' };
 				const tag = <Tag color={meta.color}>{meta.label}</Tag>;
 				if (value === 'failed' && record.error_msg) {
-					return <Tooltip title={record.error_msg}>{tag}</Tooltip>;
+					return <Tooltip title={resolveVolcErrorMessage(record.error_msg)}>{tag}</Tooltip>;
 				}
 				return tag;
 			},
@@ -2808,6 +3075,167 @@ const MeetingMinutes: React.FC = () => {
 			setSelectedLocalAudioId(Number.isNaN(normalized) ? null : normalized);
 		},
 	};
+
+	const latestVolcSessionId = volcSessionList[0]?.id ?? null;
+	const latestLocalSessionId = localSessionList[0]?.id ?? null;
+
+	const openLocalSessionTodoModal = (index?: number) => {
+		setEditingLocalSessionTodoIndex(typeof index === 'number' ? index : null);
+		if (typeof index === 'number' && localSessionDraft.todos[index]) {
+			const item = localSessionDraft.todos[index];
+			localSessionTodoForm.setFieldsValue({
+				content: item.content,
+				executor: item.executor || undefined,
+				execution_time: item.execution_time || undefined,
+			});
+		} else {
+			localSessionTodoForm.resetFields();
+		}
+		setLocalSessionTodoModalVisible(true);
+	};
+
+	const closeLocalSessionTodoModal = () => {
+		setLocalSessionTodoModalVisible(false);
+		setEditingLocalSessionTodoIndex(null);
+		localSessionTodoForm.resetFields();
+	};
+
+	const submitLocalSessionTodo = async () => {
+		try {
+			const values = await localSessionTodoForm.validateFields();
+			const nextTodos = [...localSessionDraft.todos];
+			const payload: LocalSessionTodoItem = {
+				content: values.content,
+				executor: values.executor || null,
+				execution_time: values.execution_time || null,
+				source_audio_id: selectedLocalSessionDetail?.source_audio_id ?? null,
+			};
+			if (editingLocalSessionTodoIndex != null && nextTodos[editingLocalSessionTodoIndex]) {
+				nextTodos[editingLocalSessionTodoIndex] = {
+					...nextTodos[editingLocalSessionTodoIndex],
+					...payload,
+				};
+			} else {
+				nextTodos.push(payload);
+			}
+			const nextDraft = { ...localSessionDraft, todos: nextTodos };
+			setLocalSessionDraft(nextDraft);
+			closeLocalSessionTodoModal();
+			await persistLocalSessionDetail(nextDraft, '待办事项已保存');
+		} catch (error: any) {
+			if (!error?.errorFields) {
+				message.error(error?.message || '保存会话待办失败');
+			}
+		}
+	};
+
+	const deleteLocalSessionTodo = async (index: number) => {
+		const nextDraft = {
+			...localSessionDraft,
+			todos: localSessionDraft.todos.filter((_, idx) => idx !== index),
+		};
+		setLocalSessionDraft(nextDraft);
+		await persistLocalSessionDetail(nextDraft, '待办事项已保存');
+	};
+
+	const localSessionTodoColumns: ColumnsType<LocalSessionTodoItem> = [
+		{
+			title: '内容',
+			dataIndex: 'content',
+			ellipsis: true,
+		},
+		{
+			title: '执行人',
+			dataIndex: 'executor',
+			width: 140,
+			render: (value?: string | null) => value || '未指定',
+		},
+		{
+			title: '执行时间',
+			dataIndex: 'execution_time',
+			width: 160,
+			render: (value?: string | null) => value || '未指定',
+		},
+		{
+			title: '操作',
+			width: 160,
+			render: (_, __, index) => (
+				<Space>
+					<Button type="link" onClick={() => openLocalSessionTodoModal(index)}>
+						编辑
+					</Button>
+					<Button type="link" danger onClick={() => void deleteLocalSessionTodo(index)}>
+						删除
+					</Button>
+				</Space>
+			),
+		},
+	];
+
+	const localSessionColumns: ColumnsType<LocalMeetingMinutesSession> = [
+		{
+			title: '会话编号',
+			dataIndex: 'session_no',
+			width: 240,
+			render: (value?: string | null, record?) => (
+				<Space size={6}>
+					<span>{value || '—'}</span>
+					{record?.id === latestLocalSessionId ? <Tag color="gold">最新</Tag> : null}
+				</Space>
+			),
+		},
+		{
+			title: '创建时间',
+			dataIndex: 'created_at',
+			width: 170,
+			render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm:ss'),
+		},
+		{
+			title: '状态',
+			dataIndex: 'status',
+			width: 120,
+			render: (value?: string, record?) => {
+				const normalized = String(value ?? '').toLowerCase();
+				const color =
+					normalized === 'completed' || normalized === 'finished' || normalized === 'success' || normalized === 'succeeded'
+						? 'green'
+						: normalized === 'failed' || normalized === 'error'
+							? 'red'
+							: normalized === 'submitted' || normalized === 'processing' || normalized === 'running'
+								? 'processing'
+								: 'default';
+				const label = localMinutesStatusLabel[normalized] || value || '未知';
+				const tag = <Tag color={color}>{label}</Tag>;
+				if (record?.error_msg) {
+					return <Tooltip title={record.error_msg}>{tag}</Tooltip>;
+				}
+				return tag;
+			},
+		},
+		{
+			title: '来源音频',
+			dataIndex: 'source_audio_id',
+			width: 100,
+			render: (value?: number | null) => value ?? '—',
+		},
+		{
+			title: '操作',
+			width: 120,
+			render: (_, record) => (
+				<Popconfirm
+					title="确定删除该会话历史？"
+					description="删除后无法恢复。"
+					okText="确认删除"
+					cancelText="取消"
+					onConfirm={() => handleDeleteLocalSession(record.id)}
+				>
+					<Button type="link" danger>
+						删除
+					</Button>
+				</Popconfirm>
+			),
+		},
+	];
 
 	const volcTodoColumns: ColumnsType<VolcMeetingTodo> = [
 		{
@@ -2940,9 +3368,15 @@ const MeetingMinutes: React.FC = () => {
 
 	const volcSessionColumns: ColumnsType<VolcMeetingMinutesSession> = [
 		{
-			title: '会话ID',
-			dataIndex: 'id',
-			width: 90,
+			title: '会话编号',
+			dataIndex: 'session_no',
+			width: 300,
+			render: (value?: string | null, record?) => (
+				<Space size={6}>
+					<span>{value || '—'}</span>
+					{record?.id === latestVolcSessionId ? <Tag color="gold">最新</Tag> : null}
+				</Space>
+			),
 		},
 		{
 			title: '创建时间',
@@ -2967,7 +3401,7 @@ const MeetingMinutes: React.FC = () => {
 				const label = volcMinutesStatusLabel[normalized] || value || '未知';
 				const tag = <Tag color={color}>{label}</Tag>;
 				if (record?.error_msg) {
-					return <Tooltip title={record.error_msg}>{tag}</Tooltip>;
+					return <Tooltip title={resolveVolcErrorMessage(record.error_msg)}>{tag}</Tooltip>;
 				}
 				return tag;
 			},
@@ -2979,16 +3413,22 @@ const MeetingMinutes: React.FC = () => {
 			render: (value?: number | null) => value ?? '—',
 		},
 		{
-			title: 'ASR会话',
-			dataIndex: 'source_asr_session_id',
+			title: '操作',
+			dataIndex: 'actions',
 			width: 100,
-			render: (value?: number | null) => value ?? '—',
-		},
-		{
-			title: 'TaskID',
-			dataIndex: 'volc_task_id',
-			ellipsis: true,
-			render: (value?: string | null) => value || '—',
+			render: (_, record) => (
+				<Popconfirm
+					title="确定删除该会话历史？"
+					description="删除后无法恢复。"
+					okText="确认删除"
+					cancelText="取消"
+					onConfirm={() => handleDeleteVolcSession(record.id)}
+				>
+					<Button type="link" danger>
+						删除
+					</Button>
+				</Popconfirm>
+			),
 		},
 	];
 
@@ -3103,7 +3543,10 @@ const MeetingMinutes: React.FC = () => {
 						<Button
 							icon={<AudioOutlined />}
 							onClick={() => void startLocalLiveRecording()}
-							disabled={!hasSelectedMeeting || ['live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading'].includes(localStreamType)}
+							disabled={
+								!hasSelectedMeeting ||
+								['live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading'].includes(localStreamType)
+							}
 						>
 							{['live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading'].includes(localStreamType) ? '录音/处理中…' : '在线录音'}
 						</Button>
@@ -3114,13 +3557,23 @@ const MeetingMinutes: React.FC = () => {
 						>
 							查看已有音频
 						</Button>
+						<Button icon={<HistoryOutlined />} disabled={!hasSelectedMeeting} onClick={openLocalSessionsModal}>
+							会话历史
+						</Button>
 					</Space>
 				) : (
 					<Space style={{ width: '100%', justifyContent: 'flex-end' }} wrap>
 						<Button
 								icon={<AudioOutlined />}
 								onClick={() => void startVolcLiveRecording()}
-								disabled={!hasSelectedMeeting || volcStreamType === 'live_streaming' || volcStreamType === 'live_connecting' || volcStreamType === 'live_stopping' || volcStreamType === 'live_saving' || volcStreamType === 'live_uploading'}
+								disabled={
+									!hasSelectedMeeting ||
+									volcStreamType === 'live_streaming' ||
+									volcStreamType === 'live_connecting' ||
+									volcStreamType === 'live_stopping' ||
+									volcStreamType === 'live_saving' ||
+									volcStreamType === 'live_uploading'
+								}
 							>
 								{(volcStreamType === 'live_streaming' || volcStreamType === 'live_connecting' || volcStreamType === 'live_stopping' || volcStreamType === 'live_saving' || volcStreamType === 'live_uploading') ? '录音/处理中…' : '在线录音'}
 							</Button>
@@ -3163,7 +3616,6 @@ const MeetingMinutes: React.FC = () => {
 											disabled={['live_stopping', 'live_saving', 'live_uploading'].includes(localStreamType)}
 											onClick={() => {
 												setLocalStreamType('live_uploading');
-												setLocalMinutesStatus({ status: 'processing' });
 												message.info('录音已停止，正在上传音频…');
 												void stopLocalLiveWs(false);
 											}}
@@ -3199,26 +3651,17 @@ const MeetingMinutes: React.FC = () => {
 
 					{/* 第二步：AI 生成结果 */}
 					<ProCard
-						title="第二步：AI 生成纪要（摘要 / 待办）"
+						title="第二步：AI生成纪要结果（摘要/待办）"
 						extra={
 							<Space>
-								<Button
-									icon={<ThunderboltOutlined />}
-									type="primary"
-									loading={generatingLocalMinutes}
-									disabled={!selectedMeetingId || generatingLocalMinutes}
-									onClick={() => handleGenerateLocalMinutes()}
-								>
-									重新生成纪要
-								</Button>
 								<Button icon={<ReloadOutlined />} onClick={() => loadLocalMinutesData(selectedMeetingId, true)}>
-									刷新
+									刷新纪要
 								</Button>
 							</Space>
 						}
 					>
 						<Space direction="vertical" style={{ width: '100%' }} size="middle">
-							{localMinutesStatus && (
+							{showLocalMinutesStatus && localMinutesStatus && (
 								<Alert
 									showIcon
 									type={localMinutesStatus?.error ? 'error' : 'info'}
@@ -3368,7 +3811,7 @@ const MeetingMinutes: React.FC = () => {
 								showIcon
 								type={volcMinutesStatus?.error ? 'error' : 'info'}
 								message={`妙记状态：${volcMinutesStatusLabel[String(volcMinutesStatus.status ?? '').toLowerCase()] || volcMinutesStatus.status || '—'}`}
-								description={volcMinutesStatus.error ? <Text type="danger">错误：{volcMinutesStatus.error}</Text> : undefined}
+								description={volcMinutesStatus.error ? <Text type="danger">错误：{resolveVolcErrorMessage(volcMinutesStatus.error)}</Text> : undefined}
 							/>
 						)}
 
@@ -3765,13 +4208,17 @@ const MeetingMinutes: React.FC = () => {
 						accept="audio/*"
 						customRequest={handleUploadVolcMinutesAudio}
 						showUploadList
-						disabled={!hasSelectedMeeting || uploadingVolcMinutesAudio}
+						disabled={!hasSelectedMeeting || uploadingVolcMinutesAudio || volcAudios.length >= MAX_AUDIO_UPLOAD_COUNT}
 					>
 						<p className="ant-upload-drag-icon">
 							<CloudUploadOutlined />
 						</p>
 						<p className="ant-upload-text">上传音频</p>
-						<p className="ant-upload-hint">上传后选中下方列表中该条，再点击「生成会议纪要」</p>
+						<p className="ant-upload-hint">
+							{volcAudios.length >= MAX_AUDIO_UPLOAD_COUNT
+								? `已达到上限（${MAX_AUDIO_UPLOAD_COUNT}个），请先删除旧音频后再上传`
+								: `上传后选中下方列表中该条，再点击「生成会议纪要」`}
+						</p>
 					</Upload.Dragger>
 					<Table<VolcMeetingAudio>
 						rowKey="id"
@@ -3829,12 +4276,10 @@ const MeetingMinutes: React.FC = () => {
 				<Spin spinning={loadingVolcSessionDetail}>
 					{selectedVolcSessionDetail ? (
 						<Space direction="vertical" style={{ width: '100%' }} size="middle">
-							<ProCard title={`会话详情 #${selectedVolcSessionDetail.id}`}>
+							<ProCard title={`会话详情 ${selectedVolcSessionDetail.session_no || selectedVolcSessionDetail.id}`}>
 								<Space wrap>
 									<Tag color="blue">状态：{volcMinutesStatusLabel[String(selectedVolcSessionDetail.status || '').toLowerCase()] || selectedVolcSessionDetail.status || '—'}</Tag>
 									<Tag>音频ID：{selectedVolcSessionDetail.source_audio_id ?? '—'}</Tag>
-									<Tag>ASR会话ID：{selectedVolcSessionDetail.source_asr_session_id ?? '—'}</Tag>
-									<Tag>TaskID：{selectedVolcSessionDetail.volc_task_id || '—'}</Tag>
 									<Text type="secondary">
 										创建于：{dayjs(selectedVolcSessionDetail.created_at).format('YYYY-MM-DD HH:mm:ss')}
 									</Text>
@@ -3844,7 +4289,7 @@ const MeetingMinutes: React.FC = () => {
 										type="error"
 										showIcon
 										style={{ marginTop: 12 }}
-										message={`处理错误：${selectedVolcSessionDetail.error_msg}`}
+										message={`处理错误：${resolveVolcErrorMessage(selectedVolcSessionDetail.error_msg)}`}
 									/>
 								) : null}
 							</ProCard>
@@ -3993,6 +4438,165 @@ const MeetingMinutes: React.FC = () => {
 		</Modal>
 
 		<Modal
+			title="会话历史（本地AI纪要）"
+			open={localSessionsModalVisible}
+			onCancel={closeLocalSessionsModal}
+			width={1100}
+			footer={[
+				<Button key="refresh" icon={<ReloadOutlined />} onClick={() => selectedMeetingId && loadLocalSessions(selectedMeetingId, true)}>
+					刷新
+				</Button>,
+				<Button key="close" onClick={closeLocalSessionsModal}>
+					关闭
+				</Button>,
+			]}
+		>
+			<Space direction="vertical" style={{ width: '100%' }} size="middle">
+				<Table<LocalMeetingMinutesSession>
+					rowKey="id"
+					size="small"
+					dataSource={localSessionList}
+					columns={localSessionColumns}
+					loading={loadingLocalSessions}
+					pagination={{ pageSize: 8, hideOnSinglePage: true }}
+					locale={{ emptyText: '暂无会话历史' }}
+					rowSelection={{
+						type: 'radio',
+						selectedRowKeys: selectedLocalSessionId ? [selectedLocalSessionId] : [],
+						onChange: (keys) => {
+							const [key] = keys;
+							const parsed = typeof key === 'number' ? key : Number(key);
+							if (!selectedMeetingId || Number.isNaN(parsed)) {
+								setSelectedLocalSessionId(null);
+								setSelectedLocalSessionDetail(null);
+								return;
+							}
+							setSelectedLocalSessionId(parsed);
+							void loadLocalSessionDetail(selectedMeetingId, parsed);
+						},
+					}}
+				/>
+
+				<Spin spinning={loadingLocalSessionDetail}>
+					{selectedLocalSessionDetail ? (
+						<Space direction="vertical" style={{ width: '100%' }} size="middle">
+							<ProCard title={`会话详情 ${selectedLocalSessionDetail.session_no || selectedLocalSessionDetail.id}`}>
+								<Space wrap>
+									<Tag color="blue">状态：{localMinutesStatusLabel[String(selectedLocalSessionDetail.status || '').toLowerCase()] || selectedLocalSessionDetail.status || '—'}</Tag>
+									<Tag>音频ID：{selectedLocalSessionDetail.source_audio_id ?? '—'}</Tag>
+									<Text type="secondary">
+										创建于：{dayjs(selectedLocalSessionDetail.created_at).format('YYYY-MM-DD HH:mm:ss')}
+									</Text>
+								</Space>
+								{selectedLocalSessionDetail.error_msg ? (
+									<Alert
+										type="error"
+										showIcon
+										style={{ marginTop: 12 }}
+										message={`处理错误：${selectedLocalSessionDetail.error_msg}`}
+									/>
+								) : null}
+							</ProCard>
+
+							<ProCard title="流式转写">
+								<TextArea
+									rows={6}
+									value={localSessionDraft.stream_transcript_text}
+									onChange={(e) => setLocalSessionDraft((prev) => ({ ...prev, stream_transcript_text: e.target.value }))}
+									placeholder="流式转写内容"
+								/>
+							</ProCard>
+
+							<ProCard
+								title="会议摘要"
+								extra={
+									<Button
+										type="link"
+										onClick={handleSaveLocalSessionDetail}
+										loading={savingLocalSessionDetail}
+										disabled={!selectedLocalSessionId}
+									>
+										保存会议摘要
+									</Button>
+								}
+							>
+								<Space direction="vertical" style={{ width: '100%' }}>
+									<Input
+										value={localSessionDraft.summary_title}
+										onChange={(e) => setLocalSessionDraft((prev) => ({ ...prev, summary_title: e.target.value }))}
+										placeholder="无摘要标题"
+									/>
+									{localSessionDraft.summary_paragraph ? (
+										<div
+											style={{
+												minHeight: 160,
+												padding: '12px 16px',
+												border: '1px solid #d9d9d9',
+												borderRadius: 6,
+												background: '#fafafa',
+												lineHeight: 1.85,
+												fontSize: 14,
+											}}
+										>
+											{renderSimpleMarkdown(localSessionDraft.summary_paragraph)}
+										</div>
+									) : null}
+									<TextArea
+										rows={6}
+										value={localSessionDraft.summary_paragraph}
+										onChange={(e) => setLocalSessionDraft((prev) => ({ ...prev, summary_paragraph: e.target.value }))}
+										placeholder="可在此编辑摘要内容（支持 Markdown）"
+									/>
+								</Space>
+							</ProCard>
+
+							<ProCard
+								title="待办事项"
+								extra={
+									<Button type="link" icon={<PlusOutlined />} onClick={() => openLocalSessionTodoModal()}>
+										新增待办
+									</Button>
+								}
+							>
+								<Table<LocalSessionTodoItem>
+									rowKey={(record, idx) => `${idx}-${record.content}-${record.executor ?? ''}-${record.execution_time ?? ''}`}
+									dataSource={localSessionDraft.todos || []}
+									columns={localSessionTodoColumns}
+									pagination={false}
+									size="small"
+									locale={{ emptyText: '暂无待办事项' }}
+								/>
+							</ProCard>
+						</Space>
+					) : (
+						<Empty description="请选择一个会话查看详情" />
+					)}
+				</Spin>
+			</Space>
+		</Modal>
+
+		<Modal
+			title={editingLocalSessionTodoIndex != null ? '编辑待办事项' : '新增待办事项'}
+			open={localSessionTodoModalVisible}
+			onOk={submitLocalSessionTodo}
+			onCancel={closeLocalSessionTodoModal}
+			okText={editingLocalSessionTodoIndex != null ? '保存' : '新增'}
+			cancelText="取消"
+		>
+			<Form<LocalTodoFormValues> form={localSessionTodoForm} layout="vertical" style={{ marginTop: 16 }}>
+				<Form.Item name="content" label="待办内容" rules={[{ required: true, message: '请输入待办内容' }]}>
+					<TextArea rows={3} placeholder="请输入待办事项内容" />
+				</Form.Item>
+				<Form.Item name="executor" label="负责人">
+					<Input placeholder="请输入负责人姓名" />
+				</Form.Item>
+				<Form.Item name="execution_time" label="截止时间">
+					<Input placeholder="例如：2026-03-20 或 本周五前" />
+				</Form.Item>
+			</Form>
+		</Modal>
+
+		<Modal
 			title="查看已有音频"
 			open={localAudiosModalVisible}
 			onCancel={() => setLocalAudiosModalVisible(false)}
@@ -4030,13 +4634,22 @@ const MeetingMinutes: React.FC = () => {
 					accept="audio/*"
 					customRequest={handleUploadLocalMinutesAudio}
 					showUploadList
-					disabled={!hasSelectedMeeting || uploadingLocalAudio || ['live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading', 'file_streaming'].includes(localStreamType)}
+					disabled={
+						!hasSelectedMeeting ||
+						uploadingLocalAudio ||
+						localAudios.length >= MAX_AUDIO_UPLOAD_COUNT ||
+						['live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading', 'file_streaming'].includes(localStreamType)
+					}
 				>
 					<p className="ant-upload-drag-icon">
 						<CloudUploadOutlined />
 					</p>
 					<p className="ant-upload-text">上传音频</p>
-					<p className="ant-upload-hint">上传后选中下方列表中该条，再点击「生成会议纪要」</p>
+					<p className="ant-upload-hint">
+						{localAudios.length >= MAX_AUDIO_UPLOAD_COUNT
+							? `已达到上限（${MAX_AUDIO_UPLOAD_COUNT}个），请先删除旧音频后再上传`
+							: `上传后选中下方列表中该条，再点击「生成会议纪要」`}
+					</p>
 				</Upload.Dragger>
 				<Table<LocalMeetingAudio>
 					rowKey="id"

@@ -4,11 +4,19 @@ const CONVERSATION_API_PREFIX = '/api/conversations';
 
 export type FeedbackType = 'upvote' | 'downvote' | 'neutral';
 
+export interface ConversationSource {
+  id?: string;
+  title?: string;
+  snippet?: string;
+  url?: string;
+}
+
 export interface ConversationMessage {
   id: string;
   role: 'query' | 'answer';
   content: string;
   createdAt?: string;
+  sources?: ConversationSource[];
 }
 
 export interface ConversationSummary {
@@ -100,6 +108,24 @@ const ensureDateString = (value: unknown): string | undefined => {
   return undefined;
 };
 
+const normalizeSource = (raw: any): ConversationSource | undefined => {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const id = ensureString(raw.id || raw.doc_id || raw.source_id);
+  const title = ensureString(raw.title || raw.name || raw.doc_name);
+  const snippet = ensureString(raw.snippet || raw.content || raw.summary || raw.text);
+  const url = ensureString(raw.url || raw.link || raw.source_url);
+  if (!id && !title && !snippet && !url) return undefined;
+  return { id, title, snippet, url };
+};
+
+const normalizeSources = (value: unknown): ConversationSource[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const list = value
+    .map((item) => normalizeSource(item))
+    .filter((item): item is ConversationSource => Boolean(item));
+  return list.length ? list : undefined;
+};
+
 const generateFallbackId = () =>
   `conversation-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -108,6 +134,7 @@ const buildMessages = (
   query: string,
   answer: string,
   createdAt?: string,
+  answerSources?: ConversationSource[],
 ): ConversationMessage[] => {
   const timestamp = createdAt;
   const messages: ConversationMessage[] = [];
@@ -125,9 +152,26 @@ const buildMessages = (
       role: 'answer',
       content: answer,
       createdAt: timestamp,
+      sources: answerSources,
     });
   }
   return messages;
+};
+
+const normalizeMessage = (raw: any, fallbackId: string, fallbackRole: 'query' | 'answer'): ConversationMessage => {
+  const roleRaw = ensureString(raw?.role || raw?.type);
+  const role: 'query' | 'answer' = roleRaw === 'query' || roleRaw === 'answer' ? roleRaw : fallbackRole;
+  const content = ensureString(raw?.content || raw?.text || raw?.message) || '';
+  const id = ensureString(raw?.id || raw?.message_id) || `${fallbackId}-${role}-${Math.random().toString(36).slice(2, 8)}`;
+  const createdAt = ensureDateString(raw?.created_at || raw?.createdAt || raw?.timestamp);
+  const sources = normalizeSources(raw?.sources || raw?.references || raw?.docs);
+  return {
+    id,
+    role,
+    content,
+    createdAt,
+    sources,
+  };
 };
 
 const normalizeConversationSummary = (raw: any): ConversationSummary => {
@@ -173,12 +217,17 @@ const normalizeConversationSummary = (raw: any): ConversationSummary => {
 
 const normalizeConversationDetail = (raw: any): ConversationDetail => {
   const summary = normalizeConversationSummary(raw);
-  const messages = buildMessages(
-    summary.id,
-    summary.query,
-    summary.answer,
-    summary.createdAt,
-  );
+  const rawMessages = Array.isArray(raw?.messages) ? raw.messages : [];
+  const messages = rawMessages.length > 0
+    ? rawMessages.map((item: any, index: number) =>
+      normalizeMessage(item, `${summary.id}-${index}`, index === 0 ? 'query' : 'answer'))
+    : buildMessages(
+      summary.id,
+      summary.query,
+      summary.answer,
+      summary.createdAt,
+      normalizeSources(raw?.sources || raw?.references || raw?.docs),
+    );
 
   return {
     ...summary,
