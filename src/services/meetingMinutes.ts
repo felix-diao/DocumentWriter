@@ -84,6 +84,17 @@ export interface VolcMeetingSummaryPayload {
   source_audio_id?: number | null;
 }
 
+export interface VolcAudioUploadTask {
+  task_id: string;
+  meeting_id: number;
+  file_name: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | string;
+  audio_id?: number | null;
+  error_msg?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface VolcMeetingTodoPayload {
   content: string;
   executor?: string | null;
@@ -260,14 +271,51 @@ const getVolcMinutes = async (meetingId: number): Promise<VolcMeetingMinutes> =>
   return res?.data ?? { transcript_text: null, speaker_segments: [], summary: null, todos: [] };
 };
 
-const submitVolcMinutes = async (meetingId: number, audioId?: number): Promise<VolcMeetingAudio> => {
-  const url = audioId != null
-    ? `/api/minutes/volc/${meetingId}/submit?audio_id=${audioId}`
+const submitVolcMinutes = async (
+  meetingId: number,
+  audioId?: number,
+  source?: 'live' | 'existing_audio',
+): Promise<VolcMeetingAudio> => {
+  const params = new URLSearchParams();
+  if (audioId != null) params.set('audio_id', String(audioId));
+  if (source) params.set('source', source);
+  const query = params.toString();
+  const url = query
+    ? `/api/minutes/volc/${meetingId}/submit?${query}`
     : `/api/minutes/volc/${meetingId}/submit`;
   const res = await request<ApiResponse<VolcMeetingAudio>>(url, {
     method: 'POST',
   });
   return res.data;
+};
+
+const abandonVolcMinutes = async (
+  meetingId: number,
+  audioId: number,
+  reason?: string,
+): Promise<VolcMeetingAudio> => {
+  const query = reason
+    ? `?audio_id=${audioId}&reason=${encodeURIComponent(reason)}`
+    : `?audio_id=${audioId}`;
+  const res = await request<ApiResponse<VolcMeetingAudio>>(
+    `/api/minutes/volc/${meetingId}/abandon${query}`,
+    { method: 'POST' },
+  );
+  return res.data;
+};
+
+const discardVolcWorkspace = async (
+  meetingId: number,
+  reason?: string,
+  currentAudioId?: number | null,
+): Promise<void> => {
+  const params = new URLSearchParams();
+  if (reason) params.set('reason', reason);
+  if (typeof currentAudioId === 'number') params.set('current_audio_id', String(currentAudioId));
+  const query = params.toString() ? `?${params.toString()}` : '';
+  await request<ApiResponse<null>>(`/api/minutes/volc/${meetingId}/discard${query}`, {
+    method: 'POST',
+  });
 };
 
 const clearVolcMinutes = async (meetingId: number): Promise<void> => {
@@ -276,13 +324,20 @@ const clearVolcMinutes = async (meetingId: number): Promise<void> => {
   });
 };
 
-const uploadVolcMinutesAudio = async (meetingId: number, file: File): Promise<VolcMeetingAudio> => {
+const uploadVolcMinutesAudio = async (meetingId: number, file: File): Promise<VolcAudioUploadTask> => {
   const formData = new FormData();
   formData.append('file', file);
-  const res = await request<ApiResponse<VolcMeetingAudio>>(`/api/minutes/volc/${meetingId}/upload`, {
+  const res = await request<ApiResponse<VolcAudioUploadTask>>(`/api/minutes/volc/${meetingId}/upload`, {
     method: 'POST',
     data: formData,
     requestType: 'form',
+  });
+  return res.data;
+};
+
+const getVolcUploadTask = async (taskId: string): Promise<VolcAudioUploadTask> => {
+  const res = await request<ApiResponse<VolcAudioUploadTask>>(`/api/minutes/volc/upload-tasks/${taskId}`, {
+    method: 'GET',
   });
   return res.data;
 };
@@ -354,7 +409,11 @@ const getVolcMinutesSession = async (
 ): Promise<VolcMeetingMinutesSession> => {
   const res = await request<ApiResponse<VolcMeetingMinutesSession>>(
     `/api/minutes/volc/${meetingId}/sessions/${sessionId}`,
-    { method: 'GET' },
+    {
+      method: 'GET',
+      // 会话删除/切换过程中详情可能短暂404，由页面逻辑自行处理，避免全局错误弹窗干扰。
+      skipErrorHandler: true,
+    },
   );
   return res.data;
 };
@@ -494,6 +553,20 @@ const clearLocalMinutes = async (meetingId: number): Promise<void> => {
   await request<ApiResponse<null>>(`/api/minutes/local/${meetingId}/clear`, { method: 'POST' });
 };
 
+const discardLocalWorkspace = async (
+  meetingId: number,
+  reason?: string,
+  currentAudioId?: number | null,
+): Promise<void> => {
+  const params = new URLSearchParams();
+  if (reason) params.set('reason', reason);
+  if (typeof currentAudioId === 'number') params.set('current_audio_id', String(currentAudioId));
+  const query = params.toString() ? `?${params.toString()}` : '';
+  await request<ApiResponse<null>>(`/api/minutes/local/${meetingId}/discard${query}`, {
+    method: 'POST',
+  });
+};
+
 const uploadLocalAudio = async (meetingId: number, file: File): Promise<LocalMeetingAudioRecord> => {
   const formData = new FormData();
   formData.append('file', file);
@@ -594,8 +667,11 @@ export const meetingMinutesApi = {
   deleteDecisionItem,
   getVolcMinutes,
   submitVolcMinutes,
+  abandonVolcMinutes,
+  discardVolcWorkspace,
   clearVolcMinutes,
   uploadVolcMinutesAudio,
+  getVolcUploadTask,
   updateVolcTranscript,
   updateVolcSummary,
   createVolcTodo,
@@ -609,6 +685,7 @@ export const meetingMinutesApi = {
   getLocalMinutes,
   generateLocalMinutes,
   clearLocalMinutes,
+  discardLocalWorkspace,
   uploadLocalAudio,
   updateLocalSummary,
   createLocalTodo,
