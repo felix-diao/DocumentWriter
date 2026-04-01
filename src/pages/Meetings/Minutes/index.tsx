@@ -1361,11 +1361,10 @@ const MeetingMinutes: React.FC = () => {
 	}, []);
 
 	async function discardLocalWorkspaceNow(
-		reason: string,
+		_reason: string,
 		options?: {
 			waitRemoteCleanup?: boolean;
 			meetingId?: number;
-			currentAudioId?: number | null;
 		},
 	) {
 		const meetingId =
@@ -1396,18 +1395,7 @@ const MeetingMinutes: React.FC = () => {
 				void stopLocalAudioCapture();
 			}
 		}
-		const pendingAudioId =
-			typeof options?.currentAudioId === 'number'
-				? options.currentAudioId
-				: (typeof selectedLocalAudioId === 'number'
-					? selectedLocalAudioId
-					: (typeof localLatestAudioId === 'number' ? localLatestAudioId : null));
-		const remoteCleanupTask = meetingMinutesApi.discardLocalWorkspace(meetingId, reason, pendingAudioId).catch(() => {
-			// ignore
-		});
-		if (waitRemoteCleanup) {
-			await remoteCleanupTask;
-		}
+		// 本地模式下 discard 仅清空前端工作区，不再请求后端清理接口。
 		setLocalStreamType('idle');
 		setLocalStreamError(null);
 		if (waitRemoteCleanup) {
@@ -2762,11 +2750,6 @@ const MeetingMinutes: React.FC = () => {
 
 		clearLocalMinutesDisplay();
 		setLocalInputMode('live');
-		try {
-			await meetingMinutesApi.discardLocalWorkspace(selectedMeetingId, '开始新一轮在线录音，丢弃当前工作区');
-		} catch {
-			// ignore
-		}
 
 		const currentSession = ++localLiveSessionIdRef.current;
 		const isSessionValid = () => currentSession === localLiveSessionIdRef.current;
@@ -5670,15 +5653,6 @@ const MeetingMinutes: React.FC = () => {
 						if (!selectedLocalAudioId || !selectedMeetingId) return;
 						clearLocalMinutesDisplay();
 						setLocalInputMode('upload');
-						try {
-							await meetingMinutesApi.discardLocalWorkspace(
-								selectedMeetingId,
-								'开始新一轮上传音频生成，丢弃当前工作区',
-								selectedLocalAudioId,
-							);
-						} catch {
-							// 忽略清空失败
-						}
 						setLocalAudiosModalVisible(false);
 						startLocalSseStream(selectedLocalAudioId, selectedMeetingId);
 					}}

@@ -549,24 +549,6 @@ const generateLocalMinutes = async (meetingId: number): Promise<LocalMeetingMinu
   return res?.data ?? { transcript_text: null, stream_transcript_text: null, audio_status: null, summary: null, todos: [] };
 };
 
-const clearLocalMinutes = async (meetingId: number): Promise<void> => {
-  await request<ApiResponse<null>>(`/api/minutes/local/${meetingId}/clear`, { method: 'POST' });
-};
-
-const discardLocalWorkspace = async (
-  meetingId: number,
-  reason?: string,
-  currentAudioId?: number | null,
-): Promise<void> => {
-  const params = new URLSearchParams();
-  if (reason) params.set('reason', reason);
-  if (typeof currentAudioId === 'number') params.set('current_audio_id', String(currentAudioId));
-  const query = params.toString() ? `?${params.toString()}` : '';
-  await request<ApiResponse<null>>(`/api/minutes/local/${meetingId}/discard${query}`, {
-    method: 'POST',
-  });
-};
-
 const uploadLocalAudio = async (meetingId: number, file: File): Promise<LocalMeetingAudioRecord> => {
   const formData = new FormData();
   formData.append('file', file);
@@ -684,8 +666,6 @@ export const meetingMinutesApi = {
   // 本地 Qwen3-ASR
   getLocalMinutes,
   generateLocalMinutes,
-  clearLocalMinutes,
-  discardLocalWorkspace,
   uploadLocalAudio,
   updateLocalSummary,
   createLocalTodo,
