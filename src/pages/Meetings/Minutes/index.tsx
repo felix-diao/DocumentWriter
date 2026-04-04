@@ -2277,7 +2277,11 @@ const MeetingMinutes: React.FC = () => {
 			const code = (e as CloseEvent | any)?.code;
 			const reason = (e as CloseEvent | any)?.reason;
 			if (volcStreamTypeRef.current === 'completed') return;
-			if (volcLiveStopRequestedRef.current && (code === 1000 || code === 1001)) return;
+			if (volcLiveStopRequestedRef.current && (code === 1000 || code === 1001 || code === 1005)) {
+				setVolcStreamError(null);
+				setVolcStreamType((prev) => (prev === 'live_stopping' ? 'live_saving' : prev));
+				return;
+			}
 
 			const hint =
 				code === 4001
@@ -2943,7 +2947,7 @@ const MeetingMinutes: React.FC = () => {
 				if (!isSessionValid()) return;
 				const code = (e as CloseEvent | any)?.code;
 				if (localStreamTypeRef.current === 'completed') return;
-				if (localLiveStopRequestedRef.current && (code === 1000 || code === 1001)) {
+				if (localLiveStopRequestedRef.current && (code === 1000 || code === 1001 || code === 1005)) {
 					await stopLocalAudioCapture();
 					return;
 				}
