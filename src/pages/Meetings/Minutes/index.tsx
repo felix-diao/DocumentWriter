@@ -1052,12 +1052,10 @@ const MeetingMinutes: React.FC = () => {
 							task_id: payload.task_id,
 							audio_id: payload.audio_id,
 						});
-						if (payload.refresh) {
-							loadVolcMinutesData(meetingId, true);
-							loadVolcAudioList(meetingId);
-							if (shouldSyncVolcSessions) {
-								loadVolcSessions(meetingId, true);
-							}
+						void loadVolcMinutesData(meetingId, true);
+						void loadVolcAudioList(meetingId);
+						if (shouldSyncVolcSessions) {
+							void loadVolcSessions(meetingId, true);
 						}
 					}
 				} catch {
