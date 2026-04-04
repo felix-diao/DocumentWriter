@@ -13,7 +13,7 @@ enum ErrorShowType {
 }
 // 与后端约定的响应数据格式
 interface ResponseStructure {
-  success: boolean;
+  success?: boolean;
   data: any;
   errorCode?: number;
   errorMessage?: string;
@@ -31,12 +31,20 @@ export const errorConfig: RequestConfig = {
   errorConfig: {
     // 错误抛出
     errorThrower: (res) => {
-      const { success, data, errorCode, errorMessage, showType } =
+      if (!res || typeof res !== 'object' || Array.isArray(res) || !('success' in res)) {
+        return;
+      }
+      const { success, data, errorCode, errorMessage, message: bizMessage, showType } =
         res as unknown as ResponseStructure;
-      if (!success) {
-        const error: any = new Error(errorMessage);
+      if (success === false) {
+        const error: any = new Error(errorMessage || bizMessage || '请求失败');
         error.name = 'BizError';
-        error.info = { errorCode, errorMessage, showType, data };
+        error.info = {
+          errorCode,
+          errorMessage: errorMessage || bizMessage,
+          showType,
+          data,
+        };
         throw error; // 抛出自制的错误
       }
     },

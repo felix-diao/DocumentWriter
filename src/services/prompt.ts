@@ -99,8 +99,8 @@ export async function deletePrompt(id: string) {
 export async function batchDeletePrompts(ids: string[]) {
   return request<{
     success: boolean;
-  }>(`${PROMPT_API_BASE}/batch`, {
-    method: 'DELETE',
+  }>(`${PROMPT_API_BASE}/batch-delete`, {
+    method: 'POST',
     data: { ids },
   });
 }

@@ -55,6 +55,7 @@ import meetingMinutesApi, {
 	type MeetingInsights,
 	type SpeakerSegment,
 	type VolcMeetingMinutes,
+	type VolcMinutesJob,
 	type VolcMeetingMinutesSession,
 	type VolcMeetingTodo,
 	type VolcSessionTodoItem,
@@ -144,6 +145,11 @@ const isVolcInProgressStatus = (status?: string | null): boolean => {
 	if (!raw) return false;
 	return VOLC_IN_PROGRESS_STATUS_SET.has(raw.toLowerCase());
 };
+
+const getVolcMinutesJobStatus = (
+	minutes?: Pick<VolcMeetingMinutes, 'minutes_job_status' | 'audio_status'> | null,
+	fallbackStatus?: string | null,
+) => fallbackStatus ?? minutes?.minutes_job_status ?? minutes?.audio_status;
 const VOLC_AUDIO_UPLOAD_STATUS_META: Record<'uploading' | 'uploaded' | 'failed', { label: string; color: string }> = {
 	uploading: { label: '上传中', color: 'processing' },
 	uploaded: { label: '已上传', color: 'green' },
@@ -548,7 +554,8 @@ const MeetingMinutes: React.FC = () => {
 	const isVolcSubmitInProgressStatus = useCallback((status?: string | null) => isVolcInProgressStatus(status), []);
 	const isVolcFinalCompleted = useMemo(() => {
 		// 最终态统一判定：状态成功，或页面已拥有一份稳定纪要结果（避免状态字段短暂为空导致误判）。
-		if (isVolcCompletedStatus(volcMinutesStatus?.status) || isVolcCompletedStatus(volcMinutes?.audio_status)) {
+		const stableStatus = getVolcMinutesJobStatus(volcMinutes, volcMinutesStatus?.status);
+		if (isVolcCompletedStatus(stableStatus)) {
 			return true;
 		}
 		const hasStableMinutesResult =
@@ -559,6 +566,7 @@ const MeetingMinutes: React.FC = () => {
 		return hasStableMinutesResult;
 	}, [
 		volcMinutesStatus?.status,
+		volcMinutes?.minutes_job_status,
 		volcMinutes?.audio_status,
 		volcMinutes?.transcript_text,
 		volcMinutes?.speaker_segments,
@@ -806,9 +814,8 @@ const MeetingMinutes: React.FC = () => {
 				summary: hasSummary && result.summary ? { ...result.summary, paragraph: cleanParagraph, title: cleanTitle || null } : null,
 			});
 
-			// 精确转写：只有妙记真正跑完（audio_status === 'completed'）才填入
-			// 粗 ASR 阶段 audio_status 不是 'completed'，不应填入精确转写框
-			const miaojiCompleted = result.audio_status === 'completed';
+			// 精确转写：只有妙记真正跑完才填入。
+			const miaojiCompleted = isVolcCompletedStatus(getVolcMinutesJobStatus(result));
 			const hasTranscript = miaojiCompleted && !!(result.transcript_text || (result.speaker_segments?.length ?? 0));
 			setVolcTranscriptDraft(hasTranscript ? (result.transcript_text || '') : '');
 			// 摘要：有内容才填入；无内容时清空
@@ -1111,10 +1118,6 @@ const MeetingMinutes: React.FC = () => {
 		setLocalSessionsModalVisible(false);
 
 		if (typeof selectedMeetingId === 'number') {
-			loadInsights(selectedMeetingId);
-			loadAssets(selectedMeetingId);
-			setSelectedFileIds([]);
-			setSelectedAudioIds([]);
 			loadLocalAudioList(selectedMeetingId);
 			// 与火山模式保持一致：本地主界面进入时默认空白，不自动回填历史纪要。
 			if (!(isMinutesMainRoute && minutesMode === 'local')) {
@@ -1124,8 +1127,6 @@ const MeetingMinutes: React.FC = () => {
 			setVolcLiveModalVisible(false);
 			setVolcUploadModalVisible(false);
 			setInsights(null);
-			setAvailableFiles([]);
-			setAvailableAudios([]);
 			stopRecordingTimer();
 			if (recording) stopRecording();
 		}
@@ -1318,20 +1319,8 @@ const MeetingMinutes: React.FC = () => {
 			}
 		}
 
-		const pendingAudioId =
-			typeof options?.currentAudioId === 'number'
-				? options.currentAudioId
-				: (typeof volcMinutesStatusRef.current?.audio_id === 'number'
-					? volcMinutesStatusRef.current.audio_id
-					: (typeof selectedVolcAudioIdRef.current === 'number'
-						? selectedVolcAudioIdRef.current
-						: (typeof volcLatestAudioIdRef.current === 'number' ? volcLatestAudioIdRef.current : null)));
-		const remoteCleanupTask = meetingMinutesApi.discardVolcWorkspace(meetingId, reason, pendingAudioId).catch(() => {
-			// ignore
-		});
-		if (waitRemoteCleanup) {
-			await remoteCleanupTask;
-		}
+		void reason;
+		void options?.currentAudioId;
 		volcResetPendingRef.current = false;
 		setVolcStreamType('idle');
 		setVolcStreamError(null);
@@ -1907,7 +1896,7 @@ const MeetingMinutes: React.FC = () => {
 			const record = await meetingMinutesApi.uploadLocalAudio(selectedMeetingId, file as File);
 			setLocalLatestAudioId(record.id);
 			setSelectedLocalAudioId(record.id);
-			message.success('上传成功，请选择该条后点击「生成会议纪要」');
+			message.success('上传成功，可在当前列表中管理本地音频。');
 			await loadLocalAudioList(selectedMeetingId);
 			onSuccess?.('ok');
 		} catch (error: any) {
@@ -2015,16 +2004,11 @@ const MeetingMinutes: React.FC = () => {
 			return;
 		}
 
-		// 覆盖式：先清空展示与数据库，再开始录音
+		// 覆盖式：先清空当前展示，再开始新的录音会话
 		clearVolcMinutesDisplay();
 		volcResetPendingRef.current = false;
 		volcDiscardHydrationRef.current = false;
 		setVolcInputMode('live');
-		try {
-			await meetingMinutesApi.clearVolcMinutes(selectedMeetingId);
-		} catch {
-			// 忽略清空失败，继续录音
-		}
 
 		// ★ 递增 session ID，后续每个 await 之后都要校验
 		const currentSession = ++volcLiveSessionIdRef.current;
@@ -2339,11 +2323,11 @@ const MeetingMinutes: React.FC = () => {
 		setSubmittingVolcMinutes(true);
 		try {
 			const source = submitSource || (volcInputMode === 'live' ? 'live' : 'existing_audio');
-			const record = await meetingMinutesApi.submitVolcMinutes(selectedMeetingId, idToSubmit, source);
+			const record: VolcMinutesJob = await meetingMinutesApi.submitVolcMinutes(selectedMeetingId, idToSubmit, source);
 			setVolcMinutesStatus({
 				status: record.status || 'submitted',
 				task_id: record.task_id || undefined,
-				audio_id: record.id,
+				audio_id: record.audio_id ?? undefined,
 			});
 			// 上传音频模式只在此处提示；在线录音模式在 WS completed 时已提示
 			if (volcInputMode === 'upload') {
@@ -3072,17 +3056,6 @@ const MeetingMinutes: React.FC = () => {
 		{ title: '内容', dataIndex: 'content', ellipsis: true },
 		{ title: '执行人', dataIndex: 'executor', width: 140, render: (v?: string) => v || '未指定' },
 		{ title: '执行时间', dataIndex: 'execution_time', width: 160, render: (v?: string) => v || '未指定' },
-		{
-			title: '操作', width: 160,
-			render: (_, record) => (
-				<Space>
-					<Button type="link" onClick={() => openLocalTodoModal(record)}>编辑</Button>
-					<Popconfirm title="确定删除该待办？" onConfirm={() => handleDeleteLocalTodo(record.id)}>
-						<Button type="link" danger>删除</Button>
-					</Popconfirm>
-				</Space>
-			),
-		},
 	];
 
 	const localStreamStatusLabel: Record<string, string> = {
@@ -3929,22 +3902,6 @@ const MeetingMinutes: React.FC = () => {
 			width: 160,
 			render: (value?: string) => value || '未指定',
 		},
-		{
-			title: '操作',
-			width: 160,
-			render: (_, record) => (
-				<Space>
-					<Button type="link" onClick={() => openVolcTodoModal(record)}>
-						编辑
-					</Button>
-					<Popconfirm title="确定删除该待办？" onConfirm={() => handleDeleteVolcTodo(record.id)}>
-						<Button type="link" danger>
-							删除
-						</Button>
-					</Popconfirm>
-				</Space>
-			),
-		},
 	];
 
 	const openVolcSessionTodoModal = (index?: number) => {
@@ -4148,6 +4105,7 @@ const MeetingMinutes: React.FC = () => {
 		succeeded: '已完成',
 		success: '已完成',
 		finished: '已完成',
+		queued: '等待中',
 		failed: '失败',
 		error: '失败',
 		processing: '处理中',
@@ -4291,7 +4249,7 @@ const MeetingMinutes: React.FC = () => {
 								disabled={!hasSelectedMeeting || ['live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading', 'file_streaming'].includes(localStreamType)}
 								onClick={openLocalAudiosModal}
 							>
-								查看已有音频
+								管理本地音频
 							</Button>
 							<Button icon={<ReloadOutlined />} disabled={!hasSelectedMeeting} onClick={() => void handleResetLocalWorkspace()}>
 								重置
@@ -4340,7 +4298,7 @@ const MeetingMinutes: React.FC = () => {
 						showIcon
 						style={{ margin: '16px 0' }}
 						message="本地 AI 纪要（Qwen3-ASR）"
-						description="在线录音：边录边转写，停止后自动生成会议纪要。上传音频：上传后自动流式转写，转写完成后自动生成摘要与待办。"
+						description="在线录音：边录边转写，停止后自动生成会议纪要。上传音频：当前仅用于管理本地音频资料，不再直接触发纪要生成。"
 					/>
 
 					{/* 第一步：流式转写 */}
@@ -4379,7 +4337,7 @@ const MeetingMinutes: React.FC = () => {
 								<TextArea
 									rows={8}
 									value={localStreamText}
-									placeholder="开始在线录音或上传音频后，这里会实时输出识别文本…"
+									placeholder="开始在线录音后，这里会实时输出识别文本…"
 									readOnly
 								/>
 								<Text type="secondary">
@@ -4390,7 +4348,7 @@ const MeetingMinutes: React.FC = () => {
 					</div>
 
 					{/* 第二步：AI 生成结果 */}
-					<ProCard title="第二步：AI生成纪要结果（摘要/待办）">
+					<ProCard title="第二步：AI生成纪要结果（只读）">
 						<Space direction="vertical" style={{ width: '100%' }} size="middle">
 							{showLocalMinutesStatus && localMinutesStatus && (
 								<Alert
@@ -4400,15 +4358,19 @@ const MeetingMinutes: React.FC = () => {
 									description={localMinutesStatus.error ? <Text type="danger">错误：{localMinutesStatus.error}</Text> : undefined}
 								/>
 							)}
+							<Alert
+								type="info"
+								showIcon
+								message="当前主视图仅用于查看生成结果。若需修订摘要或待办，请前往“会话历史”。"
+							/>
 
 							{/* 会议摘要 */}
 							<ProCard title="会议摘要" style={{ marginBottom: 16 }}>
 								<Space direction="vertical" style={{ width: '100%' }} size="middle">
 									<Input
-										placeholder="请输入会议摘要标题（可选）"
+										placeholder="暂无摘要标题"
 										value={localSummaryTitle}
-										onChange={(e) => setLocalSummaryTitle(e.target.value)}
-										allowClear
+										readOnly
 									/>
 									{localSummaryDraft ? (
 										<div
@@ -4427,9 +4389,9 @@ const MeetingMinutes: React.FC = () => {
 									) : null}
 									<TextArea
 										rows={6}
-										placeholder="可在此查看或编辑摘要内容（支持 Markdown）；保存与待办请在「会话历史」中操作"
+										placeholder="主视图仅展示摘要内容；如需修订请前往“会话历史”。"
 										value={localSummaryDraft}
-										onChange={(e) => setLocalSummaryDraft(e.target.value)}
+										readOnly
 									/>
 								</Space>
 							</ProCard>
@@ -4463,7 +4425,7 @@ const MeetingMinutes: React.FC = () => {
 						showIcon
 						style={{ margin: '16px 0' }}
 						message="火山纪要"
-						description="在线录音：边录边转写，停止后自动生成会议纪要。查看已有音频：选择或上传音频后点击「生成会议纪要」，直接生成精确转写、摘要与待办。"
+						description="在线录音：边录边转写，停止后自动生成会议纪要。查看已有音频：选择或上传音频后点击「生成会议纪要」，生成结果将在主视图只读展示，修订请前往“会话历史”。"
 					/>
 
 					<div ref={volcStreamCardRef}>
@@ -4513,7 +4475,7 @@ const MeetingMinutes: React.FC = () => {
 					</ProCard>
 					</div>
 
-					<ProCard title="第二步：语音妙记结果（精确转写 / 摘要 / 待办）">
+					<ProCard title="第二步：语音妙记结果（只读）">
 						<Space direction="vertical" style={{ width: '100%' }} size="middle">
 						{volcMinutesStatus && (
 							<Alert
@@ -4523,32 +4485,25 @@ const MeetingMinutes: React.FC = () => {
 								description={volcMinutesStatus.error ? <Text type="danger">错误：{resolveVolcErrorMessage(volcMinutesStatus.error)}</Text> : undefined}
 							/>
 						)}
+						<Alert
+							type="info"
+							showIcon
+							message="当前主视图仅用于查看生成结果。若需修订精确转写、摘要或待办，请前往“会话历史”。"
+						/>
 
-					{/* 精确转写：框始终展示，妙记刷新成功后才填入文字内容 */}
-					{(() => {
-						// 只有妙记真正完成（audio_status === 'completed'）才算有精确转写结果
-						const hasTranscript = !!(volcMinutes &&
-							volcMinutes.audio_status === 'completed' &&
-							(volcMinutes.transcript_text != null || (volcMinutes.speaker_segments?.length ?? 0) > 0));
-							return (
-								<ProCard
-									title="精确转写"
-									style={{ marginBottom: 16 }}
-								>
-									<Space direction="vertical" style={{ width: '100%' }} size="small">
-										<TextArea
-											rows={14}
-											placeholder="火山纪要刷新成功后将在此显示精确转写内容。"
-											value={volcTranscriptDraft}
-											onChange={(e) => setVolcTranscriptDraft(e.target.value)}
-										/>
-										<Text type="secondary">
-											流式转写仅作实时预览；生成纪要后得到带说话人的精确转写。
-										</Text>
-									</Space>
-								</ProCard>
-							);
-						})()}
+						<ProCard title="精确转写" style={{ marginBottom: 16 }}>
+							<Space direction="vertical" style={{ width: '100%' }} size="small">
+								<TextArea
+									rows={14}
+									placeholder="火山纪要生成完成后将在此显示精确转写内容。"
+									value={volcTranscriptDraft}
+									readOnly
+								/>
+								<Text type="secondary">
+									流式转写仅作实时预览；生成纪要后得到带说话人的精确转写，主视图只读展示。
+								</Text>
+							</Space>
+						</ProCard>
 
 						{/* 会议摘要：始终显示 */}
 						<ProCard
@@ -4557,10 +4512,9 @@ const MeetingMinutes: React.FC = () => {
 						>
 							<Space direction="vertical" style={{ width: '100%' }} size="middle">
 								<Input
-									placeholder="请输入会议摘要标题（可选）"
+									placeholder="暂无摘要标题"
 									value={volcSummaryTitle}
-									onChange={(e) => setVolcSummaryTitle(e.target.value)}
-									allowClear
+									readOnly
 								/>
 								{/* 摘要正文预览 */}
 								{volcSummaryDraft ? (
@@ -4581,9 +4535,9 @@ const MeetingMinutes: React.FC = () => {
 								{/* 编辑框：始终显示，方便手动补充 */}
 								<TextArea
 									rows={6}
-									placeholder="可在此查看或编辑摘要内容（支持 Markdown）"
+									placeholder="主视图仅展示摘要内容；如需修订请前往“会话历史”。"
 									value={volcSummaryDraft}
-									onChange={(e) => setVolcSummaryDraft(e.target.value)}
+									readOnly
 								/>
 							</Space>
 						</ProCard>
@@ -5203,11 +5157,6 @@ const MeetingMinutes: React.FC = () => {
 							}
 							clearVolcMinutesDisplay();
 							setVolcInputMode('upload');
-							try {
-								await meetingMinutesApi.clearVolcMinutes(selectedMeetingId);
-							} catch {
-								// 忽略清空失败
-							}
 							setVolcAudiosModalVisible(false);
 							handleSubmitVolcMinutes(selectedVolcAudioId, 'existing_audio');
 						}}
@@ -5636,28 +5585,12 @@ const MeetingMinutes: React.FC = () => {
 		</Modal>
 
 		<Modal
-			title="查看已有音频"
+			title="管理本地音频"
 			open={localAudiosModalVisible}
 			onCancel={() => setLocalAudiosModalVisible(false)}
 			footer={[
 				<Button key="close" onClick={() => setLocalAudiosModalVisible(false)}>
 					关闭
-				</Button>,
-				<Button
-					key="generate"
-					type="primary"
-					icon={<ThunderboltOutlined />}
-					disabled={!selectedLocalAudioId || generatingLocalMinutes}
-					loading={generatingLocalMinutes}
-					onClick={async () => {
-						if (!selectedLocalAudioId || !selectedMeetingId) return;
-						clearLocalMinutesDisplay();
-						setLocalInputMode('upload');
-						setLocalAudiosModalVisible(false);
-						startLocalSseStream(selectedLocalAudioId, selectedMeetingId);
-					}}
-				>
-					生成会议纪要
 				</Button>,
 			]}
 			width={720}
@@ -5682,7 +5615,7 @@ const MeetingMinutes: React.FC = () => {
 					<p className="ant-upload-hint">
 						{localAudios.length >= MAX_AUDIO_UPLOAD_COUNT
 							? `已达到上限（${MAX_AUDIO_UPLOAD_COUNT}个），请先删除旧音频后再上传`
-							: `上传后选中下方列表中该条，再点击「生成会议纪要」`}
+							: '上传后可在当前列表中下载或删除；当前后端版本不再支持本地上传音频直接生成纪要。'}
 					</p>
 				</Upload.Dragger>
 				<Table<LocalMeetingAudio>
@@ -5693,7 +5626,6 @@ const MeetingMinutes: React.FC = () => {
 					pagination={false}
 					loading={loadingLocalAudios}
 					locale={{ emptyText: '暂无音频，请先上传' }}
-					rowSelection={localAudioRowSelection}
 				/>
 		</Space>
 	</Modal>

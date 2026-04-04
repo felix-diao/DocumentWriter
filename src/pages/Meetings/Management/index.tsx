@@ -5,9 +5,7 @@ import {
   DownloadOutlined,
   EditOutlined,
   FileTextOutlined,
-  InboxOutlined,
   LinkOutlined,
-  PaperClipOutlined,
   PlusOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
@@ -16,7 +14,6 @@ import {
   Button,
   DatePicker,
   Descriptions,
-  Divider,
   Drawer,
   Empty,
   Form,
@@ -41,12 +38,9 @@ import dayjs, { type Dayjs } from 'dayjs';
 import React, { useEffect, useState } from 'react';
 import { history } from '@umijs/max';
 import meetingsApi, {
-  Meeting,
-  MeetingAudio,
-  meetingAudioDownloadUrl,
-  MeetingFile,
-  meetingFileDownloadUrl,
-  MeetingPayload,
+  type LocalMeetingAudio,
+  type Meeting,
+  type MeetingPayload,
 } from '@/services/meetings';
 
 const { Paragraph, Text } = Typography;
@@ -56,13 +50,7 @@ interface MeetingFormValues extends Omit<MeetingPayload, 'date'> {
   date: Dayjs;
 }
 
-const statusMeta: Record<
-  string,
-  {
-    label: string;
-    color: string;
-  }
-> = {
+const statusMeta: Record<string, { label: string; color: string }> = {
   created: { label: '已创建', color: 'default' },
   scheduled: { label: '已排期', color: 'processing' },
   ongoing: { label: '进行中', color: 'blue' },
@@ -74,8 +62,7 @@ const MeetingManagement: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
-  const [files, setFiles] = useState<MeetingFile[]>([]);
-  const [audios, setAudios] = useState<MeetingAudio[]>([]);
+  const [audios, setAudios] = useState<LocalMeetingAudio[]>([]);
   const [assetsLoading, setAssetsLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
@@ -95,8 +82,26 @@ const MeetingManagement: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchMeetings();
+    void fetchMeetings();
   }, []);
+
+  const loadAudios = async (meetingId: number) => {
+    setAssetsLoading(true);
+    try {
+      const data = await meetingsApi.listLocalAudios(meetingId);
+      setAudios(data);
+    } catch (error: any) {
+      message.error(error?.message || '加载本地音频失败');
+    } finally {
+      setAssetsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedMeeting) {
+      void loadAudios(selectedMeeting.id);
+    }
+  }, [selectedMeeting]);
 
   const openCreateModal = () => {
     setEditingMeeting(null);
@@ -135,7 +140,7 @@ const MeetingManagement: React.FC = () => {
       if (editingMeeting) {
         await meetingsApi.update(editingMeeting.id, payload);
         message.success('会议更新成功');
-        if (selectedMeeting && selectedMeeting.id === editingMeeting.id) {
+        if (selectedMeeting?.id === editingMeeting.id) {
           const detail = await meetingsApi.detail(editingMeeting.id);
           setSelectedMeeting(detail);
         }
@@ -144,7 +149,7 @@ const MeetingManagement: React.FC = () => {
         message.success('会议创建成功');
       }
       setModalVisible(false);
-      fetchMeetings();
+      await fetchMeetings();
     } catch (error: any) {
       message.error(error?.message || '保存会议失败');
     } finally {
@@ -152,10 +157,10 @@ const MeetingManagement: React.FC = () => {
     }
   };
 
-  const handleDeleteMeeting = async (record: Meeting) => {
+  const handleDeleteMeeting = (record: Meeting) => {
     Modal.confirm({
       title: `确定删除会议「${record.title}」吗？`,
-      content: '会议及其相关文件、音频都会被清理，操作不可恢复。',
+      content: '会议及其相关音频都会被清理，操作不可恢复。',
       okButtonProps: { danger: true },
       onOk: async () => {
         setLoading(true);
@@ -164,10 +169,9 @@ const MeetingManagement: React.FC = () => {
           message.success('会议删除成功');
           if (selectedMeeting?.id === record.id) {
             setSelectedMeeting(null);
-            setFiles([]);
             setAudios([]);
           }
-          fetchMeetings();
+          await fetchMeetings();
         } catch (error: any) {
           message.error(error?.message || '删除会议失败');
         } finally {
@@ -181,44 +185,8 @@ const MeetingManagement: React.FC = () => {
     try {
       const detail = await meetingsApi.detail(record.id);
       setSelectedMeeting(detail);
-    } catch (error) {
+    } catch {
       setSelectedMeeting(record);
-    }
-  };
-
-  const loadAssets = async (meetingId: number) => {
-    setAssetsLoading(true);
-    try {
-      const [fileRes, audioRes] = await Promise.all([
-        meetingsApi.listFiles(meetingId),
-        meetingsApi.listAudios(meetingId),
-      ]);
-      setFiles(fileRes);
-      setAudios(audioRes);
-    } catch (error: any) {
-      message.error(error?.message || '加载附件失败');
-    } finally {
-      setAssetsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (selectedMeeting) {
-      loadAssets(selectedMeeting.id);
-    }
-  }, [selectedMeeting?.id]);
-
-  const handleFileUpload = async (options: RcCustomRequestOptions) => {
-    if (!selectedMeeting) return;
-    const { file, onSuccess, onError } = options;
-    try {
-      await meetingsApi.uploadFiles(selectedMeeting.id, [file as File]);
-      message.success('文件上传成功');
-      loadAssets(selectedMeeting.id);
-      onSuccess?.('ok' as any);
-    } catch (error: any) {
-      message.error(error?.message || '文件上传失败');
-      onError?.(error);
     }
   };
 
@@ -227,8 +195,8 @@ const MeetingManagement: React.FC = () => {
     const { file, onSuccess, onError } = options;
     try {
       await meetingsApi.uploadAudios(selectedMeeting.id, [file as File]);
-      message.success('音频上传成功，后台会自动转写');
-      loadAssets(selectedMeeting.id);
+      message.success('音频上传成功');
+      await loadAudios(selectedMeeting.id);
       onSuccess?.('ok' as any);
     } catch (error: any) {
       message.error(error?.message || '音频上传失败');
@@ -252,25 +220,12 @@ const MeetingManagement: React.FC = () => {
     }
   };
 
-  const handleDownloadFile = (file: MeetingFile) => {
-    handleDownloadBlob(() => meetingsApi.downloadMeetingFile(file.meeting_id, file.id));
-  };
-
-  const handleDownloadAudio = (audio: MeetingAudio) => {
-    handleDownloadBlob(() => meetingsApi.downloadMeetingAudio(audio.meeting_id, audio.id));
-  };
-
-  const fileUploadProps: UploadProps = {
-    name: 'files',
-    multiple: true,
-    showUploadList: false,
-    accept: '.pdf,.doc,.docx,.ppt,.pptx,.txt',
-    customRequest: handleFileUpload,
-    disabled: !selectedMeeting,
+  const handleDownloadAudio = (audio: LocalMeetingAudio) => {
+    void handleDownloadBlob(() => meetingsApi.downloadLocalAudio(audio.meeting_id, audio.id));
   };
 
   const audioUploadProps: UploadProps = {
-    name: 'audios',
+    name: 'audio',
     multiple: true,
     showUploadList: false,
     accept: '.mp3,.wav,.m4a,.flac,.aac,.ogg',
@@ -284,6 +239,13 @@ const MeetingManagement: React.FC = () => {
     return <Tag color={meta.color}>{meta.label}</Tag>;
   };
 
+  const renderAudioStatusTag = (status?: string | null) => {
+    if (!status) return <Tag>未知</Tag>;
+    if (status === 'failed') return <Tag color="red">失败</Tag>;
+    if (status === 'uploaded') return <Tag color="green">已上传</Tag>;
+    return <Tag color="processing">{status}</Tag>;
+  };
+
   const actionToMinutes = (meetingId: number) => {
     history.push(`/meetings/minutes?meetingId=${meetingId}`);
   };
@@ -293,7 +255,11 @@ const MeetingManagement: React.FC = () => {
       title: '会议标题',
       width: 220,
       dataIndex: 'title',
-      render: (value: string) => <Typography.Text strong ellipsis={{ tooltip: value }}>{value}</Typography.Text>,
+      render: (value: string) => (
+        <Typography.Text strong ellipsis={{ tooltip: value }}>
+          {value}
+        </Typography.Text>
+      ),
     },
     {
       title: '会议时间',
@@ -357,8 +323,7 @@ const MeetingManagement: React.FC = () => {
             {selectedMeeting.title}
           </Typography.Title>
           <Text type="secondary">
-            {dayjs(selectedMeeting.date).format('YYYY-MM-DD HH:mm')} ·{' '}
-            {selectedMeeting.location || '地点待定'}
+            {dayjs(selectedMeeting.date).format('YYYY-MM-DD HH:mm')} · {selectedMeeting.location || '地点待定'}
           </Text>
         </div>
         <Space>
@@ -373,73 +338,17 @@ const MeetingManagement: React.FC = () => {
     );
   };
 
-  const renderFileList = () => {
-    if (!files.length) {
-      return (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="暂无会议文件，可使用上方上传区域添加"
-          style={{ marginTop: 32 }}
-        />
-      );
-    }
-    return (
-      <List
-        dataSource={files}
-        itemLayout="horizontal"
-        renderItem={(item) => (
-          <List.Item
-            actions={[
-              <Button
-                key="download"
-                type="link"
-                icon={<DownloadOutlined />}
-                onClick={() => handleDownloadFile(item)}
-              >
-                下载
-              </Button>,
-              <Popconfirm
-                key="delete"
-                title="删除文件"
-                description="删除后不可恢复，确定删除吗？"
-                onConfirm={async () => {
-                  if (!selectedMeeting) return;
-                  try {
-                    await meetingsApi.deleteFile(selectedMeeting.id, item.id);
-                    message.success('文件已删除');
-                    loadAssets(selectedMeeting.id);
-                  } catch (error: any) {
-                    message.error(error?.message || '删除文件失败');
-                  }
-                }}
-              >
-                <Button type="link" danger icon={<DeleteOutlined />}>
-                  删除
-                </Button>
-              </Popconfirm>,
-            ]}
-          >
-            <List.Item.Meta
-              avatar={<PaperClipOutlined />}
-              title={item.filename}
-              description={dayjs(item.uploaded_at).format('YYYY-MM-DD HH:mm')}
-            />
-          </List.Item>
-        )}
-      />
-    );
-  };
-
   const renderAudioList = () => {
     if (!audios.length) {
       return (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="暂无音频，上传后系统会自动转写文本"
+          description="暂无本地音频记录"
           style={{ marginTop: 32 }}
         />
       );
     }
+
     return (
       <List
         dataSource={audios}
@@ -449,7 +358,7 @@ const MeetingManagement: React.FC = () => {
             key={item.id}
             actions={[
               <Button
-                key="dl"
+                key="download"
                 type="link"
                 icon={<DownloadOutlined />}
                 onClick={() => handleDownloadAudio(item)}
@@ -457,15 +366,15 @@ const MeetingManagement: React.FC = () => {
                 下载音频
               </Button>,
               <Popconfirm
-                key="del"
+                key="delete"
                 title="删除音频"
-                description="确认删除这段音频和转写？"
+                description="确认删除这段音频吗？"
                 onConfirm={async () => {
                   if (!selectedMeeting) return;
                   try {
-                    await meetingsApi.deleteAudio(selectedMeeting.id, item.id);
+                    await meetingsApi.deleteLocalAudio(selectedMeeting.id, item.id);
                     message.success('音频已删除');
-                    loadAssets(selectedMeeting.id);
+                    await loadAudios(selectedMeeting.id);
                   } catch (error: any) {
                     message.error(error?.message || '删除音频失败');
                   }
@@ -481,24 +390,18 @@ const MeetingManagement: React.FC = () => {
               avatar={<AudioOutlined />}
               title={
                 <Space>
-                  {item.filename}
-                  <Tag color={item.status === 'completed' ? 'green' : item.status === 'failed' ? 'red' : 'blue'}>
-                    {item.status === 'completed'
-                      ? '转写完成'
-                      : item.status === 'failed'
-                        ? '转写失败'
-                        : '转写中'}
-                  </Tag>
+                  {item.file_name}
+                  {renderAudioStatusTag(item.status)}
                 </Space>
               }
-              description={dayjs(item.uploaded_at).format('YYYY-MM-DD HH:mm')}
+              description={dayjs(item.created_at).format('YYYY-MM-DD HH:mm')}
             />
             {item.transcript_text ? (
               <Paragraph ellipsis={{ rows: 2, expandable: true, symbol: '展开' }}>
                 {item.transcript_text}
               </Paragraph>
             ) : (
-              <Text type="secondary">转写尚未完成，完成后可在此查看文本。</Text>
+              <Text type="secondary">当前后端版本仅保留音频管理；纪要生成与修订请前往“会议纪要”页。</Text>
             )}
           </List.Item>
         )}
@@ -519,10 +422,10 @@ const MeetingManagement: React.FC = () => {
             <Typography.Title level={4} style={{ margin: 0 }}>
               我的会议
             </Typography.Title>
-            <Text type="secondary">实时查看会议状态并管理原始资料</Text>
+            <Text type="secondary">实时查看会议状态并管理本地音频资料</Text>
           </div>
           <Space>
-            <Button icon={<ReloadOutlined />} onClick={fetchMeetings} loading={loading}>
+            <Button icon={<ReloadOutlined />} onClick={() => void fetchMeetings()} loading={loading}>
               刷新
             </Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
@@ -530,19 +433,25 @@ const MeetingManagement: React.FC = () => {
             </Button>
           </Space>
         </Space>
+
         <Table<Meeting>
           rowKey="id"
           loading={loading}
           columns={columns}
           dataSource={meetings}
           pagination={{ pageSize: 8, showSizeChanger: false }}
+          onRow={(record) => ({
+            onDoubleClick: () => {
+              void openMeetingDrawer(record);
+            },
+          })}
         />
       </ProCard>
 
       <Modal
         title={editingMeeting ? '编辑会议' : '新建会议'}
         open={modalVisible}
-        onOk={handleSaveMeeting}
+        onOk={() => void handleSaveMeeting()}
         okButtonProps={{ loading: saving }}
         onCancel={() => setModalVisible(false)}
         destroyOnClose
@@ -578,7 +487,10 @@ const MeetingManagement: React.FC = () => {
             <Select
               allowClear
               placeholder="选择当前状态"
-              options={Object.keys(statusMeta).map((key) => ({ value: key, label: statusMeta[key].label }))}
+              options={Object.keys(statusMeta).map((key) => ({
+                value: key,
+                label: statusMeta[key].label,
+              }))}
             />
           </Form.Item>
         </Form>
@@ -590,7 +502,6 @@ const MeetingManagement: React.FC = () => {
         size="large"
         title={renderDrawerHeader()}
         destroyOnClose
-        extra={null}
         width={900}
       >
         {selectedMeeting ? (
@@ -633,32 +544,18 @@ const MeetingManagement: React.FC = () => {
                 ),
               },
               {
-                key: 'files',
-                label: '会议文件',
-                children: (
-                  <>
-                    <Upload.Dragger {...fileUploadProps} style={{ marginBottom: 24 }}>
-                      <p className="ant-upload-drag-icon">
-                        <InboxOutlined />
-                      </p>
-                      <p className="ant-upload-text">拖拽或点击上传会议资料，单次最多 5 个文件</p>
-                      <p className="ant-upload-hint">支持 PDF、Word、PPT、TXT 等常见格式</p>
-                    </Upload.Dragger>
-                    <Spin spinning={assetsLoading}>{renderFileList()}</Spin>
-                  </>
-                ),
-              },
-              {
                 key: 'audio',
-                label: '音频记录',
+                label: '本地音频',
                 children: (
                   <>
                     <Upload.Dragger {...audioUploadProps} style={{ marginBottom: 24 }}>
                       <p className="ant-upload-drag-icon">
                         <CloudUploadOutlined />
                       </p>
-                      <p className="ant-upload-text">上传会议录音，系统自动转写为文本</p>
-                      <p className="ant-upload-hint">支持 MP3/WAV/M4A/FLAC/AAC/OGG，单次最多 3 段音频</p>
+                      <p className="ant-upload-text">上传本地会议录音</p>
+                      <p className="ant-upload-hint">
+                        支持 MP3/WAV/M4A/FLAC/AAC/OGG；纪要生成与修订请前往“会议纪要”页
+                      </p>
                     </Upload.Dragger>
                     <Spin spinning={assetsLoading}>{renderAudioList()}</Spin>
                   </>

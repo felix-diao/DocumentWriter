@@ -71,10 +71,20 @@ export default {
       changeOrigin: true,
       pathRewrite: { '^/AI/txt': '/txt' }
     },
-    "/api/document/export": {
+    '/api/document': {
       target: ragTarget,
       changeOrigin: true,
       pathRewrite: { '^/api/document': '/api/document' }
+    },
+    '/api/translate': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/translate': '/api/translate' }
+    },
+    '/api/llm': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/api/llm': '/api/llm' }
     },
     '/api/meeting/create': {
       target: ragTarget,

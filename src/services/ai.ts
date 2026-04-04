@@ -1,7 +1,8 @@
 import { request } from '@umijs/max';
 
-// AI 服务基础配置
-const AI_API_BASE = '/api/ai'; // 根据实际情况修改
+const DOCUMENT_API_BASE = '/api/document';
+const TRANSLATE_API_BASE = '/api/translate';
+const LEGACY_AI_API_BASE = '/api/ai';
 
 // 文档书写接口
 export async function aiWriteDocument(params: {
@@ -12,7 +13,7 @@ export async function aiWriteDocument(params: {
     tone?: 'professional' | 'casual' | 'formal';
     language?: string;
 }) {
-    return request(`${AI_API_BASE}/document/write`, {
+    return request(`${DOCUMENT_API_BASE}/write`, {
         method: 'POST',
         data: params,
     });
@@ -25,7 +26,7 @@ export async function aiOptimizeDocument(params: {
     customInstruction?: string; // 用户自定义优化指令
     context?: Record<string, any>; // 文档上下文信息（对象格式）
 }) {
-    return request(`${AI_API_BASE}/document/optimize`, {
+    return request(`${DOCUMENT_API_BASE}/optimize`, {
         method: 'POST',
         data: params,
     });
@@ -38,9 +39,13 @@ export async function aiTranslate(params: {
     targetLang: string;
     context?: string;
 }) {
-    return request(`${AI_API_BASE}/translate`, {
+    return request(`${TRANSLATE_API_BASE}/`, {
         method: 'POST',
-        data: params,
+        data: {
+            text: params.text,
+            from_lang: params.sourceLang,
+            to_lang: params.targetLang,
+        },
     });
 }
 
@@ -50,9 +55,13 @@ export async function aiBatchTranslate(params: {
     sourceLang: string;
     targetLang: string;
 }) {
-    return request(`${AI_API_BASE}/translate/batch`, {
+    return request(`${TRANSLATE_API_BASE}/batch`, {
         method: 'POST',
-        data: params,
+        data: {
+            texts: params.texts,
+            from_lang: params.sourceLang,
+            to_lang: params.targetLang,
+        },
     });
 }
 
@@ -62,7 +71,7 @@ export async function aiGenerateMeetingNotes(params: {
     meetingType?: 'standup' | 'review' | 'planning' | 'general';
     participants?: string[];
 }) {
-    return request(`${AI_API_BASE}/meeting/notes`, {
+    return request(`${LEGACY_AI_API_BASE}/meeting/notes`, {
         method: 'POST',
         data: params,
     });
@@ -74,7 +83,7 @@ export async function aiMeetingSummary(params: {
     includeActionItems?: boolean;
     includeDecisions?: boolean;
 }) {
-    return request(`${AI_API_BASE}/meeting/summary`, {
+    return request(`${LEGACY_AI_API_BASE}/meeting/summary`, {
         method: 'POST',
         data: params,
     });
@@ -85,7 +94,7 @@ export async function startRealtimeTranscription(params: {
     meetingId: string;
     language?: string;
 }) {
-    return request(`${AI_API_BASE}/meeting/transcribe/start`, {
+    return request(`${LEGACY_AI_API_BASE}/meeting/transcribe/start`, {
         method: 'POST',
         data: params,
     });
@@ -95,7 +104,7 @@ export async function startRealtimeTranscription(params: {
 export async function aiMeetingAnalytics(params: {
     meetingId: string;
 }) {
-    return request(`${AI_API_BASE}/meeting/analytics/${params.meetingId}`, {
+    return request(`${LEGACY_AI_API_BASE}/meeting/analytics/${params.meetingId}`, {
         method: 'GET',
     });
 }
