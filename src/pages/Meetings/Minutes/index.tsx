@@ -2118,7 +2118,7 @@ const MeetingMinutes: React.FC = () => {
 		let ws: WebSocket;
 		try {
 			const wsUrl = buildWsUrl(
-				`/api/minutes/volc/${selectedMeetingId}/live?token=${encodeURIComponent(token)}`,
+				`/api/meetings/minutes/volc/${selectedMeetingId}/live?token=${encodeURIComponent(token)}`,
 			);
 			ws = new WebSocket(wsUrl);
 		} catch (error: any) {
@@ -2812,7 +2812,7 @@ const MeetingMinutes: React.FC = () => {
 		const connectLocalLiveWs = async () => {
 			let ws: WebSocket;
 			try {
-				const wsUrl = buildWsUrl(`/api/minutes/local/${selectedMeetingId}/live?token=${encodeURIComponent(token)}`);
+				const wsUrl = buildWsUrl(`/api/meetings/minutes/local/${selectedMeetingId}/live?token=${encodeURIComponent(token)}`);
 				ws = new WebSocket(wsUrl);
 			} catch (error: any) {
 				if (!isSessionValid()) return;
