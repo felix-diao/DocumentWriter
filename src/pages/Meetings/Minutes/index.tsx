@@ -942,19 +942,38 @@ const MeetingMinutes: React.FC = () => {
 		}
 	}, []);
 
-  const buildWsUrl = (path: string) => {
-    if (typeof window === 'undefined') return path;
-    // 开发模式下直连后端，绕过 Umi dev proxy（proxy ws:true 会为每个前端 WS 创建两条后端连接）
-    const devBase = (process.env as any).DEV_BACKEND_WS_BASE as string | undefined;
-    if (typeof devBase === 'string' && devBase.length > 0) return `${devBase}${path}`;
-    // 兜底：开发时 define 未生效则直连常见后端，确保 WS 可用
-    if (process.env.NODE_ENV === 'development') {
-      const fallback = 'ws://127.0.0.1:8080';
-      return `${fallback}${path}`;
-    }
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${protocol}://${window.location.host}${path}`;
-  };
+	const buildWsUrl = (path: string) => {
+		if (typeof window === 'undefined') return path;
+		const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+		const isLoopbackHost = (hostname: string) =>
+			hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '0.0.0.0';
+		const pageHostIsLoopback = isLoopbackHost(window.location.hostname);
+
+		// 本机开发时仍优先直连后端，避免 Umi dev proxy 的 WS 干扰。
+		// 但如果页面是“远程访问服务器上的前端”，浏览器里的 127.0.0.1 指向的是用户本机，
+		// 这时必须退回同源地址，让 8000 上的 dev server 代理到后端。
+		const devBase = (process.env as any).DEV_BACKEND_WS_BASE as string | undefined;
+		if (typeof devBase === 'string' && devBase.length > 0) {
+			try {
+				const baseUrl = new URL(devBase);
+				if (isLoopbackHost(baseUrl.hostname) && !pageHostIsLoopback) {
+					return `${protocol}://${window.location.host}${path}`;
+				}
+				return `${baseUrl.toString().replace(/\/$/, '')}${path}`;
+			} catch {
+				return `${devBase}${path}`;
+			}
+		}
+
+		if (process.env.NODE_ENV === 'development') {
+			if (!pageHostIsLoopback) {
+				return `${protocol}://${window.location.host}${path}`;
+			}
+			return `ws://127.0.0.1:8080${path}`;
+		}
+
+		return `${protocol}://${window.location.host}${path}`;
+	};
 
 	useEffect(() => {
 		selectedVolcSessionIdRef.current = selectedVolcSessionId;
