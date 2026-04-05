@@ -327,6 +327,21 @@ const resolveZhErrorMessage = (error: any, fallback: string): string => {
 	return fallback;
 };
 
+const resolveMicrophoneAccessMessage = (error?: any): string => {
+	if (typeof window !== 'undefined' && !window.isSecureContext) {
+		return '当前页面无法获取麦克风权限，请使用 localhost 或 HTTPS 访问后重试。';
+	}
+	const raw = typeof error?.message === 'string' ? error.message : '';
+	const name = typeof error?.name === 'string' ? error.name : '';
+	if (name === 'NotAllowedError' || /permission|denied|notallowed/i.test(raw)) {
+		return '麦克风权限被拒绝，请在浏览器中允许访问麦克风后重试。';
+	}
+	if (name === 'NotFoundError' || /notfound|device/i.test(raw)) {
+		return '未检测到可用麦克风设备，请检查设备后重试。';
+	}
+	return '无法获取麦克风权限，请检查浏览器权限设置后重试。';
+};
+
 const resolveVolcErrorMessage = (raw?: string | null): string => {
 	const text = String(raw || '').trim();
 	if (!text) return '';
@@ -2047,9 +2062,19 @@ const MeetingMinutes: React.FC = () => {
 		volcLiveFirstAudioSentRef.current = false;
 		volcLiveWsOpenedRef.current = false;
 
+		const mediaDevices = typeof navigator === 'undefined' ? undefined : navigator.mediaDevices;
+		if (!mediaDevices?.getUserMedia) {
+			if (!isSessionValid()) return;
+			const errMsg = resolveMicrophoneAccessMessage();
+			setVolcStreamType('error');
+			setVolcStreamError(errMsg);
+			message.error(errMsg);
+			return;
+		}
+
 		let stream: MediaStream;
 		try {
-			stream = await navigator.mediaDevices.getUserMedia({
+			stream = await mediaDevices.getUserMedia({
 				audio: {
 					channelCount: 1,
 					sampleRate: { ideal: 16000 },
@@ -2059,9 +2084,10 @@ const MeetingMinutes: React.FC = () => {
 			});
 		} catch (error: any) {
 			if (!isSessionValid()) return;
+			const errMsg = resolveMicrophoneAccessMessage(error);
 			setVolcStreamType('error');
-			setVolcStreamError(error?.message || '无法获取麦克风权限');
-			message.error(error?.message || '无法获取麦克风权限');
+			setVolcStreamError(errMsg);
+			message.error(errMsg);
 			return;
 		}
 
@@ -2874,14 +2900,25 @@ const MeetingMinutes: React.FC = () => {
 		localLiveReconnectAttemptsRef.current = 0;
 		resetLocalLiveChunkBuffer();
 
+		const mediaDevices = typeof navigator === 'undefined' ? undefined : navigator.mediaDevices;
+		if (!mediaDevices?.getUserMedia) {
+			if (!isSessionValid()) return;
+			const errMsg = resolveMicrophoneAccessMessage();
+			setLocalStreamType('error');
+			setLocalStreamError(errMsg);
+			message.error(errMsg);
+			return;
+		}
+
 		let stream: MediaStream;
 		try {
-			stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: { ideal: 16000 }, echoCancellation: true, noiseSuppression: true } });
+			stream = await mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: { ideal: 16000 }, echoCancellation: true, noiseSuppression: true } });
 		} catch (error: any) {
 			if (!isSessionValid()) return;
+			const errMsg = resolveMicrophoneAccessMessage(error);
 			setLocalStreamType('error');
-			setLocalStreamError(error?.message || '无法获取麦克风权限');
-			message.error(error?.message || '无法获取麦克风权限');
+			setLocalStreamError(errMsg);
+			message.error(errMsg);
 			return;
 		}
 		if (!isSessionValid()) { stream.getTracks().forEach((t) => t.stop()); return; }
@@ -3315,8 +3352,15 @@ const MeetingMinutes: React.FC = () => {
 			return;
 		}
 		setRecordingError(null);
+		const mediaDevices = typeof navigator === 'undefined' ? undefined : navigator.mediaDevices;
+		if (!mediaDevices?.getUserMedia) {
+			const errMsg = resolveMicrophoneAccessMessage();
+			setRecordingError(errMsg);
+			message.error(errMsg);
+			return;
+		}
 		try {
-			const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			const stream = await mediaDevices.getUserMedia({ audio: true });
 			const mediaRecorder = new MediaRecorder(stream);
 			mediaRecorderRef.current = mediaRecorder;
 			recordingChunksRef.current = [];
@@ -3342,7 +3386,7 @@ const MeetingMinutes: React.FC = () => {
 			startRecordingTimer();
 			message.success('开始录音');
 		} catch (error: any) {
-			const errMsg = error?.message || '无法开始录音，请检查麦克风权限';
+			const errMsg = resolveMicrophoneAccessMessage(error);
 			setRecordingError(errMsg);
 			message.error(errMsg);
 		}
