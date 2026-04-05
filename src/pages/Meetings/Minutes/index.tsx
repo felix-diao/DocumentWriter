@@ -878,9 +878,7 @@ const MeetingMinutes: React.FC = () => {
 				setSelectedVolcSessionDetail(null);
 				return;
 			}
-			const detail =
-				normalized.find((item) => item.id === nextId) ||
-				(await meetingMinutesApi.getVolcMinutesSession(meetingId, nextId));
+			const detail = await meetingMinutesApi.getVolcMinutesSession(meetingId, nextId);
 			setSelectedVolcSessionDetail(detail);
 		} catch (error: any) {
 			message.warning(error?.message || '加载会话历史失败');
@@ -1062,7 +1060,7 @@ const MeetingMinutes: React.FC = () => {
 						void loadVolcMinutesData(meetingId, true);
 						void loadVolcAudioList(meetingId);
 						if (shouldSyncVolcSessions) {
-							void loadVolcSessions(meetingId, true);
+							void loadVolcSessions(meetingId, false);
 						}
 					}
 				} catch {
