@@ -134,6 +134,10 @@ const LOCAL_BUSY_STREAM_TYPES = new Set([
 ]);
 
 const normalizeStatus = (status?: string | null): string => String(status ?? '').trim().toLowerCase();
+const isLocalAudioReadyForMinutesStatus = (status?: string | null): boolean => {
+	const normalized = normalizeStatus(status);
+	return normalized === 'uploaded' || normalized === 'completed';
+};
 const isVolcCompletedStatus = (status?: string | null): boolean => {
 	const raw = String(status ?? '').trim();
 	if (!raw) return false;
@@ -213,6 +217,8 @@ const concatArrayBuffers = (chunks: ArrayBuffer[]): ArrayBuffer => {
 	}
 	return merged.buffer;
 };
+
+const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 const mergeIncrementalAsrText = (prev: string, payload: IncrementalAsrPayload): string => {
 	const hasAccumulated = typeof payload.accumulated === 'string';
@@ -478,6 +484,7 @@ const MeetingMinutes: React.FC = () => {
 	const [loadingLocalAudios, setLoadingLocalAudios] = useState(false);
 	const [selectedLocalAudioId, setSelectedLocalAudioId] = useState<number | null>(null);
 	const [uploadingLocalAudio, setUploadingLocalAudio] = useState(false);
+	const [transcribingLocalAudio, setTranscribingLocalAudio] = useState(false);
 	const [localSessionsModalVisible, setLocalSessionsModalVisible] = useState(false);
 	const [loadingLocalSessions, setLoadingLocalSessions] = useState(false);
 	const [loadingLocalSessionDetail, setLoadingLocalSessionDetail] = useState(false);
@@ -2661,6 +2668,103 @@ const MeetingMinutes: React.FC = () => {
 		}
 	}, [selectedMeetingId, loadLocalMinutesData, shouldSyncLocalSessions, loadLocalSessions, isMinutesMainRoute, minutesMode]);
 
+	const pollUploadedLocalAudioTranscription = useCallback(async (
+		meetingId: number,
+		asrSessionId: number,
+		audioId: number,
+	) => {
+		const startedAt = Date.now();
+		while (Date.now() - startedAt < 5 * 60 * 1000) {
+			if (localDiscardHydrationRef.current && isMinutesMainRoute && minutesMode === 'local') {
+				throw new Error('当前页面已切换，已取消本地音频转写轮询');
+			}
+			const latest = await meetingMinutesApi.getLocalMinutes(meetingId);
+			if (latest.asr_session_id !== asrSessionId || latest.source_audio_id !== audioId) {
+				await wait(1500);
+				continue;
+			}
+			const asrStatus = normalizeStatus(latest.asr_status);
+			if (asrStatus === 'failed' || asrStatus === 'error') {
+				throw new Error('本地音频转写失败，请检查后端日志或模型服务配置');
+			}
+			if (asrStatus === 'completed' || asrStatus === 'success' || asrStatus === 'succeeded' || asrStatus === 'finished') {
+				return latest;
+			}
+			await wait(1500);
+		}
+		throw new Error('本地音频转写超时，请稍后刷新确认结果');
+	}, [isMinutesMainRoute, minutesMode]);
+
+	const handleGenerateLocalMinutesFromAudio = useCallback(async (audioId?: number) => {
+		const meetingId = selectedMeetingId;
+		const idToProcess = audioId ?? selectedLocalAudioId;
+		if (!meetingId) {
+			message.warning('请选择会议');
+			return;
+		}
+		if (!idToProcess) {
+			message.warning('请先选择一条本地音频');
+			return;
+		}
+		const audioRecord = localAudios.find((item) => item.id === idToProcess);
+		if (audioRecord && !isLocalAudioReadyForMinutesStatus(audioRecord.status)) {
+			message.warning('仅“已上传”或“已完成”状态的音频可生成会议纪要');
+			return;
+		}
+
+		localDiscardHydrationRef.current = false;
+		clearLocalMinutesDisplay();
+		setLocalInputMode('upload');
+		setLocalAudiosModalVisible(false);
+		setLocalStreamType('file_streaming');
+		setLocalStreamError(null);
+		setLocalStreamText('');
+		setLocalStreamSessionId(null);
+		setShowLocalMinutesStatus(true);
+		setLocalMinutesStatus({ status: 'processing' });
+		setTranscribingLocalAudio(true);
+
+		try {
+			const task = await meetingMinutesApi.transcribeUploadedLocalAudio(meetingId, idToProcess);
+			setLocalStreamSessionId(task.asr_session_id);
+			message.success('已提交本地音频转写，正在生成纪要…');
+
+			const latest = await pollUploadedLocalAudioTranscription(meetingId, task.asr_session_id, idToProcess);
+			const transcript = latest.stream_transcript_text || '';
+			setLocalStreamText(transcript);
+			setLocalStreamType('completed');
+			await loadLocalAudioList(meetingId);
+
+			if (!transcript.trim()) {
+				const errMsg = '音频转写完成，但未识别到有效文本，暂时无法生成会议纪要。';
+				setLocalMinutesStatus({ status: 'failed', error: errMsg });
+				setLocalStreamError(errMsg);
+				message.warning(errMsg);
+				return;
+			}
+
+			message.success('转写完成，正在自动生成会议纪要…');
+			await handleGenerateLocalMinutes(meetingId);
+		} catch (error: any) {
+			const errMsg = resolveZhErrorMessage(error, '本地音频转写失败，请稍后重试。');
+			setLocalStreamType('error');
+			setLocalStreamError(errMsg);
+			setLocalMinutesStatus({ status: 'failed', error: errMsg });
+			message.error(errMsg);
+			await loadLocalAudioList(meetingId);
+		} finally {
+			setTranscribingLocalAudio(false);
+		}
+	}, [
+		selectedMeetingId,
+		selectedLocalAudioId,
+		localAudios,
+		clearLocalMinutesDisplay,
+		pollUploadedLocalAudioTranscription,
+		loadLocalAudioList,
+		handleGenerateLocalMinutes,
+	]);
+
 	const startLocalSseStream = useCallback((audioId: number, meetingId: number) => {
 		localDiscardHydrationRef.current = false;
 		stopLocalSseStream();
@@ -3743,6 +3847,8 @@ const MeetingMinutes: React.FC = () => {
 	const latestVolcSessionId = volcSessionList[0]?.id ?? null;
 	const latestLocalSessionId = localSessionList[0]?.id ?? null;
 	const localSessionEditable = isCompletedSessionStatus(selectedLocalSessionDetail?.status);
+	const selectedLocalAudioRecord = localAudios.find((item) => item.id === selectedLocalAudioId) || null;
+	const selectedLocalAudioCanGenerate = isLocalAudioReadyForMinutesStatus(selectedLocalAudioRecord?.status);
 
 	const openLocalSessionTodoModal = (index?: number) => {
 		if (!localSessionEditable) {
@@ -4319,7 +4425,7 @@ const MeetingMinutes: React.FC = () => {
 						showIcon
 						style={{ margin: '16px 0' }}
 						message="本地 AI 纪要（Qwen3-ASR）"
-						description="在线录音：边录边转写，停止后自动生成会议纪要。上传音频：当前仅用于管理本地音频资料，不再直接触发纪要生成。"
+						description="在线录音：边录边转写，停止后自动生成会议纪要。上传音频：可选择已有音频先完成转写，再自动生成会议纪要。"
 					/>
 
 					{/* 第一步：流式转写 */}
@@ -5613,6 +5719,24 @@ const MeetingMinutes: React.FC = () => {
 				<Button key="close" onClick={() => setLocalAudiosModalVisible(false)}>
 					关闭
 				</Button>,
+				<Button
+					key="generate"
+					type="primary"
+					icon={<ThunderboltOutlined />}
+					disabled={
+						!selectedLocalAudioId ||
+						transcribingLocalAudio ||
+						generatingLocalMinutes ||
+						!selectedLocalAudioCanGenerate ||
+						['live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading', 'file_streaming'].includes(localStreamType)
+					}
+					loading={transcribingLocalAudio || generatingLocalMinutes}
+					onClick={() => {
+						void handleGenerateLocalMinutesFromAudio(selectedLocalAudioId ?? undefined);
+					}}
+				>
+					生成会议纪要
+				</Button>,
 			]}
 			width={720}
 		>
@@ -5636,7 +5760,7 @@ const MeetingMinutes: React.FC = () => {
 					<p className="ant-upload-hint">
 						{localAudios.length >= MAX_AUDIO_UPLOAD_COUNT
 							? `已达到上限（${MAX_AUDIO_UPLOAD_COUNT}个），请先删除旧音频后再上传`
-							: '上传后可在当前列表中下载或删除；当前后端版本不再支持本地上传音频直接生成纪要。'}
+							: '上传后可选中一条音频并点击「生成会议纪要」，系统会先完成转写，再自动生成摘要与待办。'}
 					</p>
 				</Upload.Dragger>
 				<Table<LocalMeetingAudio>
@@ -5644,6 +5768,7 @@ const MeetingMinutes: React.FC = () => {
 					size="small"
 					dataSource={localAudios}
 					columns={localAudioColumns}
+					rowSelection={localAudioRowSelection}
 					pagination={false}
 					loading={loadingLocalAudios}
 					locale={{ emptyText: '暂无音频，请先上传' }}

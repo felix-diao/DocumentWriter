@@ -311,9 +311,18 @@ export interface LocalMeetingMinutes {
   transcript_text?: string | null;
   stream_transcript_text?: string | null;
   asr_session_id?: number | null;
+  asr_status?: string | null;
+  source_audio_id?: number | null;
   audio_status?: string | null;
   summary?: LocalMeetingSummary | null;
   todos: LocalMeetingTodo[];
+}
+
+export interface LocalAsrTranscribeFromAudioResponse {
+  asr_session_id: number;
+  meeting_id: number;
+  source_audio_id: number;
+  status: 'processing';
 }
 
 export interface LocalSessionTodoItem {
@@ -570,6 +579,8 @@ const getLocalMinutes = async (meetingId: number): Promise<LocalMeetingMinutes> 
     transcript_text: null,
     stream_transcript_text: null,
     asr_session_id: null,
+    asr_status: null,
+    source_audio_id: null,
     audio_status: null,
     summary: null,
     todos: [],
@@ -588,10 +599,27 @@ const generateLocalMinutes = async (meetingId: number): Promise<LocalMeetingMinu
     transcript_text: null,
     stream_transcript_text: null,
     asr_session_id: null,
+    asr_status: null,
+    source_audio_id: null,
     audio_status: null,
     summary: null,
     todos: [],
   };
+};
+
+const transcribeUploadedLocalAudio = async (
+  meetingId: number,
+  audioId: number,
+): Promise<LocalAsrTranscribeFromAudioResponse> => {
+  const res = await request<ApiResponse<LocalAsrTranscribeFromAudioResponse>>(
+    `${LOCAL_MINUTES_API_BASE}/${meetingId}/transcribe-audio`,
+    {
+      method: 'POST',
+      params: { audio_id: audioId },
+      skipErrorHandler: true,
+    },
+  );
+  return res.data;
 };
 
 const uploadLocalAudio = async (meetingId: number, file: File): Promise<LocalMeetingAudioRecord> => {
@@ -707,6 +735,7 @@ export const meetingMinutesApi = {
   deleteVolcMinutesSession,
   getLocalMinutes,
   generateLocalMinutes,
+  transcribeUploadedLocalAudio,
   uploadLocalAudio,
   updateLocalSummary,
   createLocalTodo,
