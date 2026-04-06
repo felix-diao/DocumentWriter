@@ -2708,6 +2708,13 @@ const MeetingMinutes: React.FC = () => {
 				continue;
 			}
 			const asrStatus = normalizeStatus(latest.asr_status);
+			const transcript = latest.stream_transcript_text || latest.transcript_text || '';
+			setLocalStreamSessionId(asrSessionId);
+			setLocalStreamText(transcript);
+			setLocalStreamError(null);
+			if (asrStatus !== 'completed' && asrStatus !== 'success' && asrStatus !== 'succeeded' && asrStatus !== 'finished') {
+				setLocalStreamType('file_streaming');
+			}
 			if (asrStatus === 'failed' || asrStatus === 'error') {
 				throw new Error('本地音频转写失败，请检查后端日志或模型服务配置');
 			}
@@ -2751,7 +2758,7 @@ const MeetingMinutes: React.FC = () => {
 		try {
 			const task = await meetingMinutesApi.transcribeUploadedLocalAudio(meetingId, idToProcess);
 			setLocalStreamSessionId(task.asr_session_id);
-			message.success('已提交本地音频转写，正在生成纪要…');
+			message.success('已提交本地音频转写，正在分段识别并生成纪要…');
 
 			const latest = await pollUploadedLocalAudioTranscription(meetingId, task.asr_session_id, idToProcess);
 			const transcript = latest.stream_transcript_text || '';
@@ -4488,7 +4495,7 @@ const MeetingMinutes: React.FC = () => {
 						showIcon
 						style={{ margin: '16px 0' }}
 						message="本地 AI 纪要（Qwen3-ASR）"
-						description="在线录音：边录边转写，停止后自动生成会议纪要。上传音频：可选择已有音频先完成转写，再自动生成会议纪要。"
+						description="在线录音：边录边转写，停止后自动生成会议纪要。上传音频：可选择已有音频按分段逐步转写，完成后自动生成会议纪要。"
 					/>
 
 					{/* 第一步：流式转写 */}
@@ -4527,11 +4534,11 @@ const MeetingMinutes: React.FC = () => {
 								<TextArea
 									rows={8}
 									value={localStreamText}
-									placeholder="开始在线录音后，这里会实时输出识别文本…"
+									placeholder="开始在线录音或提交已有音频后，这里会逐步输出识别文本…"
 									readOnly
 								/>
 								<Text type="secondary">
-									流式转写完成后将自动调用大模型生成摘要与待办事项。
+									在线录音与已有音频分段转写都会在这里逐步显示识别文本，完成后自动调用大模型生成摘要与待办事项。
 								</Text>
 							</Space>
 						</ProCard>
