@@ -1051,7 +1051,7 @@ const MeetingMinutes: React.FC = () => {
 							return;
 						}
 						setVolcMinutesStatus({
-							status: payload.status,
+							status: payload.status || 'failed',
 							task_id: payload.task_id,
 							audio_id: payload.audio_id,
 							error: resolveVolcErrorMessage(payload.error),
@@ -1068,7 +1068,7 @@ const MeetingMinutes: React.FC = () => {
 							return;
 						}
 						setVolcMinutesStatus({
-							status: payload.status,
+							status: payload.status || 'completed',
 							task_id: payload.task_id,
 							audio_id: payload.audio_id,
 						});
@@ -4295,7 +4295,9 @@ const MeetingMinutes: React.FC = () => {
 		completed: '已完成',
 		error: '失败',
 	};
-	const volcStatusLower = normalizeStatus(volcMinutesStatus?.status);
+	const stableVolcMinutesStatus = getVolcMinutesJobStatus(volcMinutes, volcMinutesStatus?.status);
+	const volcStatusLower = normalizeStatus(stableVolcMinutesStatus);
+	const showVolcMinutesStatus = !!stableVolcMinutesStatus || !!volcMinutesStatus?.error;
 	const volcUploadGenerating =
 		volcInputMode === 'upload' &&
 		(submittingVolcMinutes || isVolcInProgressStatus(volcStatusLower));
@@ -4646,11 +4648,11 @@ const MeetingMinutes: React.FC = () => {
 
 					<ProCard title="第二步：语音妙记结果（只读）">
 						<Space direction="vertical" style={{ width: '100%' }} size="middle">
-						{volcMinutesStatus && (
+						{showVolcMinutesStatus && (
 							<Alert
 								showIcon
 								type={volcMinutesStatus?.error ? 'error' : 'info'}
-								message={`妙记状态：${volcMinutesStatusLabel[String(volcMinutesStatus.status ?? '').toLowerCase()] || volcMinutesStatus.status || '—'}`}
+								message={`妙记状态：${volcMinutesStatusLabel[String(stableVolcMinutesStatus ?? '').toLowerCase()] || stableVolcMinutesStatus || '—'}`}
 								description={volcMinutesStatus.error ? <Text type="danger">错误：{resolveVolcErrorMessage(volcMinutesStatus.error)}</Text> : undefined}
 							/>
 						)}
