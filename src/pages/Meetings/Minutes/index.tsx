@@ -968,31 +968,45 @@ const MeetingMinutes: React.FC = () => {
 		const isLoopbackHost = (hostname: string) =>
 			hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '0.0.0.0';
 		const pageHostIsLoopback = isLoopbackHost(window.location.hostname);
+		const sameOriginUrl = () => `${protocol}://${window.location.host}${path}`;
+		const wsMode = String((process.env as any).DEV_BACKEND_WS_MODE || 'auto').trim().toLowerCase();
 
-		// 本机开发时仍优先直连后端，避免 Umi dev proxy 的 WS 干扰。
-		// 但如果页面是“远程访问服务器上的前端”，浏览器里的 127.0.0.1 指向的是用户本机，
-		// 这时必须退回同源地址，让 8000 上的 dev server 代理到后端。
+		// auto: 保持原有“本机直连、远程同源代理”的策略。
+		// proxy: 一律走前端同源地址，适合 SSH/端口转发访问开发环境。
+		// direct: 一律直连 DEV_BACKEND_WS_BASE/RAG_SERVICE_WS_URL，适合浏览器可直接访问后端 WS 的场景。
 		const devBase = (process.env as any).DEV_BACKEND_WS_BASE as string | undefined;
 		if (typeof devBase === 'string' && devBase.length > 0) {
 			try {
 				const baseUrl = new URL(devBase);
+				if (wsMode === 'proxy') {
+					return sameOriginUrl();
+				}
+				if (wsMode === 'direct') {
+					return `${baseUrl.toString().replace(/\/$/, '')}${path}`;
+				}
 				if (isLoopbackHost(baseUrl.hostname) && !pageHostIsLoopback) {
-					return `${protocol}://${window.location.host}${path}`;
+					return sameOriginUrl();
 				}
 				return `${baseUrl.toString().replace(/\/$/, '')}${path}`;
 			} catch {
+				if (wsMode === 'proxy') {
+					return sameOriginUrl();
+				}
 				return `${devBase}${path}`;
 			}
 		}
 
 		if (process.env.NODE_ENV === 'development') {
+			if (wsMode === 'proxy') {
+				return sameOriginUrl();
+			}
 			if (!pageHostIsLoopback) {
-				return `${protocol}://${window.location.host}${path}`;
+				return sameOriginUrl();
 			}
 			return `ws://127.0.0.1:8080${path}`;
 		}
 
-		return `${protocol}://${window.location.host}${path}`;
+		return sameOriginUrl();
 	};
 
 	useEffect(() => {

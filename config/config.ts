@@ -9,10 +9,11 @@ import routes from './routes';
 
 const { UMI_ENV = 'dev' } = process.env;
 const ragTarget = process.env.RAG_SERVICE_URL || 'http://127.0.0.1:8080';
+const devBackendWsMode = UMI_ENV === 'dev' ? (process.env.DEV_BACKEND_WS_MODE || 'auto') : '';
 // 开发模式下前端直连后端 WS，绕过 Umi dev proxy
 // （http-proxy-middleware ws:true 会对每个前端 WS 建立两条后端连接，导致 session 被立即关闭）
 const devBackendWsBase = UMI_ENV === 'dev'
-  ? ragTarget.replace(/^http/, 'ws')
+  ? (process.env.RAG_SERVICE_WS_URL || ragTarget.replace(/^http/, 'ws'))
   : '';
 
 /**
@@ -188,5 +189,6 @@ export default defineConfig({
     'process.env.CI': process.env.CI,
     // 字符串必须 JSON.stringify，否则 mako 替换成无引号原始值会产出 invalid JS
     'process.env.DEV_BACKEND_WS_BASE': JSON.stringify(devBackendWsBase),
+    'process.env.DEV_BACKEND_WS_MODE': JSON.stringify(devBackendWsMode),
   },
 });
