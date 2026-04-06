@@ -3861,10 +3861,10 @@ const MeetingMinutes: React.FC = () => {
 			width: 200,
 			render: (_, record) => (
 				<Space>
-					<Button type="link" onClick={() => handleDownloadLocalAudio(record.id)}>
+					<Button type="link" disabled={localEntryButtonsBusy} onClick={() => handleDownloadLocalAudio(record.id)}>
 						下载
 					</Button>
-					<Button type="link" danger onClick={() => handleDeleteLocalAudio(record.id)}>
+					<Button type="link" danger disabled={localEntryButtonsBusy} onClick={() => handleDeleteLocalAudio(record.id)}>
 						删除
 					</Button>
 				</Space>
@@ -3875,6 +3875,9 @@ const MeetingMinutes: React.FC = () => {
 	const localAudioRowSelection = {
 		type: 'radio' as const,
 		selectedRowKeys: selectedLocalAudioId ? [selectedLocalAudioId] : [],
+		getCheckboxProps: () => ({
+			disabled: localEntryButtonsBusy,
+		}),
 		onChange: (selectedRowKeys: React.Key[]) => {
 			const [key] = selectedRowKeys;
 			if (key === undefined || key === null) {
@@ -4301,6 +4304,22 @@ const MeetingMinutes: React.FC = () => {
 	const volcUploadGenerating =
 		volcInputMode === 'upload' &&
 		(submittingVolcMinutes || isVolcInProgressStatus(volcStatusLower));
+	const localStatusLower = normalizeStatus(localMinutesStatus?.status);
+	const localMinutesGenerating =
+		!isLocalFinalCompleted &&
+		(
+			transcribingLocalAudio ||
+			generatingLocalMinutes ||
+			isLocalSubmitInProgressStatus(localStatusLower)
+		);
+	const localLiveBusy =
+		localStreamType === 'live_streaming' ||
+		localStreamType === 'live_connecting' ||
+		localStreamType === 'live_stopping' ||
+		localStreamType === 'live_saving' ||
+		localStreamType === 'live_uploading' ||
+		localStreamType === 'file_streaming';
+	const localEntryButtonsBusy = localLiveBusy || localMinutesGenerating;
 	// 仅在“未最终完成”且“仍在处理中”时禁用入口按钮，避免完成后状态滞留导致按钮长期灰置。
 	const volcMinutesGenerating =
 		!isVolcFinalCompleted &&
@@ -4410,19 +4429,19 @@ const MeetingMinutes: React.FC = () => {
 								onClick={() => void startLocalLiveRecording()}
 								disabled={
 									!hasSelectedMeeting ||
-									['live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading'].includes(localStreamType)
+									localEntryButtonsBusy
 								}
 							>
-								{['live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading'].includes(localStreamType) ? '录音/处理中…' : '在线录音'}
+								{localEntryButtonsBusy ? '录音/处理中…' : '在线录音'}
 							</Button>
 							<Button
 								icon={<UnorderedListOutlined />}
-								disabled={!hasSelectedMeeting || ['live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading', 'file_streaming'].includes(localStreamType)}
+								disabled={!hasSelectedMeeting || localEntryButtonsBusy}
 								onClick={openLocalAudiosModal}
 							>
 								管理本地音频
 							</Button>
-							<Button icon={<ReloadOutlined />} disabled={!hasSelectedMeeting} onClick={() => void handleResetLocalWorkspace()}>
+							<Button icon={<ReloadOutlined />} disabled={!hasSelectedMeeting || localEntryButtonsBusy} onClick={() => void handleResetLocalWorkspace()}>
 								重置
 							</Button>
 						</Space>
@@ -5769,12 +5788,11 @@ const MeetingMinutes: React.FC = () => {
 					icon={<ThunderboltOutlined />}
 					disabled={
 						!selectedLocalAudioId ||
-						transcribingLocalAudio ||
-						generatingLocalMinutes ||
+						localEntryButtonsBusy ||
 						!selectedLocalAudioCanGenerate ||
-						['live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading', 'file_streaming'].includes(localStreamType)
+						!hasSelectedMeeting
 					}
-					loading={transcribingLocalAudio || generatingLocalMinutes}
+					loading={localMinutesGenerating}
 					onClick={() => {
 						void handleGenerateLocalMinutesFromAudio(selectedLocalAudioId ?? undefined);
 					}}
@@ -5794,7 +5812,7 @@ const MeetingMinutes: React.FC = () => {
 						!hasSelectedMeeting ||
 						uploadingLocalAudio ||
 						localAudios.length >= MAX_AUDIO_UPLOAD_COUNT ||
-						['live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading', 'file_streaming'].includes(localStreamType)
+						localEntryButtonsBusy
 					}
 				>
 					<p className="ant-upload-drag-icon">
