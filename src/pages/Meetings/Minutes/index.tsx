@@ -1205,6 +1205,15 @@ const MeetingMinutes: React.FC = () => {
 	}, [localStreamType]);
 
 	useEffect(() => {
+		const textarea = localStreamCardRef.current?.querySelector('textarea');
+		if (!(textarea instanceof HTMLTextAreaElement)) return;
+		const frameId = window.requestAnimationFrame(() => {
+			textarea.scrollTop = textarea.scrollHeight;
+		});
+		return () => window.cancelAnimationFrame(frameId);
+	}, [localStreamText]);
+
+	useEffect(() => {
 		if (!selectedVolcSessionDetail) {
 			setVolcSessionDraft({
 				stream_transcript_text: '',
