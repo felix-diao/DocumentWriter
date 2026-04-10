@@ -35,7 +35,11 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { type Dayjs } from 'dayjs';
 import duration from 'dayjs/plugin/duration';
+import timezone from 'dayjs/plugin/timezone';
+import utc from 'dayjs/plugin/utc';
 dayjs.extend(duration);
+dayjs.extend(utc);
+dayjs.extend(timezone);
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { history, useLocation } from '@umijs/max';
 import meetingsApi, {
@@ -138,6 +142,14 @@ const MINUTES_MODE_LABEL: Record<'local' | 'volc', string> = {
 };
 
 const normalizeStatus = (status?: string | null): string => String(status ?? '').trim().toLowerCase();
+const formatShanghaiTime = (value?: string | null, pattern = 'YYYY-MM-DD HH:mm'): string => {
+	if (!value) return '—';
+	const raw = String(value).trim();
+	if (!raw) return '—';
+	const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
+	const parsed = hasTimezone ? dayjs(raw).tz('Asia/Shanghai') : dayjs.utc(raw).tz('Asia/Shanghai');
+	return parsed.isValid() ? parsed.format(pattern) : raw;
+};
 const isLocalAudioReadyForMinutesStatus = (status?: string | null): boolean => {
 	const normalized = normalizeStatus(status);
 	return normalized === 'uploaded' || normalized === 'completed';
@@ -3724,7 +3736,7 @@ const MeetingMinutes: React.FC = () => {
 							<Checkbox key={file.id} value={file.id}>
 								<Space direction="vertical" size={0}>
 									<Text strong>{file.filename}</Text>
-									<Text type="secondary">上传于 {dayjs(file.uploaded_at).format('YYYY-MM-DD HH:mm')}</Text>
+									<Text type="secondary">上传于 {formatShanghaiTime(file.uploaded_at)}</Text>
 								</Space>
 							</Checkbox>
 						))}
@@ -3751,7 +3763,7 @@ const MeetingMinutes: React.FC = () => {
 									<Space direction="vertical" size={0}>
 										<Text strong>{audio.filename}</Text>
 										<Text type="secondary">
-											{dayjs(audio.uploaded_at).format('YYYY-MM-DD HH:mm')} ·{' '}
+											{formatShanghaiTime(audio.uploaded_at)} ·{' '}
 											{audio.status === 'completed'
 												? '已完成转写'
 												: audio.status === 'failed'
@@ -3788,7 +3800,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '上传时间',
 			dataIndex: 'created_at',
 			width: 180,
-			render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm'),
+			render: (value: string) => formatShanghaiTime(value),
 		},
 		{
 			title: '状态',
@@ -3860,7 +3872,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '上传时间',
 			dataIndex: 'created_at',
 			width: 180,
-			render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm'),
+			render: (value: string) => formatShanghaiTime(value),
 		},
 		{
 			title: '状态',
