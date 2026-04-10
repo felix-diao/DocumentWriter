@@ -357,6 +357,49 @@ const resolveVolcErrorMessage = (raw?: string | null): string => {
 	return text;
 };
 
+const AUDIO_UPLOAD_EXTENSIONS = new Set([
+	'.mp3',
+	'.wav',
+	'.m4a',
+	'.flac',
+	'.aac',
+	'.ogg',
+	'.oga',
+	'.opus',
+	'.webm',
+]);
+
+const isAudioUploadFile = (file?: File | null): boolean => {
+	if (!file) return false;
+	const mimeType = String(file.type || '').trim().toLowerCase();
+	if (mimeType.startsWith('audio/')) return true;
+	const lowerName = String(file.name || '').trim().toLowerCase();
+	return [...AUDIO_UPLOAD_EXTENSIONS].some((ext) => lowerName.endsWith(ext));
+};
+
+const getInvalidAudioUploadMessage = (file?: File | null): string =>
+	`${file?.name || '该文件'} 不是支持的音频文件，请上传 MP3、WAV、M4A、FLAC、AAC、OGG 等音频格式。`;
+
+const resolveAudioUploadErrorMessage = (error: any, file?: File | null): string => {
+	const raw = String(error?.message || error?.response?.data?.detail || '').trim();
+	const lower = raw.toLowerCase();
+	if (
+		lower.includes('mime') ||
+		lower.includes('status code 400') ||
+		lower.includes('不支持的 mime 类型') ||
+		lower.includes('音频 mime 类型不能为空')
+	) {
+		return getInvalidAudioUploadMessage(file);
+	}
+	return raw || `${file?.name || '音频'} 上传失败`;
+};
+
+const validateAudioUploadBeforeSelect = (file: File) => {
+	if (isAudioUploadFile(file)) return true;
+	message.error(getInvalidAudioUploadMessage(file));
+	return Upload.LIST_IGNORE;
+};
+
 const actionStatusOptions = [
 	{ value: 'pending', label: '待跟进', color: 'default' },
 	{ value: 'in_progress', label: '处理中', color: 'blue' },
@@ -1889,6 +1932,12 @@ const MeetingMinutes: React.FC = () => {
 	};
 
 	const handleUploadVolcMinutesAudio = async ({ file, onSuccess, onError }: any) => {
+		if (!isAudioUploadFile(file as File)) {
+			const errMsg = getInvalidAudioUploadMessage(file as File);
+			message.error(errMsg);
+			onError?.(new Error(errMsg));
+			return;
+		}
 		if (!selectedMeetingId) {
 			message.warning('请选择会议');
 			onError?.(new Error('请选择会议'));
@@ -1932,7 +1981,7 @@ const MeetingMinutes: React.FC = () => {
 			await loadVolcAudioList(selectedMeetingId);
 			onSuccess?.('ok');
 		} catch (error: any) {
-			const errMsg = error?.message || `${file?.name || '音频'} 上传失败`;
+			const errMsg = resolveAudioUploadErrorMessage(error, file as File);
 			message.error(errMsg);
 			onError?.(new Error(errMsg));
 		} finally {
@@ -1941,6 +1990,12 @@ const MeetingMinutes: React.FC = () => {
 	};
 
 	const handleUploadLocalMinutesAudio = async ({ file, onSuccess, onError }: any) => {
+		if (!isAudioUploadFile(file as File)) {
+			const errMsg = getInvalidAudioUploadMessage(file as File);
+			message.error(errMsg);
+			onError?.(new Error(errMsg));
+			return;
+		}
 		if (!selectedMeetingId) {
 			message.warning('请选择会议');
 			onError?.(new Error('请选择会议'));
@@ -1961,7 +2016,7 @@ const MeetingMinutes: React.FC = () => {
 			await loadLocalAudioList(selectedMeetingId);
 			onSuccess?.('ok');
 		} catch (error: any) {
-			const errMsg = error?.message || `${file?.name || '音频'} 上传失败`;
+			const errMsg = resolveAudioUploadErrorMessage(error, file as File);
 			message.error(errMsg);
 			onError?.(new Error(errMsg));
 		} finally {
@@ -5388,11 +5443,12 @@ const MeetingMinutes: React.FC = () => {
 				width={720}
 			>
 				<Space direction="vertical" style={{ width: '100%' }} size="middle">
-					<Upload.Dragger
-						multiple={false}
-						accept="audio/*"
-						customRequest={handleUploadVolcMinutesAudio}
-						showUploadList
+				<Upload.Dragger
+					multiple={false}
+					accept="audio/*"
+					beforeUpload={validateAudioUploadBeforeSelect}
+					customRequest={handleUploadVolcMinutesAudio}
+					showUploadList
 						disabled={!hasSelectedMeeting || uploadingVolcMinutesAudio || volcAudios.length >= MAX_AUDIO_UPLOAD_COUNT}
 					>
 						<p className="ant-upload-drag-icon">
@@ -5837,6 +5893,7 @@ const MeetingMinutes: React.FC = () => {
 				<Upload.Dragger
 					multiple={false}
 					accept="audio/*"
+					beforeUpload={validateAudioUploadBeforeSelect}
 					customRequest={handleUploadLocalMinutesAudio}
 					showUploadList
 					disabled={
