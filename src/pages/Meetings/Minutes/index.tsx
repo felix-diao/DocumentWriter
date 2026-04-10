@@ -349,8 +349,8 @@ const resolveVolcErrorMessage = (raw?: string | null): string => {
 	const lower = text.toLowerCase();
 	if (lower.includes('audio empty')) return '音频为空：未检测到有效语音，请检查录音设备或重新上传音频。';
 	if (lower.includes('no speech')) return '未识别到语音内容，请确认音频中有人声。';
-	if (lower.includes('timeout')) return '处理超时：语音妙记处理耗时过长，请稍后重试。';
-	if (lower.includes('task not found')) return '任务不存在：妙记任务未找到，请重新提交生成。';
+	if (lower.includes('timeout')) return '处理超时：AI生成纪要耗时过长，请稍后重试。';
+	if (lower.includes('task not found')) return '任务不存在：纪要任务未找到，请重新提交生成。';
 	if (lower.includes('permission') || lower.includes('unauthorized') || lower.includes('forbidden')) {
 		return '权限不足：当前账号无权执行该操作。';
 	}
@@ -4573,11 +4573,11 @@ const MeetingMinutes: React.FC = () => {
 						type="info"
 						showIcon
 						style={{ margin: '16px 0' }}
-						message={MINUTES_MODE_LABEL.local}
+						message= "机密会议（Qwen3-ASR）"
 						description="在线录音：边录边转写，停止后自动生成会议纪要。上传音频：可选择已有音频按分段逐步转写，完成后自动生成会议纪要。"
 					/>
 
-					{/* 第一步：流式转写 */}
+					{/* 第一步：实时出字 */}
 					<div ref={localStreamCardRef}>
 						<ProCard
 							title="第一步：实时出字"
@@ -4729,7 +4729,7 @@ const MeetingMinutes: React.FC = () => {
 						{volcInputMode === 'upload' ? (
 							<Space direction="vertical" style={{ width: '100%' }} size="small">
 								<Tag color="default">无</Tag>
-								<Text type="secondary">上传音频模式不经过流式转写，直接提交至语音妙记生成精确内容。</Text>
+								<Text type="secondary">上传音频模式不经过实时出字，直接提交至AI生成纪要，生成精确内容。</Text>
 							</Space>
 						) : (
 							<Space direction="vertical" style={{ width: '100%' }} size="middle">
@@ -4745,19 +4745,19 @@ const MeetingMinutes: React.FC = () => {
 									placeholder="开始在线录音后，这里会实时输出识别文本。"
 									readOnly
 								/>
-								<Text type="secondary">流式转写仅用于实时展示，录音结束后自动提交语音妙记生成精确转写、摘要与待办。</Text>
+								<Text type="secondary">实时出字仅用于实时展示，录音结束后自动提交至AI生成纪要，生成精确转写、摘要与待办。</Text>
 							</Space>
 						)}
 					</ProCard>
 					</div>
 
-					<ProCard title="第二步：语音妙记结果（只读）">
+					<ProCard title="第二步：AI生成纪要结果（只读）">
 						<Space direction="vertical" style={{ width: '100%' }} size="middle">
 						{showVolcMinutesStatus && (
 							<Alert
 								showIcon
 								type={volcMinutesStatus?.error ? 'error' : 'info'}
-								message={`妙记状态：${volcMinutesStatusLabel[String(stableVolcMinutesStatus ?? '').toLowerCase()] || stableVolcMinutesStatus || '—'}`}
+								message={`纪要状态：${volcMinutesStatusLabel[String(stableVolcMinutesStatus ?? '').toLowerCase()] || stableVolcMinutesStatus || '—'}`}
 								description={volcMinutesStatus.error ? <Text type="danger">错误：{resolveVolcErrorMessage(volcMinutesStatus.error)}</Text> : undefined}
 							/>
 						)}
@@ -4776,7 +4776,7 @@ const MeetingMinutes: React.FC = () => {
 									readOnly
 								/>
 								<Text type="secondary">
-									流式转写仅作实时预览；生成纪要后得到带说话人的精确转写，主视图只读展示。
+									实时出字仅作实时预览；生成纪要后得到带说话人的精确转写，主视图只读展示。
 								</Text>
 							</Space>
 						</ProCard>
@@ -4943,7 +4943,7 @@ const MeetingMinutes: React.FC = () => {
 													placeholder={`${MINUTES_MODE_LABEL.volc}刷新成功后将在此显示精确转写内容。`}
 												/>
 												<Text type="secondary">
-													流式转写仅作实时预览；生成纪要后得到带说话人的精确转写，可在此修订并保存。
+													实时出字仅作实时预览；生成纪要后得到带说话人的精确转写，可在此修订并保存。
 												</Text>
 											</Space>
 										</ProCard>
@@ -5585,7 +5585,7 @@ const MeetingMinutes: React.FC = () => {
 												placeholder={`${MINUTES_MODE_LABEL.volc}刷新成功后将在此显示精确转写内容。`}
 											/>
 											<Text type="secondary">
-												流式转写仅作实时预览；生成纪要后得到带说话人的精确转写，可在此修订并保存。
+												实时出字仅作实时预览；生成纪要后得到带说话人的精确转写，可在此修订并保存。
 											</Text>
 										</Space>
 									</ProCard>
