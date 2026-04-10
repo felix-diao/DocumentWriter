@@ -287,26 +287,11 @@ const renderSimpleMarkdown = (text: string): React.ReactNode => {
 	return nodes;
 };
 
-/** 将历史纯段落摘要转为结构化 Markdown，视觉风格与火山纪要一致 */
+/** 保留本地纪要原始摘要，仅做首尾裁剪，避免主视图把长摘要压缩过短 */
 const normalizeSummaryMarkdown = (text: string): string => {
 	const trimmed = (text || '').trim();
 	if (!trimmed) return '';
-	if (/(^|\n)\s*[-*]\s+|(^|\n)\s*\d+\.\s+|\*\*[^*]+\*\*/.test(trimmed)) {
-		return trimmed;
-	}
-	const compact = trimmed.replace(/\s+/g, ' ');
-	const parts = compact.split(/(?<=[。！？!?])/).map((s) => s.trim()).filter(Boolean);
-	const points = (parts.length ? parts : [compact]).slice(0, 3);
-	const conclusion = parts[3] || points[points.length - 1] || compact;
-	return [
-		'以下为会议核心摘要：',
-		'',
-		'**讨论要点：**',
-		...points.map((p) => `- ${p}`),
-		'',
-		'**结论：**',
-		`- ${conclusion}`,
-	].join('\n');
+	return trimmed;
 };
 
 /** 本地摘要展示/保存时压缩空行，避免视觉上过于松散 */
