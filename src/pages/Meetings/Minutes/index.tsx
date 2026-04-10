@@ -132,6 +132,10 @@ const LOCAL_BUSY_STREAM_TYPES = new Set([
 	'live_uploading',
 	'file_streaming',
 ]);
+const MINUTES_MODE_LABEL: Record<'local' | 'volc', string> = {
+	local: '机密会议',
+	volc: '普通会议',
+};
 
 const normalizeStatus = (status?: string | null): string => String(status ?? '').trim().toLowerCase();
 const isLocalAudioReadyForMinutesStatus = (status?: string | null): boolean => {
@@ -860,14 +864,14 @@ const MeetingMinutes: React.FC = () => {
 			});
 			if (showToast) {
 				if (result.transcript_text || result.summary || result.todos.length) {
-					message.success('已刷新火山纪要');
+					message.success(`已刷新${MINUTES_MODE_LABEL.volc}`);
 				} else {
-					message.info('火山纪要尚未生成');
+					message.info(`${MINUTES_MODE_LABEL.volc}尚未生成`);
 				}
 			}
 		} catch (error: any) {
 			if (loadingMeetingIdRef.current !== meetingId) return;
-			message.error(error?.message || '获取火山纪要失败');
+			message.error(error?.message || `获取${MINUTES_MODE_LABEL.volc}失败`);
 			setVolcMinutes(null);
 			setVolcTranscriptDraft('');
 			setVolcSummaryTitle('');
@@ -4419,10 +4423,10 @@ const MeetingMinutes: React.FC = () => {
 							<Text strong>会话来源：</Text>
 							<Button.Group>
 								<Button type={sessionHistoryMode === 'local' ? 'primary' : 'default'} onClick={() => setSessionHistoryMode('local')}>
-									本地AI
+									{MINUTES_MODE_LABEL.local}
 								</Button>
 								<Button type={sessionHistoryMode === 'volc' ? 'primary' : 'default'} onClick={() => setSessionHistoryMode('volc')}>
-									火山纪要
+									{MINUTES_MODE_LABEL.volc}
 								</Button>
 							</Button.Group>
 						</Space>
@@ -4431,10 +4435,10 @@ const MeetingMinutes: React.FC = () => {
 							<Text strong>纪要模式：</Text>
 							<Button.Group>
 								<Button type={minutesMode === 'local' ? 'primary' : 'default'} onClick={() => void handleMinutesModeChange('local')}>
-									本地 AI
+									{MINUTES_MODE_LABEL.local}
 								</Button>
 								<Button type={minutesMode === 'volc' ? 'primary' : 'default'} onClick={() => void handleMinutesModeChange('volc')}>
-									火山纪要
+									{MINUTES_MODE_LABEL.volc}
 								</Button>
 							</Button.Group>
 						</Space>
@@ -4508,14 +4512,14 @@ const MeetingMinutes: React.FC = () => {
 						type="info"
 						showIcon
 						style={{ margin: '16px 0' }}
-						message="本地 AI 纪要（Qwen3-ASR）"
+						message={MINUTES_MODE_LABEL.local}
 						description="在线录音：边录边转写，停止后自动生成会议纪要。上传音频：可选择已有音频按分段逐步转写，完成后自动生成会议纪要。"
 					/>
 
 					{/* 第一步：流式转写 */}
 					<div ref={localStreamCardRef}>
 						<ProCard
-							title="第一步：流式转写（实时出字）"
+							title="第一步：实时出字"
 							style={{ marginBottom: 16 }}
 							extra={
 								<Space>
@@ -4635,13 +4639,13 @@ const MeetingMinutes: React.FC = () => {
 						type="info"
 						showIcon
 						style={{ margin: '16px 0' }}
-						message="火山纪要"
+						message={MINUTES_MODE_LABEL.volc}
 						description="在线录音：边录边转写，停止后自动生成会议纪要。查看已有音频：选择或上传音频后点击「生成会议纪要」，生成结果将在主视图只读展示，修订请前往“会话历史”。"
 					/>
 
 					<div ref={volcStreamCardRef}>
 					<ProCard
-						title="第一步：流式转写（实时出字）"
+						title="第一步：实时出字"
 						style={{ marginBottom: 16 }}
 						extra={
 							<Space>
@@ -4706,7 +4710,7 @@ const MeetingMinutes: React.FC = () => {
 							<Space direction="vertical" style={{ width: '100%' }} size="small">
 								<TextArea
 									rows={14}
-									placeholder="火山纪要生成完成后将在此显示精确转写内容。"
+									placeholder={`${MINUTES_MODE_LABEL.volc}生成完成后将在此显示精确转写内容。`}
 									value={volcTranscriptDraft}
 									readOnly
 								/>
@@ -4875,7 +4879,7 @@ const MeetingMinutes: React.FC = () => {
 													rows={14}
 													value={volcSessionDraft.transcript_text}
 													onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, transcript_text: e.target.value }))}
-													placeholder="火山纪要刷新成功后将在此显示精确转写内容。"
+													placeholder={`${MINUTES_MODE_LABEL.volc}刷新成功后将在此显示精确转写内容。`}
 												/>
 												<Text type="secondary">
 													流式转写仅作实时预览；生成纪要后得到带说话人的精确转写，可在此修订并保存。
@@ -5409,7 +5413,7 @@ const MeetingMinutes: React.FC = () => {
 		</Modal>
 
 		<Modal
-			title="会话历史（火山纪要）"
+			title={`会话历史（${MINUTES_MODE_LABEL.volc}）`}
 			open={volcSessionsModalVisible}
 			onCancel={closeVolcSessionsModal}
 			width={1100}
@@ -5516,7 +5520,7 @@ const MeetingMinutes: React.FC = () => {
 												rows={14}
 												value={volcSessionDraft.transcript_text}
 												onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, transcript_text: e.target.value }))}
-												placeholder="火山纪要刷新成功后将在此显示精确转写内容。"
+												placeholder={`${MINUTES_MODE_LABEL.volc}刷新成功后将在此显示精确转写内容。`}
 											/>
 											<Text type="secondary">
 												流式转写仅作实时预览；生成纪要后得到带说话人的精确转写，可在此修订并保存。
@@ -5618,7 +5622,7 @@ const MeetingMinutes: React.FC = () => {
 		</Modal>
 
 		<Modal
-			title="会话历史（本地AI纪要）"
+			title={`会话历史（${MINUTES_MODE_LABEL.local}）`}
 			open={localSessionsModalVisible}
 			onCancel={closeLocalSessionsModal}
 			width={1100}
