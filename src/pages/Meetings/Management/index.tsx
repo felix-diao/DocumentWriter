@@ -50,6 +50,11 @@ interface MeetingFormValues extends Omit<MeetingPayload, 'date'> {
   date: Dayjs;
 }
 
+const MAX_MEETING_TITLE_LENGTH = 256;
+const MAX_MEETING_LOCATION_LENGTH = 255;
+const MAX_MEETING_HOST_LENGTH = 128;
+const MAX_MEETING_URL_LENGTH = 2048;
+
 const statusMeta: Record<string, { label: string; color: string }> = {
   created: { label: '已创建', color: 'default' },
   scheduled: { label: '已排期', color: 'processing' },
@@ -57,6 +62,13 @@ const statusMeta: Record<string, { label: string; color: string }> = {
   finished: { label: '已完成', color: 'green' },
   cancelled: { label: '已取消', color: 'red' },
 };
+
+const trimFormText = (value?: string | null) => {
+  const text = value?.trim();
+  return text ? text : undefined;
+};
+
+const isMeetingFormValidationError = (error: any) => Array.isArray(error?.errorFields);
 
 const MeetingManagement: React.FC = () => {
   const [loading, setLoading] = useState(false);
@@ -123,16 +135,25 @@ const MeetingManagement: React.FC = () => {
   };
 
   const handleSaveMeeting = async () => {
-    const values = await form.validateFields();
+    let values: MeetingFormValues;
+    try {
+      values = await form.validateFields();
+    } catch (error: any) {
+      if (!isMeetingFormValidationError(error)) {
+        message.error('请检查会议信息后重试');
+      }
+      return;
+    }
+
     const payload: MeetingPayload = {
-      title: values.title,
+      title: values.title.trim(),
       date: values.date?.toISOString(),
-      location: values.location,
-      host: values.host,
-      participants: values.participants,
-      content_text: values.content_text,
-      meeting_url: values.meeting_url,
-      status: values.status,
+      location: trimFormText(values.location),
+      host: trimFormText(values.host),
+      participants: trimFormText(values.participants),
+      content_text: trimFormText(values.content_text),
+      meeting_url: trimFormText(values.meeting_url),
+      status: trimFormText(values.status) ?? 'created',
     };
 
     setSaving(true);
@@ -458,8 +479,27 @@ const MeetingManagement: React.FC = () => {
         width={680}
       >
         <Form<MeetingFormValues> form={form} layout="vertical">
-          <Form.Item name="title" label="会议标题" rules={[{ required: true, message: '请输入会议标题' }]}>
-            <Input placeholder="例如：2025年一季度重点项目推进会" />
+          <Form.Item
+            name="title"
+            label="会议标题"
+            rules={[
+              { required: true, message: '请输入会议标题' },
+              {
+                validator: async (_, value?: string) => {
+                  const text = value?.trim();
+                  if (!text) return;
+                  if (text.length > MAX_MEETING_TITLE_LENGTH) {
+                    throw new Error(`会议标题不能超过${MAX_MEETING_TITLE_LENGTH}个字符`);
+                  }
+                },
+              },
+            ]}
+          >
+            <Input
+              placeholder="例如：2025年一季度重点项目推进会"
+              maxLength={MAX_MEETING_TITLE_LENGTH}
+              showCount
+            />
           </Form.Item>
           <Form.Item
             name="date"
@@ -468,14 +508,61 @@ const MeetingManagement: React.FC = () => {
           >
             <DatePicker showTime style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item name="location" label="会议地点">
-            <Input placeholder="会议室或线上链接说明" />
+          <Form.Item
+            name="location"
+            label="会议地点"
+            rules={[
+              {
+                validator: async (_, value?: string) => {
+                  if (value?.trim() && value.trim().length > MAX_MEETING_LOCATION_LENGTH) {
+                    throw new Error(`会议地点不能超过${MAX_MEETING_LOCATION_LENGTH}个字符`);
+                  }
+                },
+              },
+            ]}
+          >
+            <Input
+              placeholder="会议室或线上链接说明"
+              maxLength={MAX_MEETING_LOCATION_LENGTH}
+              showCount
+            />
           </Form.Item>
-          <Form.Item name="meeting_url" label="会议链接">
-            <Input placeholder="可填写视频会议链接" suffix={<LinkOutlined />} />
+          <Form.Item
+            name="meeting_url"
+            label="会议链接"
+            rules={[
+              {
+                validator: async (_, value?: string) => {
+                  const text = value?.trim();
+                  if (!text) return;
+                  if (text.length > MAX_MEETING_URL_LENGTH) {
+                    throw new Error(`会议链接不能超过${MAX_MEETING_URL_LENGTH}个字符`);
+                  }
+                },
+              },
+            ]}
+          >
+            <Input
+              placeholder="可填写视频会议链接"
+              suffix={<LinkOutlined />}
+              maxLength={MAX_MEETING_URL_LENGTH}
+              showCount
+            />
           </Form.Item>
-          <Form.Item name="host" label="主持人">
-            <Input placeholder="请输入主持人姓名" />
+          <Form.Item
+            name="host"
+            label="主持人"
+            rules={[
+              {
+                validator: async (_, value?: string) => {
+                  if (value?.trim() && value.trim().length > MAX_MEETING_HOST_LENGTH) {
+                    throw new Error(`主持人不能超过${MAX_MEETING_HOST_LENGTH}个字符`);
+                  }
+                },
+              },
+            ]}
+          >
+            <Input placeholder="请输入主持人姓名" maxLength={MAX_MEETING_HOST_LENGTH} showCount />
           </Form.Item>
           <Form.Item name="participants" label="参会人员">
             <TextArea rows={2} placeholder="请输入参会部门或成员" />
