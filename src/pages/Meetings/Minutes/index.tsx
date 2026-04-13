@@ -3658,7 +3658,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '更新时间',
 			dataIndex: 'updated_at',
 			width: 180,
-			render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm'),
+			render: (value: string) => formatShanghaiTime(value),
 		},
 		{
 			title: '操作',
@@ -4102,7 +4102,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '创建时间',
 			dataIndex: 'created_at',
 			width: 170,
-			render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm:ss'),
+			render: (value: string) => formatShanghaiTime(value, 'YYYY-MM-DD HH:mm:ss'),
 		},
 		{
 			title: '状态',
@@ -4271,7 +4271,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '创建时间',
 			dataIndex: 'created_at',
 			width: 170,
-			render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm:ss'),
+			render: (value: string) => formatShanghaiTime(value, 'YYYY-MM-DD HH:mm:ss'),
 		},
 		{
 			title: '状态',
@@ -4475,7 +4475,7 @@ const MeetingMinutes: React.FC = () => {
 							}}
 							options={meetings.map((meeting) => ({
 								value: meeting.id,
-								label: `${meeting.title}（${dayjs(meeting.date).format('MM-DD HH:mm')}）`,
+								label: `${meeting.title}（${formatShanghaiTime(meeting.date, 'MM-DD HH:mm')}）`,
 							}))}
 						/>
 					</Space>
@@ -4889,7 +4889,7 @@ const MeetingMinutes: React.FC = () => {
 										</Tag>
 										<Tag>音频ID：{selectedVolcSessionDetail.source_audio_id ?? '—'}</Tag>
 										<Text type="secondary">
-											创建于：{dayjs(selectedVolcSessionDetail.created_at).format('YYYY-MM-DD HH:mm:ss')}
+											创建于：{formatShanghaiTime(selectedVolcSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
 										</Text>
 									</Space>
 									{selectedVolcSessionDetail.error_msg ? (
@@ -5062,7 +5062,7 @@ const MeetingMinutes: React.FC = () => {
 										</Tag>
 										<Tag>音频ID：{selectedLocalSessionDetail.source_audio_id ?? '—'}</Tag>
 										<Text type="secondary">
-											创建于：{dayjs(selectedLocalSessionDetail.created_at).format('YYYY-MM-DD HH:mm:ss')}
+											创建于：{formatShanghaiTime(selectedLocalSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
 										</Text>
 									</Space>
 									{selectedLocalSessionDetail.error_msg ? (
@@ -5531,7 +5531,7 @@ const MeetingMinutes: React.FC = () => {
 									</Tag>
 									<Tag>音频ID：{selectedVolcSessionDetail.source_audio_id ?? '—'}</Tag>
 									<Text type="secondary">
-										创建于：{dayjs(selectedVolcSessionDetail.created_at).format('YYYY-MM-DD HH:mm:ss')}
+										创建于：{formatShanghaiTime(selectedVolcSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
 									</Text>
 								</Space>
 								{selectedVolcSessionDetail.error_msg ? (
@@ -5740,7 +5740,7 @@ const MeetingMinutes: React.FC = () => {
 									</Tag>
 									<Tag>音频ID：{selectedLocalSessionDetail.source_audio_id ?? '—'}</Tag>
 									<Text type="secondary">
-										创建于：{dayjs(selectedLocalSessionDetail.created_at).format('YYYY-MM-DD HH:mm:ss')}
+										创建于：{formatShanghaiTime(selectedLocalSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
 									</Text>
 								</Space>
 								{selectedLocalSessionDetail.error_msg ? (
