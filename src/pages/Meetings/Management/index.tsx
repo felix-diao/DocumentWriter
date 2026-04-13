@@ -120,13 +120,13 @@ const MeetingManagement: React.FC = () => {
     form.resetFields();
     form.setFieldsValue({
       date: dayjs(),
-      status: 'created',
     } as MeetingFormValues);
     setModalVisible(true);
   };
 
   const openEditModal = (record: Meeting) => {
     setEditingMeeting(record);
+    form.resetFields();
     form.setFieldsValue({
       ...record,
       date: dayjs(record.date),
@@ -153,7 +153,7 @@ const MeetingManagement: React.FC = () => {
       participants: trimFormText(values.participants),
       content_text: trimFormText(values.content_text),
       meeting_url: trimFormText(values.meeting_url),
-      status: trimFormText(values.status) ?? 'created',
+      status: trimFormText(values.status),
     };
 
     setSaving(true);
