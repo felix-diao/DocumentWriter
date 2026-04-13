@@ -3397,6 +3397,22 @@ const MeetingMinutes: React.FC = () => {
 		}
 	};
 
+	const handleDownloadVolcSessionAudio = async (sourceAudioId?: number | null) => {
+		if (!sourceAudioId) {
+			message.warning('当前会话未关联可下载的录音');
+			return;
+		}
+		await handleDownloadVolcAudio(sourceAudioId);
+	};
+
+	const handleDownloadLocalSessionAudio = async (sourceAudioId?: number | null) => {
+		if (!sourceAudioId) {
+			message.warning('当前会话未关联可下载的录音');
+			return;
+		}
+		await handleDownloadLocalAudio(sourceAudioId);
+	};
+
 	const startRecordingTimer = () => {
 		stopRecordingTimer();
 		recordingTimerRef.current = setInterval(() => {
@@ -4125,19 +4141,24 @@ const MeetingMinutes: React.FC = () => {
 		},
 		{
 			title: '操作',
-			width: 120,
+			width: 180,
 			render: (_, record) => (
-				<Popconfirm
-					title="确定删除该会话历史？"
-					description="删除后无法恢复。"
-					okText="确认删除"
-					cancelText="取消"
-					onConfirm={() => handleDeleteLocalSession(record.id)}
-				>
-					<Button type="link" danger>
-						删除
+				<Space size={0}>
+					<Button type="link" onClick={() => void handleDownloadLocalSessionAudio(record.source_audio_id)}>
+						下载录音
 					</Button>
-				</Popconfirm>
+					<Popconfirm
+						title="确定删除该会话历史？"
+						description="删除后无法恢复。"
+						okText="确认删除"
+						cancelText="取消"
+						onConfirm={() => handleDeleteLocalSession(record.id)}
+					>
+						<Button type="link" danger>
+							删除
+						</Button>
+					</Popconfirm>
+				</Space>
 			),
 		},
 	];
@@ -4295,19 +4316,24 @@ const MeetingMinutes: React.FC = () => {
 		{
 			title: '操作',
 			dataIndex: 'actions',
-			width: 100,
+			width: 180,
 			render: (_, record) => (
-				<Popconfirm
-					title="确定删除该会话历史？"
-					description="删除后无法恢复。"
-					okText="确认删除"
-					cancelText="取消"
-					onConfirm={() => handleDeleteVolcSession(record.id)}
-				>
-					<Button type="link" danger>
-						删除
+				<Space size={0}>
+					<Button type="link" onClick={() => void handleDownloadVolcSessionAudio(record.source_audio_id)}>
+						下载录音
 					</Button>
-				</Popconfirm>
+					<Popconfirm
+						title="确定删除该会话历史？"
+						description="删除后无法恢复。"
+						okText="确认删除"
+						cancelText="取消"
+						onConfirm={() => handleDeleteVolcSession(record.id)}
+					>
+						<Button type="link" danger>
+							删除
+						</Button>
+					</Popconfirm>
+				</Space>
 			),
 		},
 	];
@@ -5530,6 +5556,13 @@ const MeetingMinutes: React.FC = () => {
 										状态：{getSessionStatusLabel(selectedVolcSessionDetail.status)}
 									</Tag>
 									<Tag>音频ID：{selectedVolcSessionDetail.source_audio_id ?? '—'}</Tag>
+									<Button
+										type="link"
+										size="small"
+										onClick={() => void handleDownloadVolcSessionAudio(selectedVolcSessionDetail.source_audio_id)}
+									>
+										下载录音
+									</Button>
 									<Text type="secondary">
 										创建于：{formatShanghaiTime(selectedVolcSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
 									</Text>
@@ -5739,6 +5772,13 @@ const MeetingMinutes: React.FC = () => {
 										状态：{getSessionStatusLabel(selectedLocalSessionDetail.status)}
 									</Tag>
 									<Tag>音频ID：{selectedLocalSessionDetail.source_audio_id ?? '—'}</Tag>
+									<Button
+										type="link"
+										size="small"
+										onClick={() => void handleDownloadLocalSessionAudio(selectedLocalSessionDetail.source_audio_id)}
+									>
+										下载录音
+									</Button>
 									<Text type="secondary">
 										创建于：{formatShanghaiTime(selectedLocalSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
 									</Text>
