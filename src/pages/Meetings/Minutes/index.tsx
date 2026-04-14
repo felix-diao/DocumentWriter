@@ -5063,13 +5063,13 @@ const MeetingMinutes: React.FC = () => {
 									) : null}
 								</ProCard>
 
-								<ProCard title="流式转写">
+								<ProCard title="实时转写">
 									{volcSessionDraft.stream_transcript_text ? (
 										<TextArea
 											rows={6}
 											value={volcSessionDraft.stream_transcript_text}
 											onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, stream_transcript_text: e.target.value }))}
-											placeholder="流式转写内容"
+											placeholder="实时转写内容"
 										/>
 									) : (
 										<Space direction="vertical" style={{ width: '100%' }}>
@@ -5236,12 +5236,12 @@ const MeetingMinutes: React.FC = () => {
 									) : null}
 								</ProCard>
 
-								<ProCard title="流式转写">
+								<ProCard title="实时转写">
 									<TextArea
 										rows={6}
 										value={localSessionDraft.stream_transcript_text}
 										onChange={(e) => setLocalSessionDraft((prev) => ({ ...prev, stream_transcript_text: e.target.value }))}
-										placeholder="流式转写内容"
+										placeholder="实时转写内容"
 										readOnly={!localSessionEditable}
 									/>
 								</ProCard>
@@ -5712,13 +5712,13 @@ const MeetingMinutes: React.FC = () => {
 								) : null}
 							</ProCard>
 
-							<ProCard title="流式转写">
+							<ProCard title="实时转写">
 								{volcSessionDraft.stream_transcript_text ? (
 									<TextArea
 										rows={6}
 										value={volcSessionDraft.stream_transcript_text}
 										onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, stream_transcript_text: e.target.value }))}
-										placeholder="流式转写内容"
+										placeholder="实时转写内容"
 									/>
 								) : (
 									<Space direction="vertical" style={{ width: '100%' }}>
@@ -5928,12 +5928,12 @@ const MeetingMinutes: React.FC = () => {
 								) : null}
 							</ProCard>
 
-							<ProCard title="流式转写">
+							<ProCard title="实时转写">
 								<TextArea
 									rows={6}
 									value={localSessionDraft.stream_transcript_text}
 									onChange={(e) => setLocalSessionDraft((prev) => ({ ...prev, stream_transcript_text: e.target.value }))}
-									placeholder="流式转写内容"
+									placeholder="实时转写内容"
 									readOnly={!localSessionEditable}
 								/>
 							</ProCard>
