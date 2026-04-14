@@ -1006,6 +1006,10 @@ const MeetingMinutes: React.FC = () => {
 			const detail = await meetingMinutesApi.getLocalMinutesSession(meetingId, sessionId);
 			setSelectedLocalSessionDetail(detail);
 		} catch (error: any) {
+			if (error?.response?.status === 404) {
+				setSelectedLocalSessionDetail(null);
+				return;
+			}
 			message.warning(error?.message || '加载会话详情失败');
 		} finally {
 			setLoadingLocalSessionDetail(false);
@@ -4250,8 +4254,14 @@ const MeetingMinutes: React.FC = () => {
 			title: '操作',
 			width: 180,
 			render: (_, record) => (
-				<Space size={0}>
-					<Button type="link" onClick={() => void handleDownloadLocalSessionAudio(record.source_audio_id)}>
+				<Space size={0} onClick={(event) => event.stopPropagation()}>
+					<Button
+						type="link"
+						onClick={(event) => {
+							event.stopPropagation();
+							void handleDownloadLocalSessionAudio(record.source_audio_id);
+						}}
+					>
 						下载录音
 					</Button>
 					<Popconfirm
@@ -4261,7 +4271,13 @@ const MeetingMinutes: React.FC = () => {
 						cancelText="取消"
 						onConfirm={() => handleDeleteLocalSession(record.id)}
 					>
-						<Button type="link" danger>
+						<Button
+							type="link"
+							danger
+							onClick={(event) => {
+								event.stopPropagation();
+							}}
+						>
 							删除
 						</Button>
 					</Popconfirm>
@@ -4425,8 +4441,14 @@ const MeetingMinutes: React.FC = () => {
 			dataIndex: 'actions',
 			width: 180,
 			render: (_, record) => (
-				<Space size={0}>
-					<Button type="link" onClick={() => void handleDownloadVolcSessionAudio(record.source_audio_id)}>
+				<Space size={0} onClick={(event) => event.stopPropagation()}>
+					<Button
+						type="link"
+						onClick={(event) => {
+							event.stopPropagation();
+							void handleDownloadVolcSessionAudio(record.source_audio_id);
+						}}
+					>
 						下载录音
 					</Button>
 					<Popconfirm
@@ -4436,7 +4458,13 @@ const MeetingMinutes: React.FC = () => {
 						cancelText="取消"
 						onConfirm={() => handleDeleteVolcSession(record.id)}
 					>
-						<Button type="link" danger>
+						<Button
+							type="link"
+							danger
+							onClick={(event) => {
+								event.stopPropagation();
+							}}
+						>
 							删除
 						</Button>
 					</Popconfirm>
