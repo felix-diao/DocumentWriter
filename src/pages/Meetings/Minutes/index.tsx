@@ -605,6 +605,12 @@ const MeetingMinutes: React.FC = () => {
 	const localLiveChunkBytesRef = useRef(0);
 	const localDiscardHydrationRef = useRef(false);
 	const localLeaveGuardBypassRef = useRef(false);
+	const localUploadedTranscribeSessionIdRef = useRef<number | null>(null);
+	const localUploadedTranscribeAudioIdRef = useRef<number | null>(null);
+	const loadLocalAudioListRef = useRef<((meetingId: number) => Promise<void>) | null>(null);
+	const loadLocalMinutesDataRef = useRef<((meetingId: number, showToast?: boolean) => Promise<void>) | null>(null);
+	const loadLocalSessionsRef = useRef<((meetingId: number, keepSelection?: boolean) => Promise<void>) | null>(null);
+	const handleGenerateLocalMinutesRef = useRef<((meetingId?: number) => Promise<void>) | null>(null);
 	const selectedMeetingIdRef = useRef<number | undefined>(undefined);
 	const selectedVolcAudioIdRef = useRef<number | null>(null);
 	const volcLatestAudioIdRef = useRef<number | null>(null);
@@ -1093,6 +1099,121 @@ const MeetingMinutes: React.FC = () => {
 					const payload = JSON.parse(String(event.data || '{}'));
 					if (!payload?.type) return;
 
+					const matchesActiveLocalUploadTask = () => {
+						const expectedAudioId = localUploadedTranscribeAudioIdRef.current;
+						if (expectedAudioId == null || payload.audio_id !== expectedAudioId) return false;
+						const expectedSessionId = localUploadedTranscribeSessionIdRef.current;
+						return expectedSessionId == null || payload.asr_session_id === expectedSessionId;
+					};
+
+					const syncActiveLocalUploadSession = () => {
+						if (
+							localUploadedTranscribeAudioIdRef.current === payload.audio_id &&
+							localUploadedTranscribeSessionIdRef.current == null &&
+							typeof payload.asr_session_id === 'number'
+						) {
+							localUploadedTranscribeSessionIdRef.current = payload.asr_session_id;
+						}
+					};
+
+					if (payload.type === 'local_audio_transcribe_started') {
+						if (!matchesActiveLocalUploadTask()) {
+							return;
+						}
+						syncActiveLocalUploadSession();
+						setLocalStreamSessionId(payload.asr_session_id || null);
+						setLocalStreamType('file_streaming');
+						setLocalStreamError(null);
+						setTranscribingLocalAudio(true);
+						setShowLocalMinutesStatus(true);
+						setLocalMinutesStatus({ status: payload.status || 'processing' });
+						return;
+					}
+
+					if (payload.type === 'local_audio_transcribe_progress') {
+						if (!matchesActiveLocalUploadTask()) {
+							return;
+						}
+						syncActiveLocalUploadSession();
+						setLocalStreamSessionId(payload.asr_session_id || null);
+						if (typeof payload.accumulated === 'string') {
+							setLocalStreamText(payload.accumulated);
+						}
+						setLocalStreamType('file_streaming');
+						setLocalStreamError(null);
+						setTranscribingLocalAudio(true);
+						setShowLocalMinutesStatus(true);
+						setLocalMinutesStatus({ status: payload.status || 'processing' });
+						return;
+					}
+
+					if (payload.type === 'local_audio_transcribe_failed') {
+						if (!matchesActiveLocalUploadTask()) {
+							return;
+						}
+						syncActiveLocalUploadSession();
+						const errMsg =
+							(typeof payload.error === 'string' && payload.error.trim()) ||
+							'本地音频转写失败，请稍后重试。';
+						setLocalStreamSessionId(payload.asr_session_id || null);
+						if (typeof payload.transcript === 'string') {
+							setLocalStreamText(payload.transcript);
+						}
+						setLocalStreamType('error');
+						setLocalStreamError(errMsg);
+						setTranscribingLocalAudio(false);
+						setShowLocalMinutesStatus(true);
+						setLocalMinutesStatus({ status: payload.status || 'failed', error: errMsg });
+						localUploadedTranscribeSessionIdRef.current = null;
+						localUploadedTranscribeAudioIdRef.current = null;
+						void loadLocalAudioListRef.current?.(meetingId);
+						return;
+					}
+
+					if (payload.type === 'local_audio_transcribe_completed') {
+						if (!matchesActiveLocalUploadTask()) {
+							return;
+						}
+						syncActiveLocalUploadSession();
+						const transcript = typeof payload.transcript === 'string' ? payload.transcript : '';
+						const minutesGenerated = Boolean(payload.minutes_generated);
+						const minutesError =
+							typeof payload.minutes_error === 'string' ? payload.minutes_error.trim() : '';
+						setLocalStreamSessionId(payload.asr_session_id || null);
+						setLocalStreamText(transcript);
+						setLocalStreamType('completed');
+						setLocalStreamError(null);
+						setTranscribingLocalAudio(false);
+						localUploadedTranscribeSessionIdRef.current = null;
+						localUploadedTranscribeAudioIdRef.current = null;
+						void loadLocalAudioListRef.current?.(meetingId);
+						if (!transcript.trim()) {
+							const errMsg = '音频转写完成，但未识别到有效文本，暂时无法生成会议纪要。';
+							setShowLocalMinutesStatus(true);
+							setLocalMinutesStatus({ status: 'failed', error: errMsg });
+							setLocalStreamError(errMsg);
+							message.warning(errMsg);
+							return;
+						}
+						setShowLocalMinutesStatus(true);
+						setLocalMinutesStatus({ status: 'processing' });
+						if (minutesGenerated) {
+							setLocalMinutesStatus({ status: 'completed' });
+							message.success('转写完成，会议纪要已自动生成');
+							void loadLocalMinutesDataRef.current?.(meetingId, false);
+							if (shouldSyncLocalSessions) {
+								void loadLocalSessionsRef.current?.(meetingId, true);
+							}
+							return;
+						}
+						if (minutesError) {
+							message.warning(`自动生成失败，改用兜底生成：${minutesError}`);
+						}
+						message.success('转写完成，正在自动生成会议纪要…');
+						void handleGenerateLocalMinutesRef.current?.(meetingId);
+						return;
+					}
+
 					if (payload.type === 'volc_minutes_status') {
 						if (volcDiscardHydrationRef.current && isMinutesMainRoute && minutesMode === 'volc') {
 							return;
@@ -1165,7 +1286,17 @@ const MeetingMinutes: React.FC = () => {
 				wsDebug('meetingWs error', event);
 			};
 		},
-		[closeMeetingWs, loadVolcMinutesData, loadVolcAudioList, loadVolcSessions, shouldSyncVolcSessions, wsDebug, isMinutesMainRoute, minutesMode],
+		[
+			closeMeetingWs,
+			loadVolcMinutesData,
+			loadVolcAudioList,
+			loadVolcSessions,
+			shouldSyncVolcSessions,
+			shouldSyncLocalSessions,
+			wsDebug,
+			isMinutesMainRoute,
+			minutesMode,
+		],
 	);
 
 	useEffect(() => {
@@ -1205,12 +1336,15 @@ const MeetingMinutes: React.FC = () => {
 		setLocalInputMode('live');
 		setLocalMinutesStatus(null);
 		setShowLocalMinutesStatus(false);
+		setTranscribingLocalAudio(false);
 		setLocalSummaryTitle('');
 		setLocalSummaryDraft('');
 		setLocalSessionList([]);
 		setSelectedLocalSessionId(null);
 		setSelectedLocalSessionDetail(null);
 		setLocalSessionsModalVisible(false);
+		localUploadedTranscribeSessionIdRef.current = null;
+		localUploadedTranscribeAudioIdRef.current = null;
 
 		if (typeof selectedMeetingId === 'number') {
 			loadLocalAudioList(selectedMeetingId);
@@ -1243,13 +1377,13 @@ const MeetingMinutes: React.FC = () => {
 	}, [selectedMeetingId, isMinutesMainRoute, minutesMode]);
 
 	useEffect(() => {
-		if (minutesMode === 'volc' && typeof selectedMeetingId === 'number') {
+		if (typeof selectedMeetingId === 'number') {
 			connectMeetingWs(selectedMeetingId);
 			return () => closeMeetingWs();
 		}
 		closeMeetingWs();
 		return () => closeMeetingWs();
-	}, [minutesMode, selectedMeetingId, connectMeetingWs, closeMeetingWs]);
+	}, [selectedMeetingId, connectMeetingWs, closeMeetingWs]);
 
 	useEffect(() => {
 		volcStreamTypeRef.current = volcStreamType;
@@ -2658,6 +2792,9 @@ const MeetingMinutes: React.FC = () => {
 		setLocalStreamSessionId(null);
 		setLocalMinutesStatus(null);
 		setShowLocalMinutesStatus(false);
+		setTranscribingLocalAudio(false);
+		localUploadedTranscribeSessionIdRef.current = null;
+		localUploadedTranscribeAudioIdRef.current = null;
 	}, []);
 
 	useEffect(() => {
@@ -2771,39 +2908,21 @@ const MeetingMinutes: React.FC = () => {
 		}
 	}, [selectedMeetingId, loadLocalMinutesData, shouldSyncLocalSessions, loadLocalSessions, isMinutesMainRoute, minutesMode]);
 
-	const pollUploadedLocalAudioTranscription = useCallback(async (
-		meetingId: number,
-		asrSessionId: number,
-		audioId: number,
-	) => {
-		const startedAt = Date.now();
-		while (Date.now() - startedAt < 5 * 60 * 1000) {
-			if (localDiscardHydrationRef.current && isMinutesMainRoute && minutesMode === 'local') {
-				throw new Error('当前页面已切换，已取消本地音频转写轮询');
-			}
-			const latest = await meetingMinutesApi.getLocalMinutes(meetingId);
-			if (latest.asr_session_id !== asrSessionId || latest.source_audio_id !== audioId) {
-				await wait(1500);
-				continue;
-			}
-			const asrStatus = normalizeStatus(latest.asr_status);
-			const transcript = latest.stream_transcript_text || latest.transcript_text || '';
-			setLocalStreamSessionId(asrSessionId);
-			setLocalStreamText(transcript);
-			setLocalStreamError(null);
-			if (asrStatus !== 'completed' && asrStatus !== 'success' && asrStatus !== 'succeeded' && asrStatus !== 'finished') {
-				setLocalStreamType('file_streaming');
-			}
-			if (asrStatus === 'failed' || asrStatus === 'error') {
-				throw new Error('本地音频转写失败，请检查后端日志或模型服务配置');
-			}
-			if (asrStatus === 'completed' || asrStatus === 'success' || asrStatus === 'succeeded' || asrStatus === 'finished') {
-				return latest;
-			}
-			await wait(1500);
-		}
-		throw new Error('本地音频转写超时，请稍后刷新确认结果');
-	}, [isMinutesMainRoute, minutesMode]);
+	useEffect(() => {
+		loadLocalAudioListRef.current = loadLocalAudioList;
+	}, [loadLocalAudioList]);
+
+	useEffect(() => {
+		loadLocalMinutesDataRef.current = loadLocalMinutesData;
+	}, [loadLocalMinutesData]);
+
+	useEffect(() => {
+		loadLocalSessionsRef.current = loadLocalSessions;
+	}, [loadLocalSessions]);
+
+	useEffect(() => {
+		handleGenerateLocalMinutesRef.current = handleGenerateLocalMinutes;
+	}, [handleGenerateLocalMinutes]);
 
 	const handleGenerateLocalMinutesFromAudio = useCallback(async (audioId?: number) => {
 		const meetingId = selectedMeetingId;
@@ -2833,46 +2952,34 @@ const MeetingMinutes: React.FC = () => {
 		setShowLocalMinutesStatus(true);
 		setLocalMinutesStatus({ status: 'processing' });
 		setTranscribingLocalAudio(true);
+		localUploadedTranscribeAudioIdRef.current = idToProcess;
+		localUploadedTranscribeSessionIdRef.current = null;
 
 		try {
 			const task = await meetingMinutesApi.transcribeUploadedLocalAudio(meetingId, idToProcess);
 			setLocalStreamSessionId(task.asr_session_id);
+			localUploadedTranscribeSessionIdRef.current = task.asr_session_id;
+			localUploadedTranscribeAudioIdRef.current = idToProcess;
 			message.success('已提交本地音频转写，正在分段识别并生成纪要…');
-
-			const latest = await pollUploadedLocalAudioTranscription(meetingId, task.asr_session_id, idToProcess);
-			const transcript = latest.stream_transcript_text || '';
-			setLocalStreamText(transcript);
-			setLocalStreamType('completed');
-			await loadLocalAudioList(meetingId);
-
-			if (!transcript.trim()) {
-				const errMsg = '音频转写完成，但未识别到有效文本，暂时无法生成会议纪要。';
-				setLocalMinutesStatus({ status: 'failed', error: errMsg });
-				setLocalStreamError(errMsg);
-				message.warning(errMsg);
-				return;
-			}
-
-			message.success('转写完成，正在自动生成会议纪要…');
-			await handleGenerateLocalMinutes(meetingId);
 		} catch (error: any) {
 			const errMsg = resolveZhErrorMessage(error, '本地音频转写失败，请稍后重试。');
 			setLocalStreamType('error');
 			setLocalStreamError(errMsg);
 			setLocalMinutesStatus({ status: 'failed', error: errMsg });
+			setTranscribingLocalAudio(false);
+			localUploadedTranscribeSessionIdRef.current = null;
+			localUploadedTranscribeAudioIdRef.current = null;
 			message.error(errMsg);
 			await loadLocalAudioList(meetingId);
 		} finally {
-			setTranscribingLocalAudio(false);
+			// 转写完成/失败由会议级 WebSocket 事件驱动更新；这里只结束“提交任务”阶段。
 		}
 	}, [
 		selectedMeetingId,
 		selectedLocalAudioId,
 		localAudios,
 		clearLocalMinutesDisplay,
-		pollUploadedLocalAudioTranscription,
 		loadLocalAudioList,
-		handleGenerateLocalMinutes,
 	]);
 
 	const startLocalSseStream = useCallback((audioId: number, meetingId: number) => {
