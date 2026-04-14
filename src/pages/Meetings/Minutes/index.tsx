@@ -357,6 +357,68 @@ const resolveVolcErrorMessage = (raw?: string | null): string => {
 	return text;
 };
 
+const resolveLocalLiveErrorMessage = (
+	raw?: string | null,
+	options?: {
+		closeCode?: number | null;
+		stopRequested?: boolean;
+		firstAudioSent?: boolean;
+		wsOpened?: boolean;
+	},
+): string => {
+	const text = String(raw || '').trim();
+	const lower = text.toLowerCase();
+	const closeCode = options?.closeCode;
+	const stopRequested = Boolean(options?.stopRequested);
+	const firstAudioSent = Boolean(options?.firstAudioSent);
+	const wsOpened = options?.wsOpened !== false;
+
+	if (
+		(!firstAudioSent && stopRequested && (closeCode === 1000 || closeCode === 1001 || closeCode === 1005 || closeCode === 1006)) ||
+		lower.includes('未接收到任何音频数据') ||
+		lower.includes('无法生成录音文件')
+	) {
+		return '录音时间过短或未采集到有效语音，请重新录音。';
+	}
+
+	if (closeCode === 4001 || lower.includes('token 无效') || lower.includes('token') || lower.includes('重新登录')) {
+		return '登录状态已失效，请重新登录后重试。';
+	}
+
+	if (closeCode === 4004 || lower.includes('meeting_id') || lower.includes('会议不存在')) {
+		return '当前会议不存在或无权限访问，请刷新页面后重试。';
+	}
+
+	if (lower.includes('握手超时')) {
+		return '在线录音连接超时，请稍后重试。';
+	}
+
+	if (stopRequested && closeCode === 1006) {
+		return firstAudioSent
+			? '录音已停止，但音频处理未完成，请重新录音或稍后重试。'
+			: '录音时间过短或未采集到有效语音，请重新录音。';
+	}
+
+	if (
+		lower.includes('websocket 连接失败') ||
+		lower.includes('ws 连接失败') ||
+		lower.includes('websocket 初始化失败') ||
+		((closeCode === 1005 || closeCode === 1006) && !wsOpened)
+	) {
+		return '在线录音连接失败，请检查网络或服务状态后重试。';
+	}
+
+	if (lower.includes('websocket') || closeCode === 1005 || closeCode === 1006) {
+		return '在线录音连接中断，请稍后重试。';
+	}
+
+	if (lower.includes('实时录音失败')) {
+		return '在线录音处理失败，请稍后重试。';
+	}
+
+	return text || '在线录音处理失败，请稍后重试。';
+};
+
 const AUDIO_UPLOAD_EXTENSIONS = new Set([
 	'.mp3',
 	'.wav',
@@ -3263,7 +3325,13 @@ const MeetingMinutes: React.FC = () => {
 					}
 					if (data.type === 'error') {
 						setLocalStreamType('error');
-						setLocalStreamError(data.message || '实时录音失败');
+						setLocalStreamError(
+							resolveLocalLiveErrorMessage(data.message, {
+								stopRequested: localLiveStopRequestedRef.current,
+								firstAudioSent: localLiveFirstAudioSentRef.current,
+								wsOpened: localLiveWsOpenedRef.current,
+							}),
+						);
 						void stopLocalLiveWs(true);
 					}
 				} catch { /* ignore */ }
@@ -3272,7 +3340,13 @@ const MeetingMinutes: React.FC = () => {
 			ws.onerror = () => {
 				if (!isSessionValid()) return;
 				setLocalStreamType('error');
-				setLocalStreamError('WebSocket 连接失败（请确认后端服务已启动且 WebSocket 代理已开启）');
+				setLocalStreamError(
+					resolveLocalLiveErrorMessage('WebSocket 连接失败', {
+						stopRequested: localLiveStopRequestedRef.current,
+						firstAudioSent: localLiveFirstAudioSentRef.current,
+						wsOpened: localLiveWsOpenedRef.current,
+					}),
+				);
 				if (localLiveWsConnectTimerRef.current) { window.clearTimeout(localLiveWsConnectTimerRef.current); localLiveWsConnectTimerRef.current = null; }
 				void stopLocalLiveWs(true);
 			};
@@ -3302,15 +3376,21 @@ const MeetingMinutes: React.FC = () => {
 				}
 
 				await stopLocalAudioCapture();
-				const hint = code === 4001 ? '（token 无效/过期：请重新登录）' : code === 4004 ? '（meeting_id 不存在）' : '';
 				setLocalStreamType('error');
-				setLocalStreamError(`WebSocket 已关闭 code=${code ?? '—'}${hint}`);
+				setLocalStreamError(
+					resolveLocalLiveErrorMessage(undefined, {
+						closeCode: code,
+						stopRequested: localLiveStopRequestedRef.current,
+						firstAudioSent: localLiveFirstAudioSentRef.current,
+						wsOpened: localLiveWsOpenedRef.current,
+					}),
+				);
 			};
 
 			localLiveWsConnectTimerRef.current = window.setTimeout(() => {
 				if (!isSessionValid() || localLiveStopRequestedRef.current || localLiveWsOpenedRef.current) return;
 				setLocalStreamType('error');
-				setLocalStreamError('WebSocket 握手超时：请确认后端服务已启动并开启 ws 代理');
+				setLocalStreamError(resolveLocalLiveErrorMessage('WebSocket 握手超时'));
 				void stopLocalLiveWs(true);
 			}, 5000);
 		};
