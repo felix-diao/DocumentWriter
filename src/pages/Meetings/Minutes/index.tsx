@@ -99,6 +99,11 @@ type IncrementalAsrPayload = {
 	replace?: boolean;
 };
 
+type CompletedAsrPayload = IncrementalAsrPayload & {
+	transcript?: string;
+	stream_transcript_text?: string;
+};
+
 const LOCAL_SILENCE_RMS_THRESHOLD = 0.008;
 // 在线录音改为按固定时长分段后再通过 WS 发送，节奏对齐“已有音频流式转写”体验。
 const LOCAL_LIVE_WS_CHUNK_SEC = 6.0;
@@ -253,6 +258,18 @@ const mergeIncrementalAsrText = (prev: string, payload: IncrementalAsrPayload): 
 		return accumulated;
 	}
 	return prev;
+};
+
+const resolveCompletedAsrText = (prev: string, payload: CompletedAsrPayload): string => {
+	const transcript =
+		typeof payload.transcript === 'string'
+			? payload.transcript
+			: typeof payload.stream_transcript_text === 'string'
+				? payload.stream_transcript_text
+				: typeof payload.accumulated === 'string'
+					? payload.accumulated
+					: '';
+	return transcript || prev;
 };
 
 /** 简单 Markdown 渲染：支持 **bold**、`- list`、空行段落，满足妙记摘要格式 */
@@ -650,6 +667,7 @@ const MeetingMinutes: React.FC = () => {
 	const localLiveWsRef = useRef<WebSocket | null>(null);
 	const localLiveStopRequestedRef = useRef(false);
 	const localStreamTypeRef = useRef<typeof localStreamType>('idle');
+	const localStreamTextRef = useRef('');
 	const localSseRef = useRef<EventSource | null>(null);
 	const localFileWsRef = useRef<WebSocket | null>(null);
 	const localSseAudioIdRef = useRef<number | null>(null);
@@ -1461,6 +1479,10 @@ const MeetingMinutes: React.FC = () => {
 	useEffect(() => {
 		localStreamTypeRef.current = localStreamType;
 	}, [localStreamType]);
+
+	useEffect(() => {
+		localStreamTextRef.current = localStreamText;
+	}, [localStreamText]);
 
 	useEffect(() => {
 		const textarea = localStreamCardRef.current?.querySelector('textarea');
@@ -3081,7 +3103,7 @@ const MeetingMinutes: React.FC = () => {
 					setLocalStreamText((prev) => mergeIncrementalAsrText(prev, data));
 				}
 				if (data.type === 'completed') {
-					const transcript = typeof data.transcript === 'string' ? data.transcript : '';
+					const transcript = resolveCompletedAsrText(localStreamTextRef.current, data);
 					setLocalStreamText(transcript);
 					setLocalStreamType('completed');
 					void loadLocalAudioList(meetingId);
@@ -3284,7 +3306,7 @@ const MeetingMinutes: React.FC = () => {
 						setLocalStreamType('live_uploading');
 					}
 					if (data.type === 'completed') {
-						const transcript = typeof data.transcript === 'string' ? data.transcript : '';
+						const transcript = resolveCompletedAsrText(localStreamTextRef.current, data);
 						const mid = selectedMeetingId;
 						const minutesGenerated = Boolean(data.minutes_generated);
 						const minutesError = typeof data.minutes_error === 'string' ? data.minutes_error : '';
