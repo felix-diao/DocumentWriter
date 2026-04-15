@@ -374,6 +374,10 @@ export interface LocalMeetingTodoPayload {
   meeting_id?: number;
 }
 
+export interface GenerateLocalMinutesOptions {
+  asrSessionId?: number | null;
+}
+
 const normalizeVolcUploadTask = (task: MeetingAudioUploadTask): VolcAudioUploadTask => ({
   task_id: task.task_id,
   provider: task.provider,
@@ -587,11 +591,15 @@ const getLocalMinutes = async (meetingId: number): Promise<LocalMeetingMinutes> 
   };
 };
 
-const generateLocalMinutes = async (meetingId: number): Promise<LocalMeetingMinutes> => {
+const generateLocalMinutes = async (
+  meetingId: number,
+  options?: GenerateLocalMinutesOptions,
+): Promise<LocalMeetingMinutes> => {
   const res = await request<ApiResponse<LocalMeetingMinutes>>(
     `${LOCAL_MINUTES_API_BASE}/${meetingId}/generate`,
     {
       method: 'POST',
+      params: typeof options?.asrSessionId === 'number' ? { asr_session_id: options.asrSessionId } : undefined,
       skipErrorHandler: true,
     },
   );

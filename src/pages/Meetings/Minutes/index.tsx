@@ -672,7 +672,7 @@ const MeetingMinutes: React.FC = () => {
 	const loadLocalAudioListRef = useRef<((meetingId: number) => Promise<void>) | null>(null);
 	const loadLocalMinutesDataRef = useRef<((meetingId: number, showToast?: boolean) => Promise<void>) | null>(null);
 	const loadLocalSessionsRef = useRef<((meetingId: number, keepSelection?: boolean) => Promise<void>) | null>(null);
-	const handleGenerateLocalMinutesRef = useRef<((meetingId?: number) => Promise<void>) | null>(null);
+	const handleGenerateLocalMinutesRef = useRef<((meetingId?: number, asrSessionId?: number | null) => Promise<void>) | null>(null);
 	const selectedMeetingIdRef = useRef<number | undefined>(undefined);
 	const selectedVolcAudioIdRef = useRef<number | null>(null);
 	const volcLatestAudioIdRef = useRef<number | null>(null);
@@ -1165,11 +1165,14 @@ const MeetingMinutes: React.FC = () => {
 					const payload = JSON.parse(String(event.data || '{}'));
 					if (!payload?.type) return;
 
-					const matchesActiveLocalUploadTask = () => {
+					const matchesActiveLocalUploadTask = (allowPendingSessionBinding = false) => {
 						const expectedAudioId = localUploadedTranscribeAudioIdRef.current;
 						if (expectedAudioId == null || payload.audio_id !== expectedAudioId) return false;
 						const expectedSessionId = localUploadedTranscribeSessionIdRef.current;
-						return expectedSessionId == null || payload.asr_session_id === expectedSessionId;
+						if (expectedSessionId == null) {
+							return allowPendingSessionBinding;
+						}
+						return payload.asr_session_id === expectedSessionId;
 					};
 
 					const syncActiveLocalUploadSession = () => {
@@ -1183,7 +1186,7 @@ const MeetingMinutes: React.FC = () => {
 					};
 
 					if (payload.type === 'local_audio_transcribe_started') {
-						if (!matchesActiveLocalUploadTask()) {
+						if (!matchesActiveLocalUploadTask(true)) {
 							return;
 						}
 						syncActiveLocalUploadSession();
@@ -1276,7 +1279,7 @@ const MeetingMinutes: React.FC = () => {
 							message.warning(`自动生成失败，改用兜底生成：${minutesError}`);
 						}
 						message.success('转写完成，正在自动生成会议纪要…');
-						void handleGenerateLocalMinutesRef.current?.(meetingId);
+						void handleGenerateLocalMinutesRef.current?.(meetingId, payload.asr_session_id);
 						return;
 					}
 
@@ -2944,7 +2947,7 @@ const MeetingMinutes: React.FC = () => {
 		resetLocalLiveChunkBuffer();
 	}, [stopLocalAudioCapture, flushLocalLiveChunkBuffer, resetLocalLiveChunkBuffer]);
 
-	const handleGenerateLocalMinutes = useCallback(async (meetingId?: number) => {
+	const handleGenerateLocalMinutes = useCallback(async (meetingId?: number, asrSessionId?: number | null) => {
 		const mid = meetingId ?? selectedMeetingId;
 		if (!mid) { message.warning('请选择会议'); return; }
 		localDiscardHydrationRef.current = false;
@@ -2952,7 +2955,7 @@ const MeetingMinutes: React.FC = () => {
 		setShowLocalMinutesStatus(true);
 		setLocalMinutesStatus({ status: 'processing' });
 		try {
-			await meetingMinutesApi.generateLocalMinutes(mid);
+			await meetingMinutesApi.generateLocalMinutes(mid, { asrSessionId });
 			if (localDiscardHydrationRef.current && isMinutesMainRoute && minutesMode === 'local') {
 				return;
 			}
@@ -3087,7 +3090,7 @@ const MeetingMinutes: React.FC = () => {
 							// 空转写场景仅在第二步展示“纪要状态失败”，避免第一步重复报错提示。
 							setLocalStreamType('completed');
 							setLocalStreamError(null);
-						void handleGenerateLocalMinutes(meetingId);
+						void handleGenerateLocalMinutes(meetingId, typeof data.session_id === 'number' ? data.session_id : null);
 						return;
 					}
 						// 统一状态机：提交生成后先显示“处理中”，再进入“已完成/失败”
@@ -3105,7 +3108,7 @@ const MeetingMinutes: React.FC = () => {
 					} else {
 						if (data.minutes_error) message.warning(`自动生成失败，改用兜底生成：${data.minutes_error}`);
 						message.success('转写完成，正在自动生成会议纪要…');
-						void handleGenerateLocalMinutes(meetingId);
+						void handleGenerateLocalMinutes(meetingId, typeof data.session_id === 'number' ? data.session_id : null);
 					}
 				}
 				if (data.type === 'error') {
@@ -3297,7 +3300,10 @@ const MeetingMinutes: React.FC = () => {
 							if (!transcript.trim()) {
 								setLocalStreamType('completed');
 								setLocalStreamError(null);
-								await handleGenerateLocalMinutes(mid ?? undefined);
+								await handleGenerateLocalMinutes(
+									mid ?? undefined,
+									typeof data.session_id === 'number' ? data.session_id : null,
+								);
 								return;
 							}
 							setShowLocalMinutesStatus(true);
@@ -3318,7 +3324,10 @@ const MeetingMinutes: React.FC = () => {
 							} else {
 								if (minutesError) message.warning(`自动生成失败，改用兜底生成：${minutesError}`);
 								message.success('录音完成，正在自动生成会议纪要…');
-								await handleGenerateLocalMinutes(mid ?? undefined);
+								await handleGenerateLocalMinutes(
+									mid ?? undefined,
+									typeof data.session_id === 'number' ? data.session_id : null,
+								);
 							}
 						})();
 						return;
