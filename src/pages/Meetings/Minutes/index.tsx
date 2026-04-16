@@ -605,6 +605,7 @@ const MeetingMinutes: React.FC = () => {
 		'idle' | 'live_connecting' | 'live_streaming' | 'live_stopping' | 'live_saving' | 'live_uploading' | 'file_streaming' | 'completed' | 'error'
 	>('idle');
 	const [localStreamError, setLocalStreamError] = useState<string | null>(null);
+	const [localStreamHint, setLocalStreamHint] = useState<string | null>(null);
 	const [localStreamSessionId, setLocalStreamSessionId] = useState<number | null>(null);
 	const [localInputMode, setLocalInputMode] = useState<'live' | 'upload'>('live');
 	const [localMinutesStatus, setLocalMinutesStatus] = useState<{
@@ -1213,6 +1214,26 @@ const MeetingMinutes: React.FC = () => {
 						setLocalStreamSessionId(payload.asr_session_id || null);
 						setLocalStreamType('file_streaming');
 						setLocalStreamError(null);
+						setLocalStreamHint(typeof payload.message === 'string' ? payload.message : '正在准备音频文件…');
+						setTranscribingLocalAudio(true);
+						setShowLocalMinutesStatus(true);
+						setLocalMinutesStatus({ status: payload.status || 'processing' });
+						return;
+					}
+
+					if (payload.type === 'local_audio_transcribe_stage') {
+						if (!matchesActiveLocalUploadTask(true)) {
+							return;
+						}
+						syncActiveLocalUploadSession();
+						setLocalStreamSessionId(payload.asr_session_id || null);
+						setLocalStreamType('file_streaming');
+						setLocalStreamError(null);
+						setLocalStreamHint(
+							typeof payload.message === 'string' && payload.message.trim()
+								? payload.message
+								: '正在处理音频，请稍候…',
+						);
 						setTranscribingLocalAudio(true);
 						setShowLocalMinutesStatus(true);
 						setLocalMinutesStatus({ status: payload.status || 'processing' });
@@ -1230,6 +1251,11 @@ const MeetingMinutes: React.FC = () => {
 						}
 						setLocalStreamType('file_streaming');
 						setLocalStreamError(null);
+						setLocalStreamHint(
+							typeof payload.chunk_idx === 'number' && typeof payload.total_chunks === 'number'
+								? `正在识别第 ${payload.chunk_idx + 1}/${payload.total_chunks} 段音频…`
+								: '正在继续识别音频…',
+						);
 						setTranscribingLocalAudio(true);
 						setShowLocalMinutesStatus(true);
 						setLocalMinutesStatus({ status: payload.status || 'processing' });
@@ -1250,6 +1276,7 @@ const MeetingMinutes: React.FC = () => {
 						}
 						setLocalStreamType('error');
 						setLocalStreamError(errMsg);
+						setLocalStreamHint(null);
 						setTranscribingLocalAudio(false);
 						setShowLocalMinutesStatus(true);
 						setLocalMinutesStatus({ status: payload.status || 'failed', error: errMsg });
@@ -1272,6 +1299,7 @@ const MeetingMinutes: React.FC = () => {
 						setLocalStreamText(transcript);
 						setLocalStreamType('completed');
 						setLocalStreamError(null);
+						setLocalStreamHint(null);
 						setTranscribingLocalAudio(false);
 						localUploadedTranscribeSessionIdRef.current = null;
 						localUploadedTranscribeAudioIdRef.current = null;
@@ -1421,6 +1449,7 @@ const MeetingMinutes: React.FC = () => {
 		setLocalStreamText('');
 		setLocalStreamType('idle');
 		setLocalStreamError(null);
+		setLocalStreamHint(null);
 		setLocalStreamSessionId(null);
 		setLocalInputMode('live');
 		setLocalMinutesStatus(null);
@@ -1718,6 +1747,7 @@ const MeetingMinutes: React.FC = () => {
 		// 本地模式下 discard 仅清空前端工作区，不再请求后端清理接口。
 		setLocalStreamType('idle');
 		setLocalStreamError(null);
+		setLocalStreamHint(null);
 		if (waitRemoteCleanup) {
 			message.success('已丢弃当前内容并重置为空白');
 		}
@@ -2880,6 +2910,7 @@ const MeetingMinutes: React.FC = () => {
 		setLocalStreamText('');
 		setLocalStreamType('idle');
 		setLocalStreamError(null);
+		setLocalStreamHint(null);
 		setLocalStreamSessionId(null);
 		setLocalMinutesStatus(null);
 		setShowLocalMinutesStatus(false);
@@ -3038,6 +3069,7 @@ const MeetingMinutes: React.FC = () => {
 		setLocalAudiosModalVisible(false);
 		setLocalStreamType('file_streaming');
 		setLocalStreamError(null);
+		setLocalStreamHint('正在准备音频文件…');
 		setLocalStreamText('');
 		setLocalStreamSessionId(null);
 		setShowLocalMinutesStatus(true);
@@ -3056,6 +3088,7 @@ const MeetingMinutes: React.FC = () => {
 			const errMsg = resolveZhErrorMessage(error, '本地音频转写失败，请稍后重试。');
 			setLocalStreamType('error');
 			setLocalStreamError(errMsg);
+			setLocalStreamHint(null);
 			setLocalMinutesStatus({ status: 'failed', error: errMsg });
 			setTranscribingLocalAudio(false);
 			localUploadedTranscribeSessionIdRef.current = null;
@@ -3078,8 +3111,9 @@ const MeetingMinutes: React.FC = () => {
 		stopLocalSseStream();
 		localSseAudioIdRef.current = audioId;
 		const token = getToken();
-		if (!token) { message.error('未找到登录 token，请先登录'); setLocalStreamType('error'); setLocalStreamError('未找到登录 token'); return; }
+		if (!token) { message.error('未找到登录 token，请先登录'); setLocalStreamType('error'); setLocalStreamError('未找到登录 token'); setLocalStreamHint(null); return; }
 		setLocalStreamType('file_streaming');
+		setLocalStreamHint('正在连接文件转写服务…');
 		setLocalMinutesStatus(null);
 		setShowLocalMinutesStatus(false);
 		const wsUrl = buildWsUrl(`/api/minutes/local/audio/${audioId}/ws?token=${encodeURIComponent(token)}`);
@@ -3088,6 +3122,7 @@ const MeetingMinutes: React.FC = () => {
 		setTimeout(() => { localStreamCardRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }); }, 100);
 		ws.onopen = () => {
 			setLocalStreamError(null);
+			setLocalStreamHint('正在接收转写结果…');
 		};
 		ws.onmessage = (event) => {
 			try {
@@ -3101,17 +3136,20 @@ const MeetingMinutes: React.FC = () => {
 				if (data.type === 'session_created') setLocalStreamSessionId(data.session_id || null);
 				if (typeof data.accumulated === 'string' || typeof data.delta === 'string') {
 					setLocalStreamText((prev) => mergeIncrementalAsrText(prev, data));
+					setLocalStreamHint(null);
 				}
 				if (data.type === 'completed') {
 					const transcript = resolveCompletedAsrText(localStreamTextRef.current, data);
 					setLocalStreamText(transcript);
 					setLocalStreamType('completed');
+					setLocalStreamHint(null);
 					void loadLocalAudioList(meetingId);
 					stopLocalSseStream();
 					if (!transcript.trim()) {
 							// 空转写场景仅在第二步展示“纪要状态失败”，避免第一步重复报错提示。
 							setLocalStreamType('completed');
 							setLocalStreamError(null);
+							setLocalStreamHint(null);
 						void handleGenerateLocalMinutes(meetingId, typeof data.session_id === 'number' ? data.session_id : null);
 						return;
 					}
@@ -3136,6 +3174,7 @@ const MeetingMinutes: React.FC = () => {
 				if (data.type === 'error') {
 					setLocalStreamType('error');
 					setLocalStreamError(data.message || '流式转写失败');
+					setLocalStreamHint(null);
 					stopLocalSseStream();
 				}
 			} catch { /* ignore */ }
@@ -3143,17 +3182,19 @@ const MeetingMinutes: React.FC = () => {
 		ws.onerror = () => {
 			setLocalStreamType('error');
 			setLocalStreamError('WS 连接失败或已中断');
+			setLocalStreamHint(null);
 			stopLocalSseStream();
 		};
 		ws.onclose = (e) => {
 			const st = localStreamTypeRef.current;
-			if (st === 'completed') return;
-			if (st === 'error') return;
-			const code = (e as CloseEvent | any)?.code;
-			setLocalStreamType('error');
-			setLocalStreamError(`文件转写 WS 已关闭 code=${code ?? '—'}`);
-		};
-	}, [stopLocalSseStream, handleGenerateLocalMinutes, loadLocalMinutesData, loadLocalAudioList, shouldSyncLocalSessions, loadLocalSessions]);
+		if (st === 'completed') return;
+		if (st === 'error') return;
+		const code = (e as CloseEvent | any)?.code;
+		setLocalStreamType('error');
+		setLocalStreamError(`文件转写 WS 已关闭 code=${code ?? '—'}`);
+		setLocalStreamHint(null);
+	};
+}, [stopLocalSseStream, handleGenerateLocalMinutes, loadLocalMinutesData, loadLocalAudioList, shouldSyncLocalSessions, loadLocalSessions]);
 
 	const startLocalLiveRecording = async () => {
 		if (!selectedMeetingId) { message.warning('请选择会议'); return; }
@@ -3176,6 +3217,7 @@ const MeetingMinutes: React.FC = () => {
 		if (!isSessionValid()) return;
 
 		setLocalStreamType('live_connecting');
+		setLocalStreamHint(null);
 		setLocalMinutesStatus(null);
 		setShowLocalMinutesStatus(false);
 		localLiveStopRequestedRef.current = false;
@@ -3190,6 +3232,7 @@ const MeetingMinutes: React.FC = () => {
 			const errMsg = resolveMicrophoneAccessMessage();
 			setLocalStreamType('error');
 			setLocalStreamError(errMsg);
+			setLocalStreamHint(null);
 			message.error(errMsg);
 			return;
 		}
@@ -3202,6 +3245,7 @@ const MeetingMinutes: React.FC = () => {
 			const errMsg = resolveMicrophoneAccessMessage(error);
 			setLocalStreamType('error');
 			setLocalStreamError(errMsg);
+			setLocalStreamHint(null);
 			message.error(errMsg);
 			return;
 		}
@@ -3247,6 +3291,7 @@ const MeetingMinutes: React.FC = () => {
 			if (!isSessionValid()) return;
 			setLocalStreamType('error');
 			setLocalStreamError(error?.message || '初始化音频采集失败');
+			setLocalStreamHint(null);
 			message.error(error?.message || '初始化音频采集失败');
 			await stopLocalAudioCapture();
 			return;
@@ -3262,6 +3307,7 @@ const MeetingMinutes: React.FC = () => {
 				if (!isSessionValid()) return;
 				setLocalStreamType('error');
 				setLocalStreamError(error?.message || 'WebSocket 初始化失败');
+				setLocalStreamHint(null);
 				await stopLocalAudioCapture();
 				return;
 			}
@@ -3300,6 +3346,7 @@ const MeetingMinutes: React.FC = () => {
 					if (data.type === 'session_created') setLocalStreamSessionId(data.session_id || null);
 					if (typeof data.accumulated === 'string' || typeof data.delta === 'string') {
 						setLocalStreamText((prev) => mergeIncrementalAsrText(prev, data));
+						setLocalStreamHint(null);
 					}
 					if (data.type === 'saving_audio') setLocalStreamType('live_saving');
 					if (data.type === 'uploading_audio') {
@@ -3314,6 +3361,7 @@ const MeetingMinutes: React.FC = () => {
 						if (typeof data.audio_id === 'number') setLocalLatestAudioId(data.audio_id);
 						if (mid) void loadLocalAudioList(mid);
 						setLocalStreamType('completed');
+						setLocalStreamHint(null);
 						// 勿在 onmessage 内长 await：否则上传/生成阶段切路由时主线程与导航易被拖住（对齐火山侧非阻塞思路）
 						void stopLocalLiveWs(true);
 						void (async () => {
@@ -3363,6 +3411,7 @@ const MeetingMinutes: React.FC = () => {
 								wsOpened: localLiveWsOpenedRef.current,
 							}),
 						);
+						setLocalStreamHint(null);
 						void stopLocalLiveWs(true);
 					}
 				} catch { /* ignore */ }
@@ -3378,6 +3427,7 @@ const MeetingMinutes: React.FC = () => {
 						wsOpened: localLiveWsOpenedRef.current,
 					}),
 				);
+				setLocalStreamHint(null);
 				if (localLiveWsConnectTimerRef.current) { window.clearTimeout(localLiveWsConnectTimerRef.current); localLiveWsConnectTimerRef.current = null; }
 				void stopLocalLiveWs(true);
 			};
@@ -4924,6 +4974,7 @@ const MeetingMinutes: React.FC = () => {
 										<Text type="secondary">session_id：{localStreamSessionId}</Text>
 									)}
 								</Space>
+								{localStreamHint && !localStreamError && <Alert type="info" showIcon message={localStreamHint} />}
 								{localStreamError && <Alert type="error" showIcon message={localStreamError} />}
 								<TextArea
 									rows={8}
