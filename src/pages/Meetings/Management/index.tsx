@@ -565,7 +565,11 @@ const MeetingManagement: React.FC = () => {
           <Form.Item name="content_text" label="会议说明">
             <TextArea rows={3} placeholder="主要议题、背景或准备材料说明" />
           </Form.Item>
-          <Form.Item name="status" label="会议状态">
+          <Form.Item
+            name="status"
+            label="会议状态"
+            rules={[{ required: true, message: '请选择会议状态' }]}
+          >
             <Select
               allowClear
               placeholder="选择当前状态"
