@@ -315,6 +315,9 @@ export const meetingFileDownloadUrl = (meetingId: number, fileId: number) =>
 export const meetingAudioDownloadUrl = (meetingId: number, audioId: number) =>
   `${MEETING_AUDIO_API_BASE}/download/${meetingId}/${audioId}?provider=local`;
 
+export const localAudioDirectDownloadUrl = (meetingId: number, audioId: number, token: string) =>
+  `${MEETING_AUDIO_API_BASE}/direct-download/${meetingId}/${audioId}?provider=local&token=${encodeURIComponent(token)}`;
+
 const listVolcAudios = async (meetingId: number): Promise<VolcMeetingAudio[]> => {
   const res = await request<ApiResponse<MeetingAudioRecordRaw[]>>(
     `${MEETING_AUDIO_API_BASE}/${meetingId}`,

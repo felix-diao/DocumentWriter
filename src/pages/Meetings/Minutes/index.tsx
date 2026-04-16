@@ -48,6 +48,7 @@ import meetingsApi, {
 	type MeetingAudio,
 	type MeetingFile,
 	type VolcMeetingAudio,
+	localAudioDirectDownloadUrl,
 } from '@/services/meetings';
 import meetingMinutesApi, {
 	type LocalMeetingMinutes,
@@ -3562,6 +3563,14 @@ const MeetingMinutes: React.FC = () => {
 		window.URL.revokeObjectURL(url);
 	};
 
+	const triggerBrowserDownload = (url: string) => {
+		const a = document.createElement('a');
+		a.href = url;
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+	};
+
 	const handleDownloadVolcAudio = async (audioId: number) => {
 		if (!selectedMeetingId) {
 			message.warning('请选择会议');
@@ -3596,8 +3605,12 @@ const MeetingMinutes: React.FC = () => {
 			return;
 		}
 		try {
-			const { blob, filename } = await meetingsApi.downloadLocalAudio(selectedMeetingId, audioId);
-			triggerFileDownload(blob, filename);
+			const token = getToken();
+			if (!token) {
+				message.error('未找到登录 token，请先登录');
+				return;
+			}
+			triggerBrowserDownload(localAudioDirectDownloadUrl(selectedMeetingId, audioId, token));
 		} catch (error: any) {
 			message.error(error?.message || '下载音频失败');
 		}

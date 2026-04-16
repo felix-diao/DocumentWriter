@@ -41,7 +41,9 @@ import meetingsApi, {
   type LocalMeetingAudio,
   type Meeting,
   type MeetingPayload,
+  localAudioDirectDownloadUrl,
 } from '@/services/meetings';
+import { getToken } from '@/utils/auth';
 
 const { Paragraph, Text } = Typography;
 const { TextArea } = Input;
@@ -225,24 +227,17 @@ const MeetingManagement: React.FC = () => {
     }
   };
 
-  const handleDownloadBlob = async (getBlob: () => Promise<{ blob: Blob; filename: string }>) => {
-    try {
-      const { blob, filename } = await getBlob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename || 'download';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (error: any) {
-      message.error(error?.message || '下载失败，请稍后重试');
-    }
-  };
-
   const handleDownloadAudio = (audio: LocalMeetingAudio) => {
-    void handleDownloadBlob(() => meetingsApi.downloadLocalAudio(audio.meeting_id, audio.id));
+    const token = getToken();
+    if (!token) {
+      message.error('未找到登录 token，请先登录');
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = localAudioDirectDownloadUrl(audio.meeting_id, audio.id, token);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const audioUploadProps: UploadProps = {
