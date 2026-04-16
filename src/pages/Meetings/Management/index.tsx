@@ -38,6 +38,7 @@ import dayjs, { type Dayjs } from 'dayjs';
 import React, { useEffect, useState } from 'react';
 import { history } from '@umijs/max';
 import meetingsApi, {
+  isAudioUploadPendingError,
   type LocalMeetingAudio,
   type Meeting,
   type MeetingPayload,
@@ -222,6 +223,15 @@ const MeetingManagement: React.FC = () => {
       await loadAudios(selectedMeeting.id);
       onSuccess?.('ok' as any);
     } catch (error: any) {
+      if (isAudioUploadPendingError(error)) {
+        const errMsg = error?.message || '音频上传耗时较长，后台仍在继续处理，请稍后刷新音频列表确认结果';
+        message.warning(errMsg);
+        onSuccess?.('ok' as any);
+        window.setTimeout(() => {
+          void loadAudios(selectedMeeting.id);
+        }, 5000);
+        return;
+      }
       message.error(error?.message || '音频上传失败');
       onError?.(error);
     }

@@ -43,6 +43,7 @@ dayjs.extend(timezone);
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { history, useLocation } from '@umijs/max';
 import meetingsApi, {
+	isAudioUploadPendingError,
 	type LocalMeetingAudio,
 	type Meeting,
 	type MeetingAudio,
@@ -2178,28 +2179,10 @@ const MeetingMinutes: React.FC = () => {
 		setUploadingVolcMinutesAudio(true);
 		try {
 			const uploadTask = await meetingMinutesApi.uploadVolcMinutesAudio(selectedMeetingId, file as File);
-			const pollIntervalMs = 1000;
-			const maxPollRounds = 300; // 最长约 5 分钟
-			let finalAudioId: number | null = null;
-			let finalError = '';
-			for (let i = 0; i < maxPollRounds; i += 1) {
-				const latestTask = await meetingMinutesApi.getVolcUploadTask(uploadTask.task_id);
-				const status = String(latestTask.status || '').toLowerCase();
-				if (status === 'completed') {
-					finalAudioId = typeof latestTask.audio_id === 'number' ? latestTask.audio_id : null;
-					break;
-				}
-				if (status === 'failed') {
-					finalError = latestTask.error_msg || '音频上传失败';
-					break;
-				}
-				await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-			}
-			if (finalError) {
-				throw new Error(finalError);
-			}
+			const latestTask = await meetingMinutesApi.waitForVolcUploadTask(uploadTask.task_id);
+			const finalAudioId = typeof latestTask.audio_id === 'number' ? latestTask.audio_id : null;
 			if (finalAudioId == null) {
-				throw new Error('音频上传超时，请稍后刷新音频列表确认结果');
+				throw new Error(latestTask.error_msg || '上传完成但未返回音频记录');
 			}
 			setVolcLatestAudioId(finalAudioId);
 			setSelectedVolcAudioId(finalAudioId);
@@ -2208,6 +2191,14 @@ const MeetingMinutes: React.FC = () => {
 			onSuccess?.('ok');
 		} catch (error: any) {
 			const errMsg = resolveAudioUploadErrorMessage(error, file as File);
+			if (isAudioUploadPendingError(error)) {
+				message.warning(errMsg);
+				onSuccess?.('ok');
+				window.setTimeout(() => {
+					void loadVolcAudioList(selectedMeetingId);
+				}, 5000);
+				return;
+			}
 			message.error(errMsg);
 			onError?.(new Error(errMsg));
 		} finally {
@@ -2243,6 +2234,14 @@ const MeetingMinutes: React.FC = () => {
 			onSuccess?.('ok');
 		} catch (error: any) {
 			const errMsg = resolveAudioUploadErrorMessage(error, file as File);
+			if (isAudioUploadPendingError(error)) {
+				message.warning(errMsg);
+				onSuccess?.('ok');
+				window.setTimeout(() => {
+					void loadLocalAudioList(selectedMeetingId);
+				}, 5000);
+				return;
+			}
 			message.error(errMsg);
 			onError?.(new Error(errMsg));
 		} finally {
@@ -3794,6 +3793,22 @@ const MeetingMinutes: React.FC = () => {
 			setRecordingModalVisible(false);
 			resetRecordingState();
 		} catch (error: any) {
+			if (isAudioUploadPendingError(error)) {
+				const errMsg = error?.message || '音频上传耗时较长，后台仍在继续处理，请稍后刷新确认结果';
+				message.warning(errMsg);
+				if (recordingTarget === 'volc') {
+					window.setTimeout(() => {
+						void loadVolcAudioList(selectedMeetingId);
+					}, 5000);
+				} else {
+					window.setTimeout(() => {
+						void meetingsApi.listAudios(selectedMeetingId).then(setAvailableAudios).catch(() => undefined);
+					}, 5000);
+				}
+				setRecordingModalVisible(false);
+				resetRecordingState();
+				return;
+			}
 			const errMsg = error?.message || '录音上传失败';
 			message.error(errMsg);
 			setRecordingError(errMsg);
@@ -3820,6 +3835,21 @@ const MeetingMinutes: React.FC = () => {
 			onSuccess?.('ok');
 			message.success(`${file.name} 上传成功`);
 		} catch (error: any) {
+			if (isAudioUploadPendingError(error)) {
+				const errMsg = error?.message || `${file.name} 上传处理中，请稍后刷新确认结果`;
+				message.warning(errMsg);
+				if (uploadAudioTarget === 'volc') {
+					window.setTimeout(() => {
+						void loadVolcAudioList(selectedMeetingId);
+					}, 5000);
+				} else {
+					window.setTimeout(() => {
+						void meetingsApi.listAudios(selectedMeetingId).then(setAvailableAudios).catch(() => undefined);
+					}, 5000);
+				}
+				onSuccess?.('ok');
+				return;
+			}
 			const errMsg = error?.message || `${file.name} 上传失败`;
 			message.error(errMsg);
 			onError?.(new Error(errMsg));

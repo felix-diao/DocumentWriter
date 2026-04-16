@@ -1,5 +1,9 @@
 import { request } from '@umijs/max';
-import type { VolcMeetingAudio } from './meetings';
+import {
+  AUDIO_UPLOAD_POLL_TIMEOUT_MS,
+  createAudioUploadPendingError,
+  type VolcMeetingAudio,
+} from './meetings';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -95,8 +99,8 @@ const pollAudioUploadTask = async (taskId: string): Promise<MeetingAudioUploadTa
   const startedAt = Date.now();
   let latest = await getAudioUploadTask(taskId);
   while (latest.status !== 'completed' && latest.status !== 'failed') {
-    if (Date.now() - startedAt > 5 * 60 * 1000) {
-      throw new Error('音频上传超时，请稍后刷新确认结果');
+    if (Date.now() - startedAt > AUDIO_UPLOAD_POLL_TIMEOUT_MS) {
+      throw createAudioUploadPendingError(taskId);
     }
     await wait(1000);
     latest = await getAudioUploadTask(taskId);
@@ -506,6 +510,11 @@ const getVolcUploadTask = async (taskId: string): Promise<VolcAudioUploadTask> =
   return normalizeVolcUploadTask(task);
 };
 
+const waitForVolcUploadTask = async (taskId: string): Promise<VolcAudioUploadTask> => {
+  const task = await pollAudioUploadTask(taskId);
+  return normalizeVolcUploadTask(task);
+};
+
 const updateVolcTranscript = async (
   _meetingId: number,
   _payload: VolcTranscriptPayload,
@@ -732,6 +741,7 @@ export const meetingMinutesApi = {
   clearVolcMinutes,
   uploadVolcMinutesAudio,
   getVolcUploadTask,
+  waitForVolcUploadTask,
   updateVolcTranscript,
   updateVolcSummary,
   createVolcTodo,
