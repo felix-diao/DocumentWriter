@@ -175,6 +175,7 @@ export interface SpeakerSegment {
 export interface VolcMeetingMinutes {
   transcript_text?: string | null;
   stream_transcript_text?: string | null;
+  minutes_job_id?: number | null;
   minutes_job_status?: string | null;
   audio_status?: string | null;
   speaker_segments: SpeakerSegment[];
@@ -210,6 +211,19 @@ export interface VolcMinutesJob {
   error_msg?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface VolcMinutesCancelPayload {
+  job_id?: number | null;
+  reason?: string | null;
+}
+
+export interface VolcMinutesCancelResponse {
+  meeting_id: number;
+  job_id: number;
+  source_audio_id?: number | null;
+  task_id?: string | null;
+  status: 'cancelled';
 }
 
 export interface VolcMeetingTodoPayload {
@@ -316,6 +330,9 @@ export interface LocalMeetingMinutes {
   stream_transcript_text?: string | null;
   asr_session_id?: number | null;
   asr_status?: string | null;
+  processing_asr_session_id?: number | null;
+  processing_stage?: 'transcribe' | 'minutes' | null;
+  processing_status?: string | null;
   source_audio_id?: number | null;
   audio_status?: string | null;
   summary?: LocalMeetingSummary | null;
@@ -327,6 +344,19 @@ export interface LocalAsrTranscribeFromAudioResponse {
   meeting_id: number;
   source_audio_id: number;
   status: 'processing';
+}
+
+export interface LocalProcessingCancelPayload {
+  asr_session_id?: number | null;
+  reason?: string | null;
+}
+
+export interface LocalProcessingCancelResponse {
+  meeting_id: number;
+  asr_session_id: number;
+  source_audio_id?: number | null;
+  stage: 'transcribe' | 'minutes';
+  status: 'cancel_requested';
 }
 
 export interface LocalSessionTodoItem {
@@ -453,6 +483,7 @@ const getVolcMinutes = async (meetingId: number): Promise<VolcMeetingMinutes> =>
   return res?.data ?? {
     transcript_text: null,
     stream_transcript_text: null,
+    minutes_job_id: null,
     minutes_job_status: null,
     audio_status: null,
     speaker_segments: [],
@@ -483,6 +514,24 @@ const submitVolcMinutes = async (
     created_at: res.data.created_at,
     updated_at: res.data.updated_at,
   };
+};
+
+const cancelVolcMinutesJob = async (
+  meetingId: number,
+  jobId?: number | null,
+  payload?: VolcMinutesCancelPayload,
+): Promise<VolcMinutesCancelResponse> => {
+  const path = jobId == null
+    ? `${VOLC_MINUTES_API_BASE}/${meetingId}/cancel`
+    : `${VOLC_MINUTES_API_BASE}/${meetingId}/jobs/${jobId}/cancel`;
+  const res = await request<ApiResponse<VolcMinutesCancelResponse>>(
+    path,
+    {
+      method: 'POST',
+      data: jobId == null ? payload : { ...payload, job_id: jobId },
+    },
+  );
+  return res.data;
 };
 
 const abandonVolcMinutes = async (
@@ -593,6 +642,9 @@ const getLocalMinutes = async (meetingId: number): Promise<LocalMeetingMinutes> 
     stream_transcript_text: null,
     asr_session_id: null,
     asr_status: null,
+    processing_asr_session_id: null,
+    processing_stage: null,
+    processing_status: null,
     source_audio_id: null,
     audio_status: null,
     summary: null,
@@ -617,6 +669,9 @@ const generateLocalMinutes = async (
     stream_transcript_text: null,
     asr_session_id: null,
     asr_status: null,
+    processing_asr_session_id: null,
+    processing_stage: null,
+    processing_status: null,
     source_audio_id: null,
     audio_status: null,
     summary: null,
@@ -634,6 +689,20 @@ const transcribeUploadedLocalAudio = async (
       method: 'POST',
       params: { audio_id: audioId },
       skipErrorHandler: true,
+    },
+  );
+  return res.data;
+};
+
+const cancelLocalProcessing = async (
+  meetingId: number,
+  payload?: LocalProcessingCancelPayload,
+): Promise<LocalProcessingCancelResponse> => {
+  const res = await request<ApiResponse<LocalProcessingCancelResponse>>(
+    `${LOCAL_MINUTES_API_BASE}/${meetingId}/cancel`,
+    {
+      method: 'POST',
+      data: payload,
     },
   );
   return res.data;
@@ -736,6 +805,7 @@ export const meetingMinutesApi = {
   deleteDecisionItem,
   getVolcMinutes,
   submitVolcMinutes,
+  cancelVolcMinutesJob,
   abandonVolcMinutes,
   discardVolcWorkspace,
   clearVolcMinutes,
@@ -754,6 +824,7 @@ export const meetingMinutesApi = {
   getLocalMinutes,
   generateLocalMinutes,
   transcribeUploadedLocalAudio,
+  cancelLocalProcessing,
   uploadLocalAudio,
   updateLocalSummary,
   createLocalTodo,

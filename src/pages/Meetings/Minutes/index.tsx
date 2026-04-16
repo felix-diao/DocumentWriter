@@ -21,6 +21,7 @@ import {
 	Input,
 	Modal,
 	Popconfirm,
+	Progress,
 	message,
 	Row,
 	Select,
@@ -149,6 +150,42 @@ const MINUTES_MODE_LABEL: Record<'local' | 'volc', string> = {
 };
 
 const normalizeStatus = (status?: string | null): string => String(status ?? '').trim().toLowerCase();
+const clampPercent = (value: number, min = 0, max = 100): number => {
+	if (!Number.isFinite(value)) return min;
+	return Math.max(min, Math.min(max, Math.round(value)));
+};
+const resolveLocalStageProgressPercent = (payload: Record<string, any>): number | null => {
+	const phase = String(payload.phase ?? '').trim();
+	const totalChunks = Number(payload.total_chunks);
+	const batchFrom = Number(payload.batch_from);
+	const batchTo = Number(payload.batch_to);
+
+	if (phase === 'downloading_audio') return 5;
+	if (phase === 'normalizing') return 10;
+	if (phase === 'probing') return 15;
+
+	if (phase === 'preparing_batch') {
+		if (Number.isFinite(totalChunks) && totalChunks > 0 && Number.isFinite(batchTo) && batchTo > 0) {
+			return clampPercent(15 + (batchTo / totalChunks) * 15, 15, 30);
+		}
+		return 20;
+	}
+
+	if (phase === 'recognizing_batch') {
+		if (Number.isFinite(totalChunks) && totalChunks > 0 && Number.isFinite(batchFrom) && batchFrom > 0) {
+			return clampPercent(30 + ((batchFrom - 1) / totalChunks) * 65, 30, 95);
+		}
+		return 30;
+	}
+
+	return null;
+};
+const resolveLocalChunkProgressPercent = (chunkIdx?: unknown, totalChunks?: unknown): number | null => {
+	const idx = Number(chunkIdx);
+	const total = Number(totalChunks);
+	if (!Number.isFinite(idx) || !Number.isFinite(total) || total <= 0) return null;
+	return clampPercent(30 + ((idx + 1) / total) * 65, 30, 95);
+};
 const formatShanghaiTime = (value?: string | null, pattern = 'YYYY-MM-DD HH:mm'): string => {
 	if (!value) return '—';
 	const raw = String(value).trim();
@@ -345,6 +382,16 @@ const resolveZhErrorMessage = (error: any, fallback: string): string => {
 		return `请求失败：${raw.replace(/^Request failed with status code\s*/i, 'HTTP ')}`;
 	}
 	return fallback;
+};
+
+const isLocalMinutesCancelledError = (error: any): boolean => {
+	const detail = String(
+		error?.response?.data?.detail ||
+		error?.info?.data?.detail ||
+		error?.message ||
+		'',
+	).trim();
+	return error?.response?.status === 409 || detail === '已取消当前会议纪要生成任务';
 };
 
 const resolveMicrophoneAccessMessage = (error?: any): string => {
@@ -565,10 +612,13 @@ const MeetingMinutes: React.FC = () => {
 	const [savingVolcTranscript, setSavingVolcTranscript] = useState(false);
 	const [volcMinutesStatus, setVolcMinutesStatus] = useState<{
 		status?: string;
+		job_id?: number;
 		task_id?: string;
 		audio_id?: number;
 		error?: string;
 	} | null>(null);
+	const [cancelingVolcMinutes, setCancelingVolcMinutes] = useState(false);
+	const [activeVolcJobId, setActiveVolcJobId] = useState<number | null>(null);
 	const [volcSummaryTitle, setVolcSummaryTitle] = useState('');
 	const [volcSummaryDraft, setVolcSummaryDraft] = useState('');
 	const [savingVolcSummary, setSavingVolcSummary] = useState(false);
@@ -606,12 +656,15 @@ const MeetingMinutes: React.FC = () => {
 	>('idle');
 	const [localStreamError, setLocalStreamError] = useState<string | null>(null);
 	const [localStreamHint, setLocalStreamHint] = useState<string | null>(null);
+	const [localStreamProgressPercent, setLocalStreamProgressPercent] = useState<number | null>(null);
 	const [localStreamSessionId, setLocalStreamSessionId] = useState<number | null>(null);
 	const [localInputMode, setLocalInputMode] = useState<'live' | 'upload'>('live');
 	const [localMinutesStatus, setLocalMinutesStatus] = useState<{
 		status?: string;
 		error?: string;
 	} | null>(null);
+	const [cancelingLocalProcessing, setCancelingLocalProcessing] = useState(false);
+	const [activeLocalProcessingAsrSessionId, setActiveLocalProcessingAsrSessionId] = useState<number | null>(null);
 	const [showLocalMinutesStatus, setShowLocalMinutesStatus] = useState(false);
 	const [localSummaryTitle, setLocalSummaryTitle] = useState('');
 	const [localSummaryDraft, setLocalSummaryDraft] = useState('');
@@ -646,6 +699,8 @@ const MeetingMinutes: React.FC = () => {
 	const meetingWsRef = useRef<WebSocket | null>(null);
 	const selectedVolcSessionIdRef = useRef<number | null>(null);
 	const selectedLocalSessionIdRef = useRef<number | null>(null);
+	const activeVolcJobIdRef = useRef<number | null>(null);
+	const activeLocalProcessingAsrSessionIdRef = useRef<number | null>(null);
 	const meetingWsHeartbeatRef = useRef<number | null>(null);
 	const volcLiveWsRef = useRef<WebSocket | null>(null);
 	const volcLiveStopRequestedRef = useRef(false);
@@ -671,6 +726,7 @@ const MeetingMinutes: React.FC = () => {
 	const localLiveStopRequestedRef = useRef(false);
 	const localStreamTypeRef = useRef<typeof localStreamType>('idle');
 	const localStreamTextRef = useRef('');
+	const localStreamSessionIdRef = useRef<number | null>(null);
 	const localSseRef = useRef<EventSource | null>(null);
 	const localFileWsRef = useRef<WebSocket | null>(null);
 	const localSseAudioIdRef = useRef<number | null>(null);
@@ -968,9 +1024,16 @@ const MeetingMinutes: React.FC = () => {
 				...result,
 				summary: hasSummary && result.summary ? { ...result.summary, paragraph: cleanParagraph, title: cleanTitle || null } : null,
 			});
+			const stableJobStatus = getVolcMinutesJobStatus(result);
+			const latestJobId =
+				typeof result.minutes_job_id === 'number' ? result.minutes_job_id : null;
+			setActiveVolcJobId(
+				latestJobId != null && isVolcInProgressStatus(stableJobStatus) ? latestJobId : null,
+			);
+			setCancelingVolcMinutes(false);
 
 			// 精确转写：只有妙记真正跑完才填入。
-			const miaojiCompleted = isVolcCompletedStatus(getVolcMinutesJobStatus(result));
+			const miaojiCompleted = isVolcCompletedStatus(stableJobStatus);
 			const hasTranscript = miaojiCompleted && !!(result.transcript_text || (result.speaker_segments?.length ?? 0));
 			setVolcTranscriptDraft(hasTranscript ? (result.transcript_text || '') : '');
 			// 摘要：有内容才填入；无内容时清空
@@ -1154,6 +1217,18 @@ const MeetingMinutes: React.FC = () => {
 		selectedLocalSessionIdRef.current = selectedLocalSessionId;
 	}, [selectedLocalSessionId]);
 
+	useEffect(() => {
+		activeVolcJobIdRef.current = activeVolcJobId;
+	}, [activeVolcJobId]);
+
+	useEffect(() => {
+		activeLocalProcessingAsrSessionIdRef.current = activeLocalProcessingAsrSessionId;
+	}, [activeLocalProcessingAsrSessionId]);
+
+	useEffect(() => {
+		localStreamSessionIdRef.current = localStreamSessionId;
+	}, [localStreamSessionId]);
+
 	const closeMeetingWs = useCallback(() => {
 		if (meetingWsHeartbeatRef.current) {
 			window.clearInterval(meetingWsHeartbeatRef.current);
@@ -1212,9 +1287,11 @@ const MeetingMinutes: React.FC = () => {
 						}
 						syncActiveLocalUploadSession();
 						setLocalStreamSessionId(payload.asr_session_id || null);
+						setActiveLocalProcessingAsrSessionId(payload.asr_session_id || null);
 						setLocalStreamType('file_streaming');
 						setLocalStreamError(null);
 						setLocalStreamHint(typeof payload.message === 'string' ? payload.message : '正在准备音频文件…');
+						setLocalStreamProgressPercent(0);
 						setTranscribingLocalAudio(true);
 						setShowLocalMinutesStatus(true);
 						setLocalMinutesStatus({ status: payload.status || 'processing' });
@@ -1227,6 +1304,7 @@ const MeetingMinutes: React.FC = () => {
 						}
 						syncActiveLocalUploadSession();
 						setLocalStreamSessionId(payload.asr_session_id || null);
+						setActiveLocalProcessingAsrSessionId(payload.asr_session_id || null);
 						setLocalStreamType('file_streaming');
 						setLocalStreamError(null);
 						setLocalStreamHint(
@@ -1234,6 +1312,10 @@ const MeetingMinutes: React.FC = () => {
 								? payload.message
 								: '正在处理音频，请稍候…',
 						);
+						const stageProgress = resolveLocalStageProgressPercent(payload);
+						if (stageProgress != null) {
+							setLocalStreamProgressPercent((prev) => (prev == null ? stageProgress : Math.max(prev, stageProgress)));
+						}
 						setTranscribingLocalAudio(true);
 						setShowLocalMinutesStatus(true);
 						setLocalMinutesStatus({ status: payload.status || 'processing' });
@@ -1246,6 +1328,7 @@ const MeetingMinutes: React.FC = () => {
 						}
 						syncActiveLocalUploadSession();
 						setLocalStreamSessionId(payload.asr_session_id || null);
+						setActiveLocalProcessingAsrSessionId(payload.asr_session_id || null);
 						if (typeof payload.accumulated === 'string') {
 							setLocalStreamText(payload.accumulated);
 						}
@@ -1256,6 +1339,10 @@ const MeetingMinutes: React.FC = () => {
 								? `正在识别第 ${payload.chunk_idx + 1}/${payload.total_chunks} 段音频…`
 								: '正在继续识别音频…',
 						);
+						const chunkProgress = resolveLocalChunkProgressPercent(payload.chunk_idx, payload.total_chunks);
+						if (chunkProgress != null) {
+							setLocalStreamProgressPercent((prev) => (prev == null ? chunkProgress : Math.max(prev, chunkProgress)));
+						}
 						setTranscribingLocalAudio(true);
 						setShowLocalMinutesStatus(true);
 						setLocalMinutesStatus({ status: payload.status || 'processing' });
@@ -1277,7 +1364,9 @@ const MeetingMinutes: React.FC = () => {
 						setLocalStreamType('error');
 						setLocalStreamError(errMsg);
 						setLocalStreamHint(null);
+						setLocalStreamProgressPercent(null);
 						setTranscribingLocalAudio(false);
+						setActiveLocalProcessingAsrSessionId(null);
 						setShowLocalMinutesStatus(true);
 						setLocalMinutesStatus({ status: payload.status || 'failed', error: errMsg });
 						localUploadedTranscribeSessionIdRef.current = null;
@@ -1296,10 +1385,12 @@ const MeetingMinutes: React.FC = () => {
 						const minutesError =
 							typeof payload.minutes_error === 'string' ? payload.minutes_error.trim() : '';
 						setLocalStreamSessionId(payload.asr_session_id || null);
+						setActiveLocalProcessingAsrSessionId(payload.asr_session_id || null);
 						setLocalStreamText(transcript);
 						setLocalStreamType('completed');
 						setLocalStreamError(null);
 						setLocalStreamHint(null);
+						setLocalStreamProgressPercent(100);
 						setTranscribingLocalAudio(false);
 						localUploadedTranscribeSessionIdRef.current = null;
 						localUploadedTranscribeAudioIdRef.current = null;
@@ -1316,6 +1407,7 @@ const MeetingMinutes: React.FC = () => {
 						setLocalMinutesStatus({ status: 'processing' });
 						if (minutesGenerated) {
 							setLocalMinutesStatus({ status: 'completed' });
+							setActiveLocalProcessingAsrSessionId(null);
 							message.success('转写完成，会议纪要已自动生成');
 							void loadLocalMinutesDataRef.current?.(meetingId, false);
 							if (shouldSyncLocalSessions) {
@@ -1331,15 +1423,70 @@ const MeetingMinutes: React.FC = () => {
 						return;
 					}
 
+					if (payload.type === 'local_audio_transcribe_cancelled') {
+						if (!matchesActiveLocalUploadTask(true)) {
+							return;
+						}
+						syncActiveLocalUploadSession();
+						const cancelledMsg =
+							(typeof payload.error === 'string' && payload.error.trim()) ||
+							'已结束当前处理。';
+						const nextTranscript =
+							typeof payload.transcript === 'string' ? payload.transcript : localStreamTextRef.current;
+						setLocalStreamSessionId(payload.asr_session_id || null);
+						if (typeof payload.transcript === 'string') {
+							setLocalStreamText(payload.transcript);
+						}
+						setLocalStreamType(nextTranscript.trim() ? 'completed' : 'idle');
+						setLocalStreamError(null);
+						setLocalStreamHint(cancelledMsg);
+						setLocalStreamProgressPercent(null);
+						setTranscribingLocalAudio(false);
+						setGeneratingLocalMinutes(false);
+						setCancelingLocalProcessing(false);
+						setActiveLocalProcessingAsrSessionId(null);
+						setShowLocalMinutesStatus(true);
+						setLocalMinutesStatus({ status: 'cancelled' });
+						localUploadedTranscribeSessionIdRef.current = null;
+						localUploadedTranscribeAudioIdRef.current = null;
+						void loadLocalAudioListRef.current?.(meetingId);
+						return;
+					}
+
+					if (payload.type === 'local_minutes_cancelled') {
+						const currentAsrSessionId =
+							activeLocalProcessingAsrSessionIdRef.current ?? localStreamSessionIdRef.current;
+						if (
+							typeof payload.asr_session_id === 'number' &&
+							currentAsrSessionId != null &&
+							payload.asr_session_id !== currentAsrSessionId
+						) {
+							return;
+						}
+						setGeneratingLocalMinutes(false);
+						setCancelingLocalProcessing(false);
+						setActiveLocalProcessingAsrSessionId(null);
+						setShowLocalMinutesStatus(true);
+						setLocalMinutesStatus({ status: 'cancelled' });
+						setLocalStreamProgressPercent(null);
+						setLocalStreamError(null);
+						setLocalStreamHint('已结束当前生成，当前已识别文本会保留。');
+						return;
+					}
+
 					if (payload.type === 'volc_minutes_status') {
 						if (volcDiscardHydrationRef.current && isMinutesMainRoute && minutesMode === 'volc') {
 							return;
 						}
 						setVolcMinutesStatus({
 							status: payload.status,
+							job_id: payload.job_id,
 							task_id: payload.task_id,
 							audio_id: payload.audio_id,
 						});
+						if (typeof payload.job_id === 'number') {
+							setActiveVolcJobId(payload.job_id);
+						}
 					}
 
 					if (payload.type === 'volc_minutes_failed') {
@@ -1348,10 +1495,13 @@ const MeetingMinutes: React.FC = () => {
 						}
 						setVolcMinutesStatus({
 							status: payload.status || 'failed',
+							job_id: payload.job_id,
 							task_id: payload.task_id,
 							audio_id: payload.audio_id,
 							error: resolveVolcErrorMessage(payload.error),
 						});
+						setCancelingVolcMinutes(false);
+						setActiveVolcJobId(null);
 					}
 
 					if (payload.type === 'volc_minutes_completed') {
@@ -1365,14 +1515,33 @@ const MeetingMinutes: React.FC = () => {
 						}
 						setVolcMinutesStatus({
 							status: payload.status || 'completed',
+							job_id: payload.job_id,
 							task_id: payload.task_id,
 							audio_id: payload.audio_id,
 						});
+						setCancelingVolcMinutes(false);
+						setActiveVolcJobId(null);
 						void loadVolcMinutesData(meetingId, true);
 						void loadVolcAudioList(meetingId);
 						if (shouldSyncVolcSessions) {
 							void loadVolcSessions(meetingId, false);
 						}
+					}
+
+					if (payload.type === 'volc_minutes_cancelled') {
+						if (volcDiscardHydrationRef.current && isMinutesMainRoute && minutesMode === 'volc') {
+							return;
+						}
+						setVolcMinutesStatus({
+							status: payload.status || 'cancelled',
+							job_id: payload.job_id,
+							task_id: payload.task_id,
+							audio_id: payload.audio_id,
+							error: typeof payload.error === 'string' ? payload.error : undefined,
+						});
+						setCancelingVolcMinutes(false);
+						setActiveVolcJobId(null);
+						void loadVolcAudioList(meetingId);
 					}
 				} catch {
 					// ignore malformed message
@@ -1423,6 +1592,8 @@ const MeetingMinutes: React.FC = () => {
 		void stopVolcLiveWs(true);
 		setVolcMinutes(null);
 		setVolcMinutesStatus(null);
+		setActiveVolcJobId(null);
+		setCancelingVolcMinutes(false);
 		setSelectedVolcAudioId(null);
 		setVolcLatestAudioId(null);
 		setVolcStreamText('');
@@ -1453,6 +1624,8 @@ const MeetingMinutes: React.FC = () => {
 		setLocalStreamSessionId(null);
 		setLocalInputMode('live');
 		setLocalMinutesStatus(null);
+		setActiveLocalProcessingAsrSessionId(null);
+		setCancelingLocalProcessing(false);
 		setShowLocalMinutesStatus(false);
 		setTranscribingLocalAudio(false);
 		setLocalSummaryTitle('');
@@ -1575,11 +1748,38 @@ const MeetingMinutes: React.FC = () => {
 		}
 	}, [isSessionsRoute, selectedMeetingId, sessionHistoryMode, loadVolcSessions, loadLocalSessions]);
 
+	const buildMinutesLeaveConfirmContent = useCallback((mode: 'local' | 'volc', actionLabel: string) => {
+		const backgroundProcessing =
+			mode === 'local'
+				? (
+					transcribingLocalAudio ||
+					generatingLocalMinutes ||
+					isLocalSubmitInProgressStatus(localMinutesStatus?.status)
+				)
+				: (
+					submittingVolcMinutes ||
+					isVolcInProgressStatus(getVolcMinutesJobStatus(volcMinutes, volcMinutesStatus?.status))
+				);
+		if (backgroundProcessing) {
+			return `当前纪要已提交到后台处理。若${actionLabel}，当前页面展示会被清空，但后台仍会继续处理，你可以稍后前往“会话历史”查看结果。`;
+		}
+		return `若${actionLabel}，当前会话不会保留。`;
+	}, [
+		transcribingLocalAudio,
+		generatingLocalMinutes,
+		isLocalSubmitInProgressStatus,
+		localMinutesStatus?.status,
+		submittingVolcMinutes,
+		isVolcInProgressStatus,
+		volcMinutes,
+		volcMinutesStatus?.status,
+	]);
+
 	useEffect(() => {
 		if (!shouldGuardMinutesLeave) return;
 		const handler = (event: BeforeUnloadEvent) => {
 			event.preventDefault();
-			event.returnValue = '离开后当前会话不会保留';
+			event.returnValue = '离开后当前页面内容不会保留，后台任务可能继续处理';
 			return event.returnValue;
 		};
 		window.addEventListener('beforeunload', handler);
@@ -1601,7 +1801,7 @@ const MeetingMinutes: React.FC = () => {
 			}
 			Modal.confirm({
 				title: '是否离开当前页面？',
-				content: '若离开，当前会话不会保留。',
+				content: buildMinutesLeaveConfirmContent(minutesMode, '离开'),
 				okText: '确认离开',
 				cancelText: '取消',
 				onOk: () => {
@@ -1628,20 +1828,20 @@ const MeetingMinutes: React.FC = () => {
 		return () => {
 			unblock();
 		};
-	}, [minutesMode, shouldGuardMinutesLeave]);
+	}, [minutesMode, shouldGuardMinutesLeave, buildMinutesLeaveConfirmContent]);
 
 	const confirmVolcDiscard = useCallback((actionLabel: string) => {
 		return new Promise<boolean>((resolve) => {
 			Modal.confirm({
 				title: `是否${actionLabel}？`,
-				content: `若${actionLabel}，当前会话不会保留。`,
+				content: buildMinutesLeaveConfirmContent('volc', actionLabel),
 				okText: `确认${actionLabel}`,
 				cancelText: '取消',
 				onOk: () => resolve(true),
 				onCancel: () => resolve(false),
 			});
 		});
-	}, []);
+	}, [buildMinutesLeaveConfirmContent]);
 
 	const discardVolcWorkspaceNow = useCallback(async (
 		reason: string,
@@ -1700,14 +1900,14 @@ const MeetingMinutes: React.FC = () => {
 		return new Promise<boolean>((resolve) => {
 			Modal.confirm({
 				title: `是否${actionLabel}？`,
-				content: `若${actionLabel}，当前会话不会保留。`,
+				content: buildMinutesLeaveConfirmContent('local', actionLabel),
 				okText: `确认${actionLabel}`,
 				cancelText: '取消',
 				onOk: () => resolve(true),
 				onCancel: () => resolve(false),
 			});
 		});
-	}, []);
+	}, [buildMinutesLeaveConfirmContent]);
 
 	async function discardLocalWorkspaceNow(
 		_reason: string,
@@ -1924,6 +2124,8 @@ const MeetingMinutes: React.FC = () => {
 	const clearVolcMinutesDisplay = useCallback(() => {
 		setVolcMinutes(null);
 		setVolcMinutesStatus(null);
+		setActiveVolcJobId(null);
+		setCancelingVolcMinutes(false);
 		setVolcTranscriptDraft('');
 		setVolcSummaryTitle('');
 		setVolcSummaryDraft('');
@@ -2712,9 +2914,12 @@ const MeetingMinutes: React.FC = () => {
 			const record: VolcMinutesJob = await meetingMinutesApi.submitVolcMinutes(selectedMeetingId, idToSubmit, source);
 			setVolcMinutesStatus({
 				status: record.status || 'submitted',
+				job_id: record.job_id,
 				task_id: record.task_id || undefined,
 				audio_id: record.audio_id ?? undefined,
 			});
+			setActiveVolcJobId(record.job_id);
+			setCancelingVolcMinutes(false);
 			// 上传音频模式只在此处提示；在线录音模式在 WS completed 时已提示
 			if (volcInputMode === 'upload') {
 				message.success('上传成功，正在自动生成会议纪要。');
@@ -2729,6 +2934,100 @@ const MeetingMinutes: React.FC = () => {
 			setSubmittingVolcMinutes(false);
 		}
 	};
+
+	const handleCancelVolcMinutes = useCallback(() => {
+		if (!selectedMeetingId) {
+			message.warning('请选择会议');
+			return;
+		}
+		const jobId =
+			activeVolcJobIdRef.current ??
+			volcMinutesStatusRef.current?.job_id ??
+			(typeof volcMinutes?.minutes_job_id === 'number' ? volcMinutes.minutes_job_id : null);
+		Modal.confirm({
+			title: '结束当前生成纪要？',
+			content: '当前页面会停止等待结果，后端会停止跟踪该任务，后续结果不会再回写到当前纪要。',
+			okText: '结束当前生成',
+			okButtonProps: { danger: true },
+			cancelText: '取消',
+			onOk: async () => {
+				setCancelingVolcMinutes(true);
+				try {
+					await meetingMinutesApi.cancelVolcMinutesJob(selectedMeetingId, jobId, {
+						job_id: jobId,
+						reason: '用户在前端结束当前生成纪要',
+					});
+					setVolcMinutesStatus((prev) => ({
+						...(prev || {}),
+						status: 'cancelled',
+						job_id: jobId ?? prev?.job_id,
+						error: undefined,
+					}));
+					setActiveVolcJobId(null);
+					message.success('已结束当前生成');
+					void loadVolcAudioList(selectedMeetingId);
+				} catch (error: any) {
+					message.error(error?.message || '结束当前生成失败');
+				} finally {
+					setCancelingVolcMinutes(false);
+				}
+			},
+		});
+	}, [selectedMeetingId, loadVolcAudioList, volcMinutes?.minutes_job_id]);
+
+	const handleCancelLocalProcessing = useCallback(() => {
+		if (!selectedMeetingId) {
+			message.warning('请选择会议');
+			return;
+		}
+		const asrSessionId =
+			activeLocalProcessingAsrSessionIdRef.current ?? localStreamSessionId ?? localMinutes?.asr_session_id ?? null;
+		if (asrSessionId == null) {
+			message.warning('当前没有可结束的处理任务');
+			return;
+		}
+		const actionLabel = transcribingLocalAudio ? '结束当前处理' : '结束当前生成';
+		Modal.confirm({
+			title: `${actionLabel}？`,
+			content: '后端会尽快停止当前任务。已经识别出的文本会保留在当前页面，不会被清空。',
+			okText: actionLabel,
+			okButtonProps: { danger: true },
+			cancelText: '取消',
+			onOk: async () => {
+				setCancelingLocalProcessing(true);
+				try {
+					await meetingMinutesApi.cancelLocalProcessing(selectedMeetingId, {
+						asr_session_id: asrSessionId,
+						reason: '用户在前端结束当前处理',
+					});
+					setTranscribingLocalAudio(false);
+					setGeneratingLocalMinutes(false);
+					setActiveLocalProcessingAsrSessionId(null);
+					setShowLocalMinutesStatus(true);
+					setLocalMinutesStatus({ status: 'cancelled' });
+					setLocalStreamError(null);
+					setLocalStreamProgressPercent(null);
+					setLocalStreamHint(
+						localStreamTextRef.current.trim()
+							? '已结束当前处理，当前已识别文本会保留。'
+							: '已结束当前处理。',
+					);
+					setLocalStreamType((prev) => {
+						if (prev !== 'file_streaming') return prev;
+						return localStreamTextRef.current.trim() ? 'completed' : 'idle';
+					});
+					localUploadedTranscribeSessionIdRef.current = null;
+					localUploadedTranscribeAudioIdRef.current = null;
+					message.success('已结束当前处理');
+					void loadLocalAudioList(selectedMeetingId);
+				} catch (error: any) {
+					message.error(error?.message || '结束当前处理失败');
+				} finally {
+					setCancelingLocalProcessing(false);
+				}
+			},
+		});
+	}, [selectedMeetingId, localStreamSessionId, localMinutes?.asr_session_id, transcribingLocalAudio, loadLocalAudioList]);
 
 	const handleSaveVolcSummary = async () => {
 		if (!selectedMeetingId) {
@@ -2880,9 +3179,31 @@ const MeetingMinutes: React.FC = () => {
 					? { ...result.summary, paragraph: cleanParagraph, title: cleanTitle || null }
 					: null,
 			});
+			const processingStage = String(result.processing_stage || '').trim().toLowerCase();
+			const processingStatus = normalizeStatus(result.processing_status);
+			const isProcessing = processingStatus === 'processing';
+			const isStreamingStage = processingStage === 'transcribe';
+			const isGeneratingStage = processingStage === 'minutes';
 			setLocalSummaryTitle(cleanTitle);
 			setLocalSummaryDraft(compactSummaryBlankLines(normalizeSummaryMarkdown(cleanParagraph)));
-			// 纪要状态仅在“提交生成后”显示，这里不从查询结果自动透出。
+			setActiveLocalProcessingAsrSessionId(
+				typeof result.processing_asr_session_id === 'number' ? result.processing_asr_session_id : null,
+			);
+			if (isProcessing && typeof result.processing_asr_session_id === 'number') {
+				setLocalStreamSessionId(result.processing_asr_session_id);
+				setLocalStreamProgressPercent(null);
+			}
+			setTranscribingLocalAudio(isProcessing && isStreamingStage);
+			setGeneratingLocalMinutes(isProcessing && isGeneratingStage);
+			setCancelingLocalProcessing(false);
+			if (isProcessing) {
+				setShowLocalMinutesStatus(true);
+				setLocalMinutesStatus({ status: 'processing' });
+				setLocalStreamError(null);
+				setLocalStreamHint(
+					isStreamingStage ? '当前任务正在后台处理，识别文本会持续更新。' : '当前任务正在后台生成会议纪要。',
+				);
+			}
 			setLocalStreamText((prev) => {
 				const st = localStreamTypeRef.current;
 				const isStreaming = ['file_streaming', 'live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading'].includes(st);
@@ -2893,6 +3214,7 @@ const MeetingMinutes: React.FC = () => {
 			setLocalStreamType((prev) => {
 				const isActive = ['file_streaming', 'live_streaming', 'live_connecting', 'live_stopping', 'live_saving', 'live_uploading'].includes(prev);
 				if (isActive) return prev;
+				if (isProcessing && isStreamingStage) return 'file_streaming';
 				return (result.stream_transcript_text || result.transcript_text) ? 'completed' : 'idle';
 			});
 			if (showToast) message.success('已刷新本地纪要');
@@ -2911,8 +3233,11 @@ const MeetingMinutes: React.FC = () => {
 		setLocalStreamType('idle');
 		setLocalStreamError(null);
 		setLocalStreamHint(null);
+		setLocalStreamProgressPercent(null);
 		setLocalStreamSessionId(null);
 		setLocalMinutesStatus(null);
+		setActiveLocalProcessingAsrSessionId(null);
+		setCancelingLocalProcessing(false);
 		setShowLocalMinutesStatus(false);
 		setTranscribingLocalAudio(false);
 		localUploadedTranscribeSessionIdRef.current = null;
@@ -3004,6 +3329,8 @@ const MeetingMinutes: React.FC = () => {
 		const mid = meetingId ?? selectedMeetingId;
 		if (!mid) { message.warning('请选择会议'); return; }
 		localDiscardHydrationRef.current = false;
+		setActiveLocalProcessingAsrSessionId(asrSessionId ?? localStreamSessionId ?? localMinutes?.asr_session_id ?? null);
+		setCancelingLocalProcessing(false);
 		setGeneratingLocalMinutes(true);
 		setShowLocalMinutesStatus(true);
 		setLocalMinutesStatus({ status: 'processing' });
@@ -3013,6 +3340,7 @@ const MeetingMinutes: React.FC = () => {
 				return;
 			}
 			setLocalMinutesStatus({ status: 'completed' });
+			setActiveLocalProcessingAsrSessionId(null);
 			message.success('会议纪要已生成');
 			await loadLocalMinutesData(mid);
 			if (shouldSyncLocalSessions) {
@@ -3023,12 +3351,19 @@ const MeetingMinutes: React.FC = () => {
 				return;
 			}
 			const errMsg = resolveZhErrorMessage(error, '生成会议纪要失败，请稍后重试。');
-			setLocalMinutesStatus({ status: 'failed', error: errMsg });
-			message.error(errMsg);
+			if (isLocalMinutesCancelledError(error)) {
+				setLocalMinutesStatus({ status: 'cancelled' });
+				setLocalStreamHint('已结束当前生成，当前已识别文本会保留。');
+			} else {
+				setLocalMinutesStatus({ status: 'failed', error: errMsg });
+				message.error(errMsg);
+			}
+			setActiveLocalProcessingAsrSessionId(null);
 		} finally {
 			setGeneratingLocalMinutes(false);
+			setCancelingLocalProcessing(false);
 		}
-	}, [selectedMeetingId, loadLocalMinutesData, shouldSyncLocalSessions, loadLocalSessions, isMinutesMainRoute, minutesMode]);
+	}, [selectedMeetingId, localStreamSessionId, localMinutes?.asr_session_id, loadLocalMinutesData, shouldSyncLocalSessions, loadLocalSessions, isMinutesMainRoute, minutesMode]);
 
 	useEffect(() => {
 		loadLocalAudioListRef.current = loadLocalAudioList;
@@ -3070,17 +3405,20 @@ const MeetingMinutes: React.FC = () => {
 		setLocalStreamType('file_streaming');
 		setLocalStreamError(null);
 		setLocalStreamHint('正在准备音频文件…');
+		setLocalStreamProgressPercent(0);
 		setLocalStreamText('');
 		setLocalStreamSessionId(null);
 		setShowLocalMinutesStatus(true);
 		setLocalMinutesStatus({ status: 'processing' });
 		setTranscribingLocalAudio(true);
+		setCancelingLocalProcessing(false);
 		localUploadedTranscribeAudioIdRef.current = idToProcess;
 		localUploadedTranscribeSessionIdRef.current = null;
 
 		try {
 			const task = await meetingMinutesApi.transcribeUploadedLocalAudio(meetingId, idToProcess);
 			setLocalStreamSessionId(task.asr_session_id);
+			setActiveLocalProcessingAsrSessionId(task.asr_session_id);
 			localUploadedTranscribeSessionIdRef.current = task.asr_session_id;
 			localUploadedTranscribeAudioIdRef.current = idToProcess;
 			message.success('已提交本地音频转写，正在分段识别并生成纪要…');
@@ -3089,8 +3427,10 @@ const MeetingMinutes: React.FC = () => {
 			setLocalStreamType('error');
 			setLocalStreamError(errMsg);
 			setLocalStreamHint(null);
+			setLocalStreamProgressPercent(null);
 			setLocalMinutesStatus({ status: 'failed', error: errMsg });
 			setTranscribingLocalAudio(false);
+			setActiveLocalProcessingAsrSessionId(null);
 			localUploadedTranscribeSessionIdRef.current = null;
 			localUploadedTranscribeAudioIdRef.current = null;
 			message.error(errMsg);
@@ -3593,6 +3933,8 @@ const MeetingMinutes: React.FC = () => {
 		succeeded: '已完成',
 		success: '已完成',
 		finished: '已完成',
+		cancelled: '已取消',
+		canceled: '已取消',
 		failed: '失败',
 		error: '失败',
 		processing: '处理中',
@@ -4728,6 +5070,8 @@ const MeetingMinutes: React.FC = () => {
 		succeeded: '已完成',
 		success: '已完成',
 		finished: '已完成',
+		cancelled: '已取消',
+		canceled: '已取消',
 		queued: '等待中',
 		failed: '失败',
 		error: '失败',
@@ -4771,6 +5115,10 @@ const MeetingMinutes: React.FC = () => {
 		localStreamType === 'live_uploading' ||
 		localStreamType === 'file_streaming';
 	const localEntryButtonsBusy = localLiveBusy || localMinutesGenerating;
+	const localCancelActionLabel = transcribingLocalAudio ? '结束当前处理' : '结束当前生成';
+	const canCancelLocalProcessing =
+		localMinutesGenerating &&
+		(activeLocalProcessingAsrSessionId != null || localStreamSessionId != null || localMinutes?.asr_session_id != null);
 	// 仅在“未最终完成”且“仍在处理中”时禁用入口按钮，避免完成后状态滞留导致按钮长期灰置。
 	const volcMinutesGenerating =
 		!isVolcFinalCompleted &&
@@ -4782,6 +5130,7 @@ const MeetingMinutes: React.FC = () => {
 		volcStreamType === 'live_saving' ||
 		volcStreamType === 'live_uploading';
 	const volcEntryButtonsBusy = volcLiveBusy || volcMinutesGenerating;
+	const canCancelVolcMinutes = volcMinutesGenerating;
 
 	const getSessionStatusColor = (status?: string): string => {
 		const normalized = String(status ?? '').toLowerCase();
@@ -4976,6 +5325,13 @@ const MeetingMinutes: React.FC = () => {
 								</Space>
 								{localStreamHint && !localStreamError && <Alert type="info" showIcon message={localStreamHint} />}
 								{localStreamError && <Alert type="error" showIcon message={localStreamError} />}
+								{localInputMode === 'upload' && localStreamProgressPercent != null && !localStreamError && (
+									<Progress
+										percent={localStreamProgressPercent}
+										size="small"
+										status={localStreamType === 'completed' ? 'success' : 'active'}
+									/>
+								)}
 								<TextArea
 									rows={8}
 									value={localStreamText}
@@ -4998,6 +5354,24 @@ const MeetingMinutes: React.FC = () => {
 									type={localMinutesStatus?.error ? 'error' : 'info'}
 									message={`纪要状态：${localMinutesStatusLabel[String(localMinutesStatus.status ?? '').toLowerCase()] || localMinutesStatus.status || '—'}`}
 									description={localMinutesStatus.error ? <Text type="danger">错误：{localMinutesStatus.error}</Text> : undefined}
+								/>
+							)}
+							{localMinutesGenerating && (
+								<Alert
+									type="info"
+									showIcon
+									message="当前任务已提交到后台处理。离开当前页面不会中断生成。"
+									description="你可以稍后返回本页，或前往“会话历史”查看生成结果。"
+									action={canCancelLocalProcessing ? (
+										<Button
+											size="small"
+											danger
+											loading={cancelingLocalProcessing}
+											onClick={handleCancelLocalProcessing}
+										>
+											{localCancelActionLabel}
+										</Button>
+									) : undefined}
 								/>
 							)}
 							<Alert
@@ -5125,6 +5499,24 @@ const MeetingMinutes: React.FC = () => {
 								type={volcMinutesStatus?.error ? 'error' : 'info'}
 								message={`纪要状态：${volcMinutesStatusLabel[String(stableVolcMinutesStatus ?? '').toLowerCase()] || stableVolcMinutesStatus || '—'}`}
 								description={volcMinutesStatus.error ? <Text type="danger">错误：{resolveVolcErrorMessage(volcMinutesStatus.error)}</Text> : undefined}
+							/>
+						)}
+						{volcMinutesGenerating && (
+							<Alert
+								type="info"
+								showIcon
+								message="当前任务已提交到后台处理。离开当前页面不会中断生成。"
+								description="你可以稍后返回本页，或前往“会话历史”查看生成结果。"
+								action={canCancelVolcMinutes ? (
+									<Button
+										size="small"
+										danger
+										loading={cancelingVolcMinutes}
+										onClick={handleCancelVolcMinutes}
+									>
+										结束当前生成
+									</Button>
+								) : undefined}
 							/>
 						)}
 						<Alert
