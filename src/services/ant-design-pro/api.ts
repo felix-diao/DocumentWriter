@@ -144,3 +144,25 @@ export async function removeRule(options?: { [key: string]: any }) {
     },
   });
 }
+
+/** 兑换 ticket POST /api/auth/redeem-ticket */
+export async function redeemTicket(body: API.RedeemTicketParams) {
+  return request<API.StandardResponse<API.RedeemTicketResult>>('/api/auth/redeem-ticket', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+  });
+}
+
+/** 新用户设置密码 POST /api/auth/set-password */
+export async function setPassword(body: API.SetPasswordParams) {
+  return request<API.StandardResponse<API.SetPasswordResult>>('/api/auth/set-password', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+  });
+}

@@ -26,6 +26,11 @@ export default [
         path: '/user/register',
         component: './user/register',
       },
+      {
+        name: 'set-password',
+        path: '/user/set-password',
+        component: './user/set-password',
+      },
     ],
   },
   {

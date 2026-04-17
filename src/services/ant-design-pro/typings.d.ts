@@ -143,4 +143,38 @@ declare namespace API {
     description?: string;
     type?: NoticeIconItemType;
   };
+
+  // ========== 一次性 Ticket 相关类型 ==========
+
+  type CreateTicketParams = {
+    username: string;
+  };
+
+  type CreateTicketResult = {
+    ticket: string;
+    expires_in: number;
+  };
+
+  type RedeemTicketParams = {
+    ticket: string;
+  };
+
+  type RedeemTicketResult = {
+    access_token: string;
+    token_type: string;
+    user_id: string;
+    username: string;
+  };
+
+  type ResetPasswordByUsernameParams = {
+    username: string;
+    new_password: string;
+  };
+
+  type ResetPasswordByUsernameResult = {
+    message: string;
+    user_id: string;
+    username: string;
+    changed_at: string;
+  };
 }

@@ -1,0 +1,23 @@
+                       List of relations
+ Schema |              Name              | Type  |    Owner     
+--------+--------------------------------+-------+--------------
+ public | conversations                  | table | gongwen_user
+ public | documents                      | table | gongwen_user
+ public | knowledge_bases                | table | gongwen_user
+ public | knowledge_items                | table | gongwen_user
+ public | local_asr_sessions             | table | gongwen_user
+ public | local_meeting_minutes_sessions | table | gongwen_user
+ public | local_meeting_summaries        | table | gongwen_user
+ public | local_meeting_todos            | table | gongwen_user
+ public | meeting_audios                 | table | gongwen_user
+ public | meetings                       | table | gongwen_user
+ public | prompt_templates               | table | gongwen_user
+ public | users                          | table | gongwen_user
+ public | volc_accurate_transcriptions   | table | gongwen_user
+ public | volc_asr_sessions              | table | gongwen_user
+ public | volc_meeting_minutes_sessions  | table | gongwen_user
+ public | volc_meeting_summaries         | table | gongwen_user
+ public | volc_meeting_todos             | table | gongwen_user
+ public | volc_minutes_jobs              | table | gongwen_user
+(18 rows)
+

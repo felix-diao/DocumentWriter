@@ -117,4 +117,96 @@ export namespace API {
     /** example: admin */
     currentAuthority: string;
   };
+
+  // ========== 自定义类型 ==========
+
+  /** 当前用户信息 */
+  export type CurrentUser = {
+    user_id?: string;
+    userid?: string;
+    username?: string;
+    name?: string;
+    role?: string;
+    department?: string;
+    access?: string;
+    avatar?: string;
+    email?: string;
+    signature?: string;
+    title?: string;
+    group?: string;
+    tags?: { key: string; label: string }[];
+    notifyCount?: number;
+    unreadCount?: number;
+    country?: string;
+    geographic?: {
+      province: { label: string; key: string };
+      city: { label: string; key: string };
+    };
+    address?: string;
+    phone?: string;
+    needs_password_setup?: boolean;
+  };
+
+  /** 登录参数 */
+  export type LoginParams = {
+    username: string;
+    password: string;
+    type?: string;
+  };
+
+  /** 登录结果 */
+  export type LoginResult = {
+    status?: string;
+    type?: string;
+    currentAuthority?: string;
+    access_token?: string;
+    token_type?: string;
+  };
+
+  /** 注册参数 */
+  export type RegisterParams = {
+    username: string;
+    password: string;
+  };
+
+  /** 注册结果 */
+  export type RegisterResult = {
+    success?: boolean;
+    message?: string;
+    user_id?: string;
+    username?: string;
+  };
+
+  /** 标准响应 */
+  export type StandardResponse<T = any> = {
+    success: boolean;
+    data?: T;
+    message?: string;
+  };
+
+  /** Ticket兑换参数 */
+  export type RedeemTicketParams = {
+    ticket: string;
+  };
+
+  /** Ticket兑换结果 */
+  export type RedeemTicketResult = {
+    access_token?: string;
+    token_type?: string;
+    user_id?: string;
+    username?: string;
+  };
+
+  /** 设置密码参数 */
+  export type SetPasswordParams = {
+    new_password: string;
+  };
+
+  /** 设置密码结果 */
+  export type SetPasswordResult = {
+    message: string;
+    user_id: string;
+    username: string;
+    changed_at: string;
+  };
 }

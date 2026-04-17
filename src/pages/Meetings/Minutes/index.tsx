@@ -195,24 +195,41 @@ const resolveLocalChunkProgressPercent = (chunkIdx?: unknown, totalChunks?: unkn
 	if (!Number.isFinite(idx) || !Number.isFinite(total) || total <= 0) return null;
 	return clampPercent(30 + ((idx + 1) / total) * 65, 30, 95);
 };
-const formatShanghaiTime = (value?: string | null, pattern = 'YYYY-MM-DD HH:mm'): string => {
+type FormatShanghaiTimeOptions = {
+	/**
+	 * 无时区后缀时按 UTC 解析再转为上海时间。
+	 * 后端 ORM 常用 datetime.utcnow 序列化为无时区 ISO，与「会议 date 字段表示本地墙钟」不同。
+	 */
+	naiveUtc?: boolean;
+};
+
+const formatShanghaiTime = (
+	value?: string | null,
+	pattern = 'YYYY-MM-DD HH:mm',
+	options?: FormatShanghaiTimeOptions,
+): string => {
 	if (!value) return '—';
 	const raw = String(value).trim();
 	if (!raw) return '—';
 	const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
-	// 无时区后缀的 ISO 字符串与「会议管理」一致，按本地时间解析（见 dayjs 默认行为），避免误当 UTC 再转上海导致 +8 小时。
-	const parsed = hasTimezone ? dayjs(raw).tz('Asia/Shanghai') : dayjs(raw);
+	const naiveUtc = options?.naiveUtc === true;
+	const parsed = hasTimezone
+		? dayjs(raw).tz('Asia/Shanghai')
+		: naiveUtc
+			? dayjs.utc(raw).tz('Asia/Shanghai')
+			: dayjs(raw);
 	return parsed.isValid() ? parsed.format(pattern) : raw;
 };
-const formatUtcToShanghaiTime = (value?: string | null, pattern = 'YYYY-MM-DD HH:mm'): string => {
-	if (!value) return '—';
-	const raw = String(value).trim();
-	if (!raw) return '—';
+
+/** 与 naiveUtc 显示一致：无时区后缀按 UTC 解析，用于会话列表排序 */
+const apiDateTimeToMs = (value?: string | null): number => {
+	const raw = String(value ?? '').trim();
+	if (!raw) return 0;
 	const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
-	// 会议纪要链路里的 created_at / uploaded_at 由后端以 UTC 语义返回；无时区后缀时按 UTC 解释后转上海时间。
-	const parsed = hasTimezone ? dayjs(raw).tz('Asia/Shanghai') : dayjs.utc(raw).tz('Asia/Shanghai');
-	return parsed.isValid() ? parsed.format(pattern) : raw;
+	const d = hasTimezone ? dayjs(raw) : dayjs.utc(raw);
+	return d.isValid() ? d.valueOf() : 0;
 };
+
 const isLocalAudioReadyForMinutesStatus = (status?: string | null): boolean => {
 	const normalized = normalizeStatus(status);
 	return normalized === 'uploaded' || normalized === 'completed';
@@ -1189,7 +1206,7 @@ const MeetingMinutes: React.FC = () => {
 		setLoadingVolcSessions(true);
 		try {
 			const list = await meetingMinutesApi.listVolcMinutesSessions(meetingId);
-			const normalized = [...(list || [])].sort((a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf());
+			const normalized = [...(list || [])].sort((a, b) => apiDateTimeToMs(b.created_at) - apiDateTimeToMs(a.created_at));
 			setVolcSessionList(normalized);
 			const defaultId = normalized[0]?.id ?? null;
 			const currentId = keepSelection ? selectedVolcSessionIdRef.current : null;
@@ -1232,7 +1249,7 @@ const MeetingMinutes: React.FC = () => {
 		try {
 			const list = await meetingMinutesApi.listLocalMinutesSessions(meetingId);
 			// 本地会话历史按最新优先展示，失败会话可第一时间在首页看到。
-			const normalized = [...(list || [])].sort((a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf());
+			const normalized = [...(list || [])].sort((a, b) => apiDateTimeToMs(b.created_at) - apiDateTimeToMs(a.created_at));
 			setLocalSessionList(normalized);
 			const defaultId = normalized[0]?.id ?? null;
 			const currentId = keepSelection ? selectedLocalSessionIdRef.current : null;
@@ -4444,7 +4461,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '更新时间',
 			dataIndex: 'updated_at',
 			width: 180,
-			render: (value: string) => formatShanghaiTime(value),
+			render: (value: string) => formatShanghaiTime(value, 'YYYY-MM-DD HH:mm', { naiveUtc: true }),
 		},
 		{
 			title: '操作',
@@ -4577,7 +4594,7 @@ const MeetingMinutes: React.FC = () => {
 							<Checkbox key={file.id} value={file.id}>
 								<Space direction="vertical" size={0}>
 									<Text strong>{file.filename}</Text>
-									<Text type="secondary">上传于 {formatUtcToShanghaiTime(file.uploaded_at)}</Text>
+									<Text type="secondary">上传于 {formatShanghaiTime(file.uploaded_at, 'YYYY-MM-DD HH:mm', { naiveUtc: true })}</Text>
 								</Space>
 							</Checkbox>
 						))}
@@ -4604,7 +4621,7 @@ const MeetingMinutes: React.FC = () => {
 									<Space direction="vertical" size={0}>
 										<Text strong>{audio.filename}</Text>
 										<Text type="secondary">
-											{formatUtcToShanghaiTime(audio.uploaded_at)} ·{' '}
+											{formatShanghaiTime(audio.uploaded_at, 'YYYY-MM-DD HH:mm', { naiveUtc: true })} ·{' '}
 											{audio.status === 'completed'
 												? '已完成转写'
 												: audio.status === 'failed'
@@ -4641,7 +4658,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '上传时间',
 			dataIndex: 'created_at',
 			width: 180,
-			render: (value: string) => formatUtcToShanghaiTime(value),
+			render: (value: string) => formatShanghaiTime(value, 'YYYY-MM-DD HH:mm', { naiveUtc: true }),
 		},
 		{
 			title: '状态',
@@ -4713,7 +4730,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '上传时间',
 			dataIndex: 'created_at',
 			width: 180,
-			render: (value: string) => formatUtcToShanghaiTime(value),
+			render: (value: string) => formatShanghaiTime(value, 'YYYY-MM-DD HH:mm', { naiveUtc: true }),
 		},
 		{
 			title: '状态',
@@ -5057,7 +5074,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '创建时间',
 			dataIndex: 'created_at',
 			width: 170,
-			render: (value: string) => formatUtcToShanghaiTime(value, 'YYYY-MM-DD HH:mm:ss'),
+			render: (value: string) => formatShanghaiTime(value, 'YYYY-MM-DD HH:mm:ss', { naiveUtc: true }),
 		},
 		{
 			title: '状态',
@@ -5243,7 +5260,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '创建时间',
 			dataIndex: 'created_at',
 			width: 170,
-			render: (value: string) => formatUtcToShanghaiTime(value, 'YYYY-MM-DD HH:mm:ss'),
+			render: (value: string) => formatShanghaiTime(value, 'YYYY-MM-DD HH:mm:ss', { naiveUtc: true }),
 		},
 		{
 			title: '状态',
@@ -5922,7 +5939,7 @@ const MeetingMinutes: React.FC = () => {
 										</Tag>
 										<Tag>音频ID：{selectedVolcSessionDetail.source_audio_id ?? '—'}</Tag>
 										<Text type="secondary">
-											创建于：{formatUtcToShanghaiTime(selectedVolcSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
+											创建于：{formatShanghaiTime(selectedVolcSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss', { naiveUtc: true })}
 										</Text>
 									</Space>
 									{selectedVolcSessionDetail.error_msg ? (
@@ -6054,7 +6071,7 @@ const MeetingMinutes: React.FC = () => {
 										</Tag>
 										<Tag>音频ID：{selectedLocalSessionDetail.source_audio_id ?? '—'}</Tag>
 										<Text type="secondary">
-											创建于：{formatUtcToShanghaiTime(selectedLocalSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
+											创建于：{formatShanghaiTime(selectedLocalSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss', { naiveUtc: true })}
 										</Text>
 									</Space>
 									{selectedLocalSessionDetail.error_msg ? (
@@ -6480,7 +6497,7 @@ const MeetingMinutes: React.FC = () => {
 										下载录音
 									</Button>
 									<Text type="secondary">
-										创建于：{formatUtcToShanghaiTime(selectedVolcSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
+										创建于：{formatShanghaiTime(selectedVolcSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss', { naiveUtc: true })}
 									</Text>
 								</Space>
 								{selectedVolcSessionDetail.error_msg ? (
@@ -6655,7 +6672,7 @@ const MeetingMinutes: React.FC = () => {
 										下载录音
 									</Button>
 									<Text type="secondary">
-										创建于：{formatUtcToShanghaiTime(selectedLocalSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
+										创建于：{formatShanghaiTime(selectedLocalSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss', { naiveUtc: true })}
 									</Text>
 								</Space>
 								{selectedLocalSessionDetail.error_msg ? (
