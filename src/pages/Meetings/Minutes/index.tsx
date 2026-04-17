@@ -191,7 +191,8 @@ const formatShanghaiTime = (value?: string | null, pattern = 'YYYY-MM-DD HH:mm')
 	const raw = String(value).trim();
 	if (!raw) return '—';
 	const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
-	const parsed = hasTimezone ? dayjs(raw).tz('Asia/Shanghai') : dayjs.utc(raw).tz('Asia/Shanghai');
+	// 无时区后缀的 ISO 字符串与「会议管理」一致，按本地时间解析（见 dayjs 默认行为），避免误当 UTC 再转上海导致 +8 小时。
+	const parsed = hasTimezone ? dayjs(raw).tz('Asia/Shanghai') : dayjs(raw);
 	return parsed.isValid() ? parsed.format(pattern) : raw;
 };
 const isLocalAudioReadyForMinutesStatus = (status?: string | null): boolean => {
@@ -214,6 +215,26 @@ const getVolcMinutesJobStatus = (
 	minutes?: Pick<VolcMeetingMinutes, 'minutes_job_status' | 'audio_status'> | null,
 	fallbackStatus?: string | null,
 ) => fallbackStatus ?? minutes?.minutes_job_status ?? minutes?.audio_status;
+
+/** 精确转写主视图：优先整段 transcript_text，否则用说话人分段拼成可读文本（避免仅有 segments 时 TextArea 空白） */
+const buildVolcPreciseTranscriptText = (
+	transcriptText?: string | null,
+	segments?: SpeakerSegment[] | null,
+): string => {
+	const trimmed = String(transcriptText ?? '').trim();
+	if (trimmed) return String(transcriptText ?? '');
+	const list = segments ?? [];
+	if (!list.length) return '';
+	return list
+		.map((s) => {
+			const sp = String(s.speaker ?? '发言人').trim() || '发言人';
+			const tx = String(s.text ?? '').trim();
+			if (!tx) return '';
+			return `${sp}：${tx}`;
+		})
+		.filter(Boolean)
+		.join('\n\n');
+};
 const VOLC_AUDIO_UPLOAD_STATUS_META: Record<'uploading' | 'uploaded' | 'failed', { label: string; color: string }> = {
 	uploading: { label: '上传中', color: 'processing' },
 	uploaded: { label: '已上传', color: 'green' },
@@ -469,6 +490,71 @@ const resolveLocalLiveErrorMessage = (
 		lower.includes('websocket 连接失败') ||
 		lower.includes('ws 连接失败') ||
 		lower.includes('websocket 初始化失败') ||
+		((closeCode === 1005 || closeCode === 1006) && !wsOpened)
+	) {
+		return '在线录音连接失败，请检查网络或服务状态后重试。';
+	}
+
+	if (lower.includes('websocket') || closeCode === 1005 || closeCode === 1006) {
+		return '在线录音连接中断，请稍后重试。';
+	}
+
+	if (lower.includes('实时录音失败')) {
+		return '在线录音处理失败，请稍后重试。';
+	}
+
+	return text || '在线录音处理失败，请稍后重试。';
+};
+
+/** 普通会议在线录音 WebSocket：不向用户暴露 close code / 代理配置等调试信息 */
+const resolveVolcLiveErrorMessage = (
+	raw?: string | null,
+	options?: {
+		closeCode?: number | null;
+		stopRequested?: boolean;
+		firstAudioSent?: boolean;
+		wsOpened?: boolean;
+	},
+): string => {
+	const text = String(raw || '').trim();
+	const lower = text.toLowerCase();
+	const closeCode = options?.closeCode;
+	const stopRequested = Boolean(options?.stopRequested);
+	const firstAudioSent = Boolean(options?.firstAudioSent);
+	const wsOpened = options?.wsOpened !== false;
+
+	if (
+		(!firstAudioSent &&
+			stopRequested &&
+			(closeCode === 1000 || closeCode === 1001 || closeCode === 1005 || closeCode === 1006)) ||
+		lower.includes('未采集到音频帧')
+	) {
+		return '录音时间过短或未采集到有效语音，请重新录音。';
+	}
+
+	if (closeCode === 4001 || lower.includes('token 无效') || lower.includes('重新登录')) {
+		return '登录状态已失效，请重新登录后重试。';
+	}
+
+	if (closeCode === 4004 || lower.includes('meeting_id') || lower.includes('会议不存在')) {
+		return '当前会议不存在或无权限访问，请刷新页面后重试。';
+	}
+
+	if (lower.includes('握手超时')) {
+		return '在线录音连接超时，请稍后重试。';
+	}
+
+	if (stopRequested && (closeCode === 1006 || closeCode === 1005)) {
+		return firstAudioSent
+			? '录音已停止，但音频处理未完成，请重新录音或稍后重试。'
+			: '录音时间过短或未采集到有效语音，请重新录音。';
+	}
+
+	if (
+		lower.includes('websocket 连接失败') ||
+		lower.includes('ws 连接失败') ||
+		lower.includes('websocket 初始化失败') ||
+		lower.includes('network-ws') ||
 		((closeCode === 1005 || closeCode === 1006) && !wsOpened)
 	) {
 		return '在线录音连接失败，请检查网络或服务状态后重试。';
@@ -1032,10 +1118,14 @@ const MeetingMinutes: React.FC = () => {
 			);
 			setCancelingVolcMinutes(false);
 
-			// 精确转写：只有妙记真正跑完才填入。
+			// 精确转写：只有妙记真正跑完才填入（处理中 deliberately 留空，避免半成品误导）。
 			const miaojiCompleted = isVolcCompletedStatus(stableJobStatus);
-			const hasTranscript = miaojiCompleted && !!(result.transcript_text || (result.speaker_segments?.length ?? 0));
-			setVolcTranscriptDraft(hasTranscript ? (result.transcript_text || '') : '');
+			const hasTranscript =
+				miaojiCompleted &&
+				!!(String(result.transcript_text || '').trim() || (result.speaker_segments?.length ?? 0));
+			setVolcTranscriptDraft(
+				hasTranscript ? buildVolcPreciseTranscriptText(result.transcript_text, result.speaker_segments) : '',
+			);
 			// 摘要：有内容才填入；无内容时清空
 			setVolcSummaryTitle(cleanTitle);
 			setVolcSummaryDraft(cleanParagraph);
@@ -2708,8 +2798,9 @@ const MeetingMinutes: React.FC = () => {
 		} catch (error: any) {
 			if (!isSessionValid()) return;
 			setVolcStreamType('error');
-			setVolcStreamError(error?.message || 'WebSocket 初始化失败');
-			message.error(error?.message || 'WebSocket 初始化失败');
+			const errMsg = resolveVolcLiveErrorMessage(error?.message || 'WebSocket 初始化失败', {});
+			setVolcStreamError(errMsg);
+			message.error(errMsg);
 			await stopVolcAudioCapture();
 			return;
 		}
@@ -2808,7 +2899,7 @@ const MeetingMinutes: React.FC = () => {
 						return;
 					}
 					setVolcStreamType('error');
-					setVolcStreamError(data.message || '实时录音失败');
+					setVolcStreamError(resolveVolcErrorMessage(data.message) || '实时录音失败');
 					await stopVolcLiveWs(true);
 				}
 			} catch {
@@ -2819,7 +2910,11 @@ const MeetingMinutes: React.FC = () => {
 		ws.onerror = () => {
 			if (!isSessionValid()) return;
 			setVolcStreamType('error');
-			setVolcStreamError('WebSocket 连接失败或已中断（请在 Network-WS 查看 Status Code / Close Code）');
+			setVolcStreamError(
+				resolveVolcLiveErrorMessage('WebSocket 连接失败或已中断', {
+					wsOpened: volcLiveWsOpenedRef.current,
+				}),
+			);
 			if (volcLiveWsConnectTimerRef.current) {
 				window.clearTimeout(volcLiveWsConnectTimerRef.current);
 				volcLiveWsConnectTimerRef.current = null;
@@ -2842,33 +2937,25 @@ const MeetingMinutes: React.FC = () => {
 			if (!isSessionValid()) return;
 
 			const code = (e as CloseEvent | any)?.code;
-			const reason = (e as CloseEvent | any)?.reason;
 			if (volcStreamTypeRef.current === 'completed') return;
-			if (volcLiveStopRequestedRef.current && (code === 1000 || code === 1001 || code === 1005)) {
+			// 用户主动结束录音时，浏览器常报 1006（异常关闭），与 1000/1001/1005 一样按正常收尾处理，避免展示技术错误
+			if (
+				volcLiveStopRequestedRef.current &&
+				(code === 1000 || code === 1001 || code === 1005 || code === 1006)
+			) {
 				setVolcStreamError(null);
 				setVolcStreamType((prev) => (prev === 'live_stopping' ? 'live_saving' : prev));
 				return;
 			}
 
-			const hint =
-				code === 4001
-					? '（token 无效/过期：请重新登录）'
-					: code === 4004
-						? '（meeting_id 不存在或无权限）'
-						: code === 1006
-							? '（常见原因：反向代理未开启 WebSocket Upgrade / 后端不可达）'
-							: '';
-			const audioHint =
-				!volcLiveFirstAudioSentRef.current && code === 1000
-					? '（提示：后端在 30s 内未收到任何音频帧会主动关闭；请检查麦克风权限/AudioContext 状态）'
-					: '';
-			const connectHint =
-				!volcLiveWsOpenedRef.current && (code === 1006 || code == null)
-					? '（提示：握手未成功，常见原因：前端 dev server 未开启 ws 代理 / 反向代理未配置 Upgrade）'
-					: '';
 			setVolcStreamType('error');
 			setVolcStreamError(
-				`WebSocket 已关闭 code=${code ?? '—'} reason=${reason || '—'}${hint}${audioHint}${connectHint}`,
+				resolveVolcLiveErrorMessage(null, {
+					closeCode: code,
+					stopRequested: volcLiveStopRequestedRef.current,
+					firstAudioSent: volcLiveFirstAudioSentRef.current,
+					wsOpened: volcLiveWsOpenedRef.current,
+				}),
 			);
 		};
 
@@ -2877,9 +2964,7 @@ const MeetingMinutes: React.FC = () => {
 			if (volcLiveStopRequestedRef.current) return;
 			if (volcLiveWsOpenedRef.current) return;
 			setVolcStreamType('error');
-			setVolcStreamError(
-				'WebSocket 握手超时：请确认当前运行的是带代理的开发服务器（/api/minutes 设置 ws:true），或在反向代理上开启 WebSocket Upgrade',
-			);
+			setVolcStreamError(resolveVolcLiveErrorMessage('WebSocket 握手超时', { wsOpened: false }));
 			void stopVolcLiveWs(true);
 		}, 5000);
 	};
@@ -3982,7 +4067,7 @@ const MeetingMinutes: React.FC = () => {
 		}
 		try {
 			await meetingsApi.deleteVolcAudio(selectedMeetingId, audioId);
-			message.success('火山音频已删除');
+			message.success('普通会议音频已删除');
 			if (selectedVolcAudioId === audioId) setSelectedVolcAudioId(null);
 			loadVolcAudioList(selectedMeetingId);
 		} catch (error: any) {
@@ -4014,7 +4099,7 @@ const MeetingMinutes: React.FC = () => {
 		}
 		try {
 			await meetingsApi.deleteLocalAudio(selectedMeetingId, audioId);
-			message.success('本地音频已删除');
+			message.success('机密会议音频已删除');
 			if (selectedLocalAudioId === audioId) setSelectedLocalAudioId(null);
 			if (localLatestAudioId === audioId) setLocalLatestAudioId(null);
 			loadLocalAudioList(selectedMeetingId);
@@ -5402,13 +5487,9 @@ const MeetingMinutes: React.FC = () => {
 										>
 											{renderSimpleMarkdown(localSummaryDraft)}
 										</div>
-									) : null}
-									<TextArea
-										rows={6}
-										placeholder="主视图仅展示摘要内容；如需修订请前往“会话历史”。"
-										value={localSummaryDraft}
-										readOnly
-									/>
+									) : (
+										<Text type="secondary">暂无摘要内容；如需修订请前往“会话历史”。</Text>
+									)}
 								</Space>
 							</ProCard>
 
@@ -5507,16 +5588,18 @@ const MeetingMinutes: React.FC = () => {
 								showIcon
 								message="当前任务已提交到后台处理。离开当前页面不会中断生成。"
 								description="你可以稍后返回本页，或前往“会话历史”查看生成结果。"
-								action={canCancelVolcMinutes ? (
-									<Button
-										size="small"
-										danger
-										loading={cancelingVolcMinutes}
-										onClick={handleCancelVolcMinutes}
-									>
-										结束当前生成
-									</Button>
-								) : undefined}
+								action={
+									canCancelVolcMinutes ? (
+										<Button
+											size="small"
+											danger
+											loading={cancelingVolcMinutes}
+											onClick={handleCancelVolcMinutes}
+										>
+											结束当前生成
+										</Button>
+									) : undefined
+								}
 							/>
 						)}
 						<Alert
@@ -5565,14 +5648,9 @@ const MeetingMinutes: React.FC = () => {
 									>
 										{renderSimpleMarkdown(volcSummaryDraft)}
 									</div>
-							) : null}
-								{/* 编辑框：始终显示，方便手动补充 */}
-								<TextArea
-									rows={6}
-									placeholder="主视图仅展示摘要内容；如需修订请前往“会话历史”。"
-									value={volcSummaryDraft}
-									readOnly
-								/>
+								) : (
+									<Text type="secondary">暂无摘要内容；如需修订请前往“会话历史”。</Text>
+								)}
 							</Space>
 						</ProCard>
 
