@@ -72,6 +72,15 @@ import { downsampleBuffer, float32ToInt16PCM } from '@/utils/pcm';
 
 const { TextArea } = Input;
 const { Title, Text } = Typography;
+const SESSION_SUMMARY_PREVIEW_STYLE: React.CSSProperties = {
+	minHeight: 160,
+	padding: '12px 16px',
+	border: '1px solid #d9d9d9',
+	borderRadius: 6,
+	background: '#fafafa',
+	lineHeight: 1.85,
+	fontSize: 14,
+};
 
 interface ActionFormValues {
 	description: string;
@@ -727,6 +736,7 @@ const MeetingMinutes: React.FC = () => {
 		todos: [] as VolcSessionTodoItem[],
 	});
 	const [savingVolcSessionDetail, setSavingVolcSessionDetail] = useState(false);
+	const [editingVolcSessionSummary, setEditingVolcSessionSummary] = useState(false);
 	const [volcSessionTodoModalVisible, setVolcSessionTodoModalVisible] = useState(false);
 	const [editingVolcSessionTodoIndex, setEditingVolcSessionTodoIndex] = useState<number | null>(null);
 	const [volcSessionTodoForm] = Form.useForm<VolcTodoFormValues>();
@@ -778,6 +788,7 @@ const MeetingMinutes: React.FC = () => {
 		todos: [] as LocalSessionTodoItem[],
 	});
 	const [savingLocalSessionDetail, setSavingLocalSessionDetail] = useState(false);
+	const [editingLocalSessionSummary, setEditingLocalSessionSummary] = useState(false);
 	const [localSessionTodoModalVisible, setLocalSessionTodoModalVisible] = useState(false);
 	const [editingLocalSessionTodoIndex, setEditingLocalSessionTodoIndex] = useState<number | null>(null);
 	const [localSessionTodoForm] = Form.useForm<LocalTodoFormValues>();
@@ -1788,6 +1799,7 @@ const MeetingMinutes: React.FC = () => {
 	}, [localStreamText]);
 
 	useEffect(() => {
+		setEditingVolcSessionSummary(false);
 		if (!selectedVolcSessionDetail) {
 			setVolcSessionDraft({
 				stream_transcript_text: '',
@@ -1810,6 +1822,7 @@ const MeetingMinutes: React.FC = () => {
 	}, [selectedVolcSessionDetail]);
 
 	useEffect(() => {
+		setEditingLocalSessionSummary(false);
 		if (!selectedLocalSessionDetail) {
 			setLocalSessionDraft({
 				stream_transcript_text: '',
@@ -2338,6 +2351,7 @@ const MeetingMinutes: React.FC = () => {
 
 	const closeVolcSessionsModal = () => {
 		setVolcSessionsModalVisible(false);
+		setEditingVolcSessionSummary(false);
 		if (selectedMeetingId) {
 			loadVolcAudioList(selectedMeetingId);
 			if (isSessionsRoute) {
@@ -2348,6 +2362,7 @@ const MeetingMinutes: React.FC = () => {
 
 	const closeLocalSessionsModal = () => {
 		setLocalSessionsModalVisible(false);
+		setEditingLocalSessionSummary(false);
 		if (selectedMeetingId) {
 			loadLocalMinutesData(selectedMeetingId);
 			loadLocalAudioList(selectedMeetingId);
@@ -2360,10 +2375,10 @@ const MeetingMinutes: React.FC = () => {
 	const persistVolcSessionDetail = async (
 		draft = volcSessionDraft,
 		successMessage = '会话历史已保存',
-	) => {
+	): Promise<boolean> => {
 		if (!selectedMeetingId || !selectedVolcSessionId) {
 			message.warning('请选择会议与会话');
-			return;
+			return false;
 		}
 
 		setSavingVolcSessionDetail(true);
@@ -2392,15 +2407,17 @@ const MeetingMinutes: React.FC = () => {
 				loadVolcAudioList(selectedMeetingId);
 			}
 			message.success(successMessage);
+			return true;
 		} catch (error: any) {
 			message.error(error?.message || '保存会话历史失败');
+			return false;
 		} finally {
 			setSavingVolcSessionDetail(false);
 		}
 	};
 
 	const handleSaveVolcSessionDetail = async () => {
-		await persistVolcSessionDetail(volcSessionDraft, '会话历史已保存');
+		return persistVolcSessionDetail(volcSessionDraft, '会话历史已保存');
 	};
 
 	const handleDeleteVolcSession = async (sessionId: number) => {
@@ -2426,14 +2443,14 @@ const MeetingMinutes: React.FC = () => {
 	const persistLocalSessionDetail = async (
 		draft = localSessionDraft,
 		successMessage = '会话历史已保存',
-	) => {
+	): Promise<boolean> => {
 		if (!selectedMeetingId || !selectedLocalSessionId) {
 			message.warning('请选择会议与会话');
-			return;
+			return false;
 		}
 		if (!isCompletedSessionStatus(selectedLocalSessionDetail?.status)) {
 			message.warning('仅已完成的会话支持保存编辑内容');
-			return;
+			return false;
 		}
 		setSavingLocalSessionDetail(true);
 		try {
@@ -2460,15 +2477,17 @@ const MeetingMinutes: React.FC = () => {
 				loadLocalAudioList(selectedMeetingId);
 			}
 			message.success(successMessage);
+			return true;
 		} catch (error: any) {
 			message.error(error?.message || '保存会话历史失败');
+			return false;
 		} finally {
 			setSavingLocalSessionDetail(false);
 		}
 	};
 
 	const handleSaveLocalSessionDetail = async () => {
-		await persistLocalSessionDetail(localSessionDraft, '会话历史已保存');
+		return persistLocalSessionDetail(localSessionDraft, '会话历史已保存');
 	};
 
 	const openLocalAudiosModal = () => {
@@ -4739,6 +4758,175 @@ const MeetingMinutes: React.FC = () => {
 	const selectedLocalAudioRecord = localAudios.find((item) => item.id === selectedLocalAudioId) || null;
 	const selectedLocalAudioCanGenerate = isLocalAudioReadyForMinutesStatus(selectedLocalAudioRecord?.status);
 
+	const resetVolcSessionSummaryDraft = () => {
+		setVolcSessionDraft((prev) => ({
+			...prev,
+			summary_title: selectedVolcSessionDetail?.summary_title || '',
+			summary_paragraph: selectedVolcSessionDetail?.summary_paragraph || '',
+		}));
+	};
+
+	const resetLocalSessionSummaryDraft = () => {
+		setLocalSessionDraft((prev) => ({
+			...prev,
+			summary_title: selectedLocalSessionDetail?.summary_title || '',
+			summary_paragraph: selectedLocalSessionDetail?.summary_paragraph || '',
+		}));
+	};
+
+	const handleCancelVolcSessionSummaryEdit = () => {
+		resetVolcSessionSummaryDraft();
+		setEditingVolcSessionSummary(false);
+	};
+
+	const handleCancelLocalSessionSummaryEdit = () => {
+		resetLocalSessionSummaryDraft();
+		setEditingLocalSessionSummary(false);
+	};
+
+	const handleSaveVolcSessionSummary = async () => {
+		const saved = await handleSaveVolcSessionDetail();
+		if (saved) {
+			setEditingVolcSessionSummary(false);
+		}
+	};
+
+	const handleSaveLocalSessionSummary = async () => {
+		const saved = await handleSaveLocalSessionDetail();
+		if (saved) {
+			setEditingLocalSessionSummary(false);
+		}
+	};
+
+	const renderVolcSessionSummaryCard = () => (
+		<ProCard
+			title="会议摘要"
+			extra={
+				editingVolcSessionSummary ? (
+					<Space size={8}>
+						<Button onClick={handleCancelVolcSessionSummaryEdit} disabled={savingVolcSessionDetail}>
+							取消
+						</Button>
+						<Button
+							type="primary"
+							onClick={handleSaveVolcSessionSummary}
+							loading={savingVolcSessionDetail}
+							disabled={!selectedVolcSessionId}
+						>
+							保存
+						</Button>
+					</Space>
+				) : (
+					<Button type="link" onClick={() => setEditingVolcSessionSummary(true)} disabled={!selectedVolcSessionId}>
+						编辑摘要
+					</Button>
+				)
+			}
+		>
+			<Space direction="vertical" style={{ width: '100%' }}>
+				{editingVolcSessionSummary ? (
+					<>
+						<Input
+							value={volcSessionDraft.summary_title}
+							onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, summary_title: e.target.value }))}
+							placeholder="无摘要标题"
+						/>
+						<TextArea
+							rows={6}
+							value={volcSessionDraft.summary_paragraph}
+							onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, summary_paragraph: e.target.value }))}
+							placeholder="可在此编辑摘要内容（支持 Markdown）"
+						/>
+					</>
+				) : (
+					<>
+						{volcSessionDraft.summary_title ? (
+							<Text strong>{volcSessionDraft.summary_title}</Text>
+						) : (
+							<Text type="secondary">暂无摘要标题</Text>
+						)}
+						<div style={SESSION_SUMMARY_PREVIEW_STYLE}>
+							{volcSessionDraft.summary_paragraph ? (
+								renderSimpleMarkdown(volcSessionDraft.summary_paragraph)
+							) : (
+								<Text type="secondary">暂无摘要内容</Text>
+							)}
+						</div>
+					</>
+				)}
+			</Space>
+		</ProCard>
+	);
+
+	const renderLocalSessionSummaryCard = () => (
+		<ProCard
+			title="会议摘要"
+			extra={
+				localSessionEditable ? (
+					editingLocalSessionSummary ? (
+						<Space size={8}>
+							<Button onClick={handleCancelLocalSessionSummaryEdit} disabled={savingLocalSessionDetail}>
+								取消
+							</Button>
+							<Button
+								type="primary"
+								onClick={handleSaveLocalSessionSummary}
+								loading={savingLocalSessionDetail}
+								disabled={!selectedLocalSessionId}
+							>
+								保存
+							</Button>
+						</Space>
+					) : (
+						<Button type="link" onClick={() => setEditingLocalSessionSummary(true)} disabled={!selectedLocalSessionId}>
+							编辑摘要
+						</Button>
+					)
+				) : null
+			}
+		>
+			{!localSessionEditable && (
+				<Alert
+					type="info"
+					showIcon
+					message="当前会话未完成，仅可查看，不可编辑或保存。"
+				/>
+			)}
+			<Space direction="vertical" style={{ width: '100%' }}>
+				{localSessionEditable && editingLocalSessionSummary ? (
+					<>
+						<Input
+							value={localSessionDraft.summary_title}
+							onChange={(e) => setLocalSessionDraft((prev) => ({ ...prev, summary_title: e.target.value }))}
+							placeholder="无摘要标题"
+						/>
+						<TextArea
+							rows={6}
+							value={localSessionDraft.summary_paragraph}
+							onChange={(e) => setLocalSessionDraft((prev) => ({ ...prev, summary_paragraph: e.target.value }))}
+							placeholder="可在此编辑摘要内容（支持 Markdown）"
+						/>
+					</>
+				) : (
+					<>
+						{localSessionDraft.summary_title ? (
+							<Text strong>{localSessionDraft.summary_title}</Text>
+						) : (
+							<Text type="secondary">暂无摘要标题</Text>
+						)}
+						<div style={SESSION_SUMMARY_PREVIEW_STYLE}>
+							{localSessionDraft.summary_paragraph ? (
+								renderSimpleMarkdown(localSessionDraft.summary_paragraph)
+							) : (
+								<Text type="secondary">暂无摘要内容</Text>
+							)}
+						</div>
+					</>
+				)}
+			</Space>
+		</ProCard>
+	);
+
 	const openLocalSessionTodoModal = (index?: number) => {
 		if (!localSessionEditable) {
 			message.warning('当前会话未完成，仅支持查看');
@@ -5786,48 +5974,7 @@ const MeetingMinutes: React.FC = () => {
 									);
 								})()}
 
-								<ProCard
-									title="会议摘要"
-									extra={
-										<Button
-											type="link"
-											onClick={handleSaveVolcSessionDetail}
-											loading={savingVolcSessionDetail}
-											disabled={!selectedVolcSessionId}
-										>
-											保存会议摘要
-										</Button>
-									}
-								>
-									<Space direction="vertical" style={{ width: '100%' }}>
-										<Input
-											value={volcSessionDraft.summary_title}
-											onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, summary_title: e.target.value }))}
-											placeholder="无摘要标题"
-										/>
-										{volcSessionDraft.summary_paragraph ? (
-											<div
-												style={{
-													minHeight: 160,
-													padding: '12px 16px',
-													border: '1px solid #d9d9d9',
-													borderRadius: 6,
-													background: '#fafafa',
-													lineHeight: 1.85,
-													fontSize: 14,
-												}}
-											>
-												{renderSimpleMarkdown(volcSessionDraft.summary_paragraph)}
-											</div>
-										) : null}
-										<TextArea
-											rows={6}
-											value={volcSessionDraft.summary_paragraph}
-											onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, summary_paragraph: e.target.value }))}
-											placeholder="可在此编辑摘要内容（支持 Markdown）"
-										/>
-									</Space>
-								</ProCard>
+								{renderVolcSessionSummaryCard()}
 
 								<ProCard
 									title="待办事项"
@@ -5921,57 +6068,7 @@ const MeetingMinutes: React.FC = () => {
 									/>
 								</ProCard>
 
-								<ProCard
-									title="会议摘要"
-									extra={
-										<Button
-											type="link"
-											onClick={handleSaveLocalSessionDetail}
-											loading={savingLocalSessionDetail}
-											disabled={!selectedLocalSessionId || !localSessionEditable}
-										>
-											保存会议摘要
-										</Button>
-									}
-								>
-									{!localSessionEditable && (
-										<Alert
-											type="info"
-											showIcon
-											message="当前会话未完成，仅可查看，不可编辑或保存。"
-										/>
-									)}
-									<Space direction="vertical" style={{ width: '100%' }}>
-										<Input
-											value={localSessionDraft.summary_title}
-											onChange={(e) => setLocalSessionDraft((prev) => ({ ...prev, summary_title: e.target.value }))}
-											placeholder="无摘要标题"
-											disabled={!localSessionEditable}
-										/>
-										{localSessionDraft.summary_paragraph ? (
-											<div
-												style={{
-													minHeight: 160,
-													padding: '12px 16px',
-													border: '1px solid #d9d9d9',
-													borderRadius: 6,
-													background: '#fafafa',
-													lineHeight: 1.85,
-													fontSize: 14,
-												}}
-											>
-												{renderSimpleMarkdown(localSessionDraft.summary_paragraph)}
-											</div>
-										) : null}
-										<TextArea
-											rows={6}
-											value={localSessionDraft.summary_paragraph}
-											onChange={(e) => setLocalSessionDraft((prev) => ({ ...prev, summary_paragraph: e.target.value }))}
-											placeholder="可在此编辑摘要内容（支持 Markdown）"
-											readOnly={!localSessionEditable}
-										/>
-									</Space>
-								</ProCard>
+								{renderLocalSessionSummaryCard()}
 
 								<ProCard
 									title="待办事项"
@@ -6435,48 +6532,7 @@ const MeetingMinutes: React.FC = () => {
 								);
 							})()}
 
-							<ProCard
-								title="会议摘要"
-								extra={
-									<Button
-										type="link"
-										onClick={handleSaveVolcSessionDetail}
-										loading={savingVolcSessionDetail}
-										disabled={!selectedVolcSessionId}
-									>
-										保存会议摘要
-									</Button>
-								}
-							>
-								<Space direction="vertical" style={{ width: '100%' }}>
-									<Input
-										value={volcSessionDraft.summary_title}
-										onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, summary_title: e.target.value }))}
-										placeholder="无摘要标题"
-									/>
-									{volcSessionDraft.summary_paragraph ? (
-										<div
-											style={{
-												minHeight: 160,
-												padding: '12px 16px',
-												border: '1px solid #d9d9d9',
-												borderRadius: 6,
-												background: '#fafafa',
-												lineHeight: 1.85,
-												fontSize: 14,
-											}}
-										>
-											{renderSimpleMarkdown(volcSessionDraft.summary_paragraph)}
-										</div>
-									) : null}
-									<TextArea
-										rows={6}
-										value={volcSessionDraft.summary_paragraph}
-										onChange={(e) => setVolcSessionDraft((prev) => ({ ...prev, summary_paragraph: e.target.value }))}
-										placeholder="可在此编辑摘要内容（支持 Markdown）"
-									/>
-								</Space>
-							</ProCard>
+							{renderVolcSessionSummaryCard()}
 
 							<ProCard
 								title="待办事项"
@@ -6613,57 +6669,7 @@ const MeetingMinutes: React.FC = () => {
 								/>
 							</ProCard>
 
-							<ProCard
-								title="会议摘要"
-								extra={
-									<Button
-										type="link"
-										onClick={handleSaveLocalSessionDetail}
-										loading={savingLocalSessionDetail}
-										disabled={!selectedLocalSessionId || !localSessionEditable}
-									>
-										保存会议摘要
-									</Button>
-								}
-							>
-								{!localSessionEditable && (
-									<Alert
-										type="info"
-										showIcon
-										message="当前会话未完成，仅可查看，不可编辑或保存。"
-									/>
-								)}
-								<Space direction="vertical" style={{ width: '100%' }}>
-									<Input
-										value={localSessionDraft.summary_title}
-										onChange={(e) => setLocalSessionDraft((prev) => ({ ...prev, summary_title: e.target.value }))}
-										placeholder="无摘要标题"
-										disabled={!localSessionEditable}
-									/>
-									{localSessionDraft.summary_paragraph ? (
-										<div
-											style={{
-												minHeight: 160,
-												padding: '12px 16px',
-												border: '1px solid #d9d9d9',
-												borderRadius: 6,
-												background: '#fafafa',
-												lineHeight: 1.85,
-												fontSize: 14,
-											}}
-										>
-											{renderSimpleMarkdown(localSessionDraft.summary_paragraph)}
-										</div>
-									) : null}
-									<TextArea
-										rows={6}
-										value={localSessionDraft.summary_paragraph}
-										onChange={(e) => setLocalSessionDraft((prev) => ({ ...prev, summary_paragraph: e.target.value }))}
-										placeholder="可在此编辑摘要内容（支持 Markdown）"
-										readOnly={!localSessionEditable}
-									/>
-								</Space>
-							</ProCard>
+							{renderLocalSessionSummaryCard()}
 
 							<ProCard
 								title="待办事项"
