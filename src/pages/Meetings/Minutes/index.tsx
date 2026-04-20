@@ -204,6 +204,15 @@ const formatShanghaiTime = (value?: string | null, pattern = 'YYYY-MM-DD HH:mm')
 	const parsed = hasTimezone ? dayjs(raw).tz('Asia/Shanghai') : dayjs(raw);
 	return parsed.isValid() ? parsed.format(pattern) : raw;
 };
+const formatUtcToShanghaiTime = (value?: string | null, pattern = 'YYYY-MM-DD HH:mm'): string => {
+	if (!value) return '—';
+	const raw = String(value).trim();
+	if (!raw) return '—';
+	const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
+	// 会议纪要链路里的 created_at / uploaded_at 由后端以 UTC 语义返回；无时区后缀时按 UTC 解释后转上海时间。
+	const parsed = hasTimezone ? dayjs(raw).tz('Asia/Shanghai') : dayjs.utc(raw).tz('Asia/Shanghai');
+	return parsed.isValid() ? parsed.format(pattern) : raw;
+};
 const isLocalAudioReadyForMinutesStatus = (status?: string | null): boolean => {
 	const normalized = normalizeStatus(status);
 	return normalized === 'uploaded' || normalized === 'completed';
@@ -4568,7 +4577,7 @@ const MeetingMinutes: React.FC = () => {
 							<Checkbox key={file.id} value={file.id}>
 								<Space direction="vertical" size={0}>
 									<Text strong>{file.filename}</Text>
-									<Text type="secondary">上传于 {formatShanghaiTime(file.uploaded_at)}</Text>
+									<Text type="secondary">上传于 {formatUtcToShanghaiTime(file.uploaded_at)}</Text>
 								</Space>
 							</Checkbox>
 						))}
@@ -4595,7 +4604,7 @@ const MeetingMinutes: React.FC = () => {
 									<Space direction="vertical" size={0}>
 										<Text strong>{audio.filename}</Text>
 										<Text type="secondary">
-											{formatShanghaiTime(audio.uploaded_at)} ·{' '}
+											{formatUtcToShanghaiTime(audio.uploaded_at)} ·{' '}
 											{audio.status === 'completed'
 												? '已完成转写'
 												: audio.status === 'failed'
@@ -4632,7 +4641,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '上传时间',
 			dataIndex: 'created_at',
 			width: 180,
-			render: (value: string) => formatShanghaiTime(value),
+			render: (value: string) => formatUtcToShanghaiTime(value),
 		},
 		{
 			title: '状态',
@@ -4704,7 +4713,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '上传时间',
 			dataIndex: 'created_at',
 			width: 180,
-			render: (value: string) => formatShanghaiTime(value),
+			render: (value: string) => formatUtcToShanghaiTime(value),
 		},
 		{
 			title: '状态',
@@ -5048,7 +5057,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '创建时间',
 			dataIndex: 'created_at',
 			width: 170,
-			render: (value: string) => formatShanghaiTime(value, 'YYYY-MM-DD HH:mm:ss'),
+			render: (value: string) => formatUtcToShanghaiTime(value, 'YYYY-MM-DD HH:mm:ss'),
 		},
 		{
 			title: '状态',
@@ -5234,7 +5243,7 @@ const MeetingMinutes: React.FC = () => {
 			title: '创建时间',
 			dataIndex: 'created_at',
 			width: 170,
-			render: (value: string) => formatShanghaiTime(value, 'YYYY-MM-DD HH:mm:ss'),
+			render: (value: string) => formatUtcToShanghaiTime(value, 'YYYY-MM-DD HH:mm:ss'),
 		},
 		{
 			title: '状态',
@@ -5913,7 +5922,7 @@ const MeetingMinutes: React.FC = () => {
 										</Tag>
 										<Tag>音频ID：{selectedVolcSessionDetail.source_audio_id ?? '—'}</Tag>
 										<Text type="secondary">
-											创建于：{formatShanghaiTime(selectedVolcSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
+											创建于：{formatUtcToShanghaiTime(selectedVolcSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
 										</Text>
 									</Space>
 									{selectedVolcSessionDetail.error_msg ? (
@@ -6045,7 +6054,7 @@ const MeetingMinutes: React.FC = () => {
 										</Tag>
 										<Tag>音频ID：{selectedLocalSessionDetail.source_audio_id ?? '—'}</Tag>
 										<Text type="secondary">
-											创建于：{formatShanghaiTime(selectedLocalSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
+											创建于：{formatUtcToShanghaiTime(selectedLocalSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
 										</Text>
 									</Space>
 									{selectedLocalSessionDetail.error_msg ? (
@@ -6471,7 +6480,7 @@ const MeetingMinutes: React.FC = () => {
 										下载录音
 									</Button>
 									<Text type="secondary">
-										创建于：{formatShanghaiTime(selectedVolcSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
+										创建于：{formatUtcToShanghaiTime(selectedVolcSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
 									</Text>
 								</Space>
 								{selectedVolcSessionDetail.error_msg ? (
@@ -6646,7 +6655,7 @@ const MeetingMinutes: React.FC = () => {
 										下载录音
 									</Button>
 									<Text type="secondary">
-										创建于：{formatShanghaiTime(selectedLocalSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
+										创建于：{formatUtcToShanghaiTime(selectedLocalSessionDetail.created_at, 'YYYY-MM-DD HH:mm:ss')}
 									</Text>
 								</Space>
 								{selectedLocalSessionDetail.error_msg ? (
