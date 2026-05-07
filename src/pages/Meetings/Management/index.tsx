@@ -273,7 +273,7 @@ const MeetingManagement: React.FC = () => {
   };
 
   const actionToMinutes = (meetingId: number) => {
-    history.push(`/meetings/minutes?meetingId=${meetingId}`);
+    history.push(`/meeting/meetings/minutes?meetingId=${meetingId}`);
   };
 
   const columns: ColumnsType<Meeting> = [

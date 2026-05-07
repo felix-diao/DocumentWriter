@@ -883,8 +883,8 @@ const MeetingMinutes: React.FC = () => {
 	const hasSelectedMeeting = typeof selectedMeetingId === 'number';
 	const buildOnlineRecordingLimitMessage = (count: number) =>
 		`每个会议最多支持 ${MAX_ONLINE_RECORDING_COUNT} 条在线录音，当前已 ${count} 条，请先删除旧音频后再录音。`;
-	const isMinutesMainRoute = location.pathname === '/meetings/minutes';
-	const isSessionsRoute = location.pathname === '/meetings/sessions';
+	const isMinutesMainRoute = location.pathname === '/meeting/meetings/minutes';
+	const isSessionsRoute = location.pathname === '/meeting/meetings/sessions';
 	const isVolcSubmitInProgressStatus = useCallback((status?: string | null) => isVolcInProgressStatus(status), []);
 	const isVolcFinalCompleted = useMemo(() => {
 		// 最终态统一判定：状态成功，或页面已拥有一份稳定纪要结果（避免状态字段短暂为空导致误判）。
@@ -2381,7 +2381,7 @@ const MeetingMinutes: React.FC = () => {
 		if (selectedMeetingId) {
 			loadVolcAudioList(selectedMeetingId);
 			if (isSessionsRoute) {
-				history.replace(buildMeetingRouteWithQuery(selectedMeetingId, '/meetings/minutes'));
+				history.replace(buildMeetingRouteWithQuery(selectedMeetingId, '/meeting/meetings/minutes'));
 			}
 		}
 	};
@@ -2393,7 +2393,7 @@ const MeetingMinutes: React.FC = () => {
 			loadLocalMinutesData(selectedMeetingId);
 			loadLocalAudioList(selectedMeetingId);
 			if (isSessionsRoute) {
-				history.replace(buildMeetingRouteWithQuery(selectedMeetingId, '/meetings/minutes'));
+				history.replace(buildMeetingRouteWithQuery(selectedMeetingId, '/meeting/meetings/minutes'));
 			}
 		}
 	};
