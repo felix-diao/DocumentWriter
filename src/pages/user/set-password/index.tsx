@@ -54,7 +54,7 @@ const SetPassword: React.FC = () => {
   // 获取跳转目标
   const getRedirect = () => {
     const urlParams = new URL(window.location.href).searchParams;
-    return urlParams.get('redirect') || '/welcome';
+    return urlParams.get('redirect') || '/doc/welcome';
   };
 
   const handleSubmit = async (values: any) => {

@@ -25,6 +25,12 @@ const isDevOrTest = isDev || process.env.CI;
 const loginPath = '/user/login';
 const setPasswordPath = '/user/set-password';
 
+const getEntry = (): 'doc' | 'meeting' => {
+  const path = window.location.pathname;
+  if (path === '/meeting' || path.startsWith('/meeting/')) return 'meeting';
+  return 'doc';
+};
+
 /**
  * @see https://umijs.org/docs/api/runtime-config#getinitialstate
  */
@@ -129,7 +135,7 @@ export async function getInitialState(): Promise<{
     // 新用户需要设置密码
     if (existingUser.needs_password_setup && location.pathname !== setPasswordPath) {
       // 保存原始目标路径，设置密码后跳转
-      const redirect = location.pathname !== loginPath ? location.pathname : '/welcome';
+      const redirect = location.pathname !== loginPath ? location.pathname : '/doc/welcome';
       history.push(`${setPasswordPath}?redirect=${encodeURIComponent(redirect)}`);
       return {
         fetchUserInfo,
@@ -139,7 +145,7 @@ export async function getInitialState(): Promise<{
     }
     // 已有有效 token 且获取到用户信息，如果在 login 页面则跳转到 welcome
     if (location.pathname === loginPath) {
-      history.push('/welcome');
+      history.push('/doc/welcome');
     }
     return {
       fetchUserInfo,
@@ -185,11 +191,19 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
       ©2025 AI文档助手 | AI文档书写 · AI会议助手
     </div>
   ),
+  menuDataRender: (menuData) => {
+    const entry = getEntry();
+    return menuData.filter((item) => {
+      if (!item.path) return true;
+      if (item.path.startsWith('/user')) return false;
+      return item.path.startsWith('/' + entry);
+    });
+  },
   onPageChange: () => {
     const { location } = history;
     // 新用户需要设置密码，跳转到设置密码页面
     if (initialState?.currentUser?.needs_password_setup && location.pathname !== setPasswordPath) {
-      const redirect = location.pathname !== loginPath ? location.pathname : '/welcome';
+      const redirect = location.pathname !== loginPath ? location.pathname : '/doc/welcome';
       history.push(`${setPasswordPath}?redirect=${encodeURIComponent(redirect)}`);
       return;
     }

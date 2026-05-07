@@ -11,28 +11,16 @@
  * @doc https://umijs.org/docs/guides/routes
  */
 
-export default [
-  {
-    path: '/user',
-    layout: false,
-    routes: [
-      {
-        name: 'login',
-        path: '/user/login',
-        component: './user/login',
-      },
-      {
-        name: 'register',
-        path: '/user/register',
-        component: './user/register',
-      },
-      {
-        name: 'set-password',
-        path: '/user/set-password',
-        component: './user/set-password',
-      },
-    ],
-  },
+function withPrefix(prefix: string, routes: any[]) {
+  return routes.map((r) => ({
+    ...r,
+    path: prefix + r.path,
+    ...(r.routes ? { routes: withPrefix(prefix, r.routes) } : {}),
+  }));
+}
+
+// 两个入口共享的页面
+const shared = [
   {
     path: '/welcome',
     name: 'welcome',
@@ -44,42 +32,21 @@ export default [
     name: '用户信息',
     icon: 'bug',
     component: './UserInfo',
-    // 👆 不设置 access，所有人都能访问
   },
-  // {
-  //   path: '/admin',
-  //   name: 'admin',
-  //   icon: 'crown',
-  //   access: 'canAdmin',
-  //   routes: [
-  //     {
-  //       path: '/admin',
-  //       redirect: '/admin/sub-page',
-  //     },
-  //     {
-  //       path: '/admin/sub-page',
-  //       name: 'sub-page',
-  //       component: './Admin',
-  //     },
-  //   ],
-  // },
-  // {
-  //   name: 'list.table-list',
-  //   icon: 'table',
-  //   path: '/list',
-  //   component: './table-list',
-  // },
   {
     path: '/AI/calendar',
     icon: 'calendar',
     name: '日程管理',
-    component: './AI/Calendar', // 指向你的 CalendarManagement 页面
+    component: './AI/Calendar',
   },
-  // ==================== 新增 AI 模块路由 ====================
+];
+
+// 公文写作专属
+const docOnly = [
   {
     path: '/AI',
-    name: 'AI',
-    icon: 'robot', // 可以换成你喜欢的图标
+    name: 'AI 写作',
+    icon: 'robot',
     routes: [
       {
         path: '/AI/document-writer',
@@ -92,11 +59,6 @@ export default [
         icon: 'message',
         component: './AI/ConversationHistory',
       },
-      // {
-      //   path: '/AI/meeting-assistant',
-      //   name: 'AI 会议助手',
-      //   component: './AI/MeetingAssistant',
-      // },
       {
         path: '/AI/prompt-manager',
         name: 'Prompt 管理',
@@ -109,9 +71,12 @@ export default [
         icon: 'database',
         component: './AI/KnowledgeBase',
       },
-      
     ],
   },
+];
+
+// 会议纪要专属
+const meetingOnly = [
   {
     path: '/meetings',
     name: '会议系统',
@@ -134,13 +99,37 @@ export default [
       },
     ],
   },
+];
+
+export default [
   {
-    path: '/',
-    redirect: '/welcome',
+    path: '/user',
+    layout: false,
+    routes: [
+      {
+        name: 'login',
+        path: '/user/login',
+        component: './user/login',
+      },
+      {
+        name: 'register',
+        path: '/user/register',
+        component: './user/register',
+      },
+      {
+        name: 'set-password',
+        path: '/user/set-password',
+        component: './user/set-password',
+      },
+    ],
   },
+  ...withPrefix('/doc', [...shared, ...docOnly]),
+  ...withPrefix('/meeting', [...shared, ...meetingOnly]),
+  { path: '/welcome', redirect: '/doc/welcome' },
+  { path: '/', redirect: '/doc/welcome' },
   {
     component: '404',
     layout: false,
-    path: './*',
+    path: '/*',
   },
 ];
