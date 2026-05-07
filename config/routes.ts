@@ -127,6 +127,8 @@ export default [
   ...withPrefix('/meeting', [...shared, ...meetingOnly]),
   { path: '/welcome', redirect: '/doc/welcome' },
   { path: '/', redirect: '/doc/welcome' },
+  { path: '/meeting', redirect: '/meeting/welcome' },
+  { path: '/doc', redirect: '/doc/welcome' },
   {
     component: '404',
     layout: false,
