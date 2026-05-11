@@ -135,7 +135,8 @@ export async function getInitialState(): Promise<{
     // 新用户需要设置密码
     if (existingUser.needs_password_setup && location.pathname !== setPasswordPath) {
       // 保存原始目标路径，设置密码后跳转
-      const redirect = location.pathname !== loginPath ? location.pathname : '/doc/welcome';
+      const urlRedirect = new URLSearchParams(window.location.search).get('redirect');
+      const redirect = location.pathname !== loginPath ? location.pathname : (urlRedirect || '/doc/welcome');
       history.push(`${setPasswordPath}?redirect=${encodeURIComponent(redirect)}`);
       return {
         fetchUserInfo,
@@ -145,7 +146,8 @@ export async function getInitialState(): Promise<{
     }
     // 已有有效 token 且获取到用户信息，如果在 login 页面则跳转到 welcome
     if (location.pathname === loginPath) {
-      history.push('/doc/welcome');
+      const redirect = new URLSearchParams(window.location.search).get('redirect');
+      history.push(redirect || '/doc/welcome');
     }
     return {
       fetchUserInfo,
