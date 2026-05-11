@@ -7,9 +7,7 @@ const Landing: React.FC = () => {
   const { token } = theme.useToken();
   const { initialState } = useModel('@@initialState');
 
-  const isLoggedIn =
-    !!initialState?.currentUser ||
-    !!localStorage.getItem('access_token');
+  const isLoggedIn = !!initialState?.currentUser;
 
   const handleEnter = (entry: 'doc' | 'meeting') => {
     const target = `/${entry}/welcome`;

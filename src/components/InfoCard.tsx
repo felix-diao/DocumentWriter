@@ -5,7 +5,6 @@ const InfoCard: React.FC<{
   title: string;
   index: number;
   desc: string;
-  href?: string;
   onClick?: () => void;
 }> = ({ title, index, desc, onClick }) => {
   const { useToken } = theme;
