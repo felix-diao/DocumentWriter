@@ -66,9 +66,10 @@ const statusMeta: Record<string, { label: string; color: string }> = {
   cancelled: { label: '已取消', color: 'red' },
 };
 
-const trimFormText = (value?: string | null) => {
+/** 可选文本：空串/仅空格 → `null`，便于请求体带上键名从而清空库里的可选字段（omit undefined 时后端 exclude_unset 会跳过更新）。 */
+const normalizeOptionalMeetingField = (value?: string | null): string | null => {
   const text = value?.trim();
-  return text ? text : undefined;
+  return text ? text : null;
 };
 
 const isMeetingFormValidationError = (error: any) => Array.isArray(error?.errorFields);
@@ -151,12 +152,12 @@ const MeetingManagement: React.FC = () => {
     const payload: MeetingPayload = {
       title: values.title.trim(),
       date: values.date?.toISOString(),
-      location: trimFormText(values.location),
-      host: trimFormText(values.host),
-      participants: trimFormText(values.participants),
-      content_text: trimFormText(values.content_text),
-      meeting_url: trimFormText(values.meeting_url),
-      status: trimFormText(values.status),
+      location: normalizeOptionalMeetingField(values.location),
+      host: normalizeOptionalMeetingField(values.host),
+      participants: normalizeOptionalMeetingField(values.participants),
+      content_text: normalizeOptionalMeetingField(values.content_text),
+      meeting_url: normalizeOptionalMeetingField(values.meeting_url),
+      status: normalizeOptionalMeetingField(values.status),
     };
 
     setSaving(true);
@@ -175,7 +176,11 @@ const MeetingManagement: React.FC = () => {
       setModalVisible(false);
       await fetchMeetings();
     } catch (error: any) {
-      message.error(error?.message || '保存会议失败');
+      // HTTP 错误已由全局 request errorHandler 弹出文案，避免重复 toast
+      const hasHttpResponse = !!error?.response;
+      if (!hasHttpResponse && error?.name !== 'BizError') {
+        message.error(error?.message || '保存会议失败');
+      }
     } finally {
       setSaving(false);
     }
@@ -259,7 +264,7 @@ const MeetingManagement: React.FC = () => {
     disabled: !selectedMeeting,
   };
 
-  const renderStatusTag = (status?: string) => {
+  const renderStatusTag = (status?: string | null) => {
     if (!status) return <Tag>未指定</Tag>;
     const meta = statusMeta[status] || { label: status, color: 'default' };
     return <Tag color={meta.color}>{meta.label}</Tag>;

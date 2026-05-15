@@ -50,12 +50,13 @@ interface MeetingAudioUploadTask {
 export interface MeetingPayload {
   title: string;
   date: string;
-  location?: string;
-  host?: string;
-  participants?: string;
-  content_text?: string;
-  meeting_url?: string;
-  status?: string;
+  /** 传 `null` 表示清空（PUT 时 JSON 需显式字段，omit 则后端不会更新） */
+  location?: string | null;
+  host?: string | null;
+  participants?: string | null;
+  content_text?: string | null;
+  meeting_url?: string | null;
+  status?: string | null;
 }
 
 export interface Meeting extends MeetingPayload {

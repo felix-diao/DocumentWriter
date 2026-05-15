@@ -1,7 +1,35 @@
-﻿import type { RequestOptions } from '@@/plugin-request/request';
+import type { RequestOptions } from '@@/plugin-request/request';
 import type { RequestConfig } from '@umijs/max';
 import { message, notification } from 'antd';
 import { getAuthHeader } from '@/utils/auth';
+
+/** 从 Axios/Fetch 类错误中解析 FastAPI 常见字段 `detail`（字符串或校验错误数组）。 */
+export function getFastApiErrorDetail(error: any): string | undefined {
+  const data = error?.response?.data;
+  if (!data || typeof data !== 'object') return undefined;
+  const d = (data as { detail?: unknown }).detail;
+  if (typeof d === 'string') return d;
+  if (Array.isArray(d)) {
+    const parts = d
+      .map((item: any) => (typeof item?.msg === 'string' ? item.msg : undefined))
+      .filter(Boolean);
+    if (parts.length) return parts.join('；');
+  }
+  return undefined;
+}
+
+/** HTTP 错误的人类可读文案（优先后端 detail）。 */
+export function getHttpErrorMessage(error: any): string {
+  const detail = getFastApiErrorDetail(error);
+  if (detail) return detail;
+  const status = error?.response?.status;
+  if (status === 409) return '与已有记录冲突，请修改后重试';
+  if (status === 404) return '资源不存在或已被删除';
+  if (status === 403) return '没有权限执行此操作';
+  if (status === 401) return '登录已失效，请重新登录';
+  if (typeof status === 'number') return `请求失败（${status}）`;
+  return error?.message || '网络异常，请稍后重试';
+}
 
 // 错误处理方案： 错误类型
 enum ErrorShowType {
@@ -80,9 +108,9 @@ export const errorConfig: RequestConfig = {
           }
         }
       } else if (error.response) {
-        // Axios 的错误
-        // 请求成功发出且服务器也响应了状态码，但状态代码超出了 2xx 的范围
-        message.error(`Response status:${error.response.status}`);
+        // Axios：HTTP 非 2xx；FastAPI 多为 { detail: string | array }
+        const friendly = getHttpErrorMessage(error);
+        message.error(friendly);
       } else if (error.request) {
         // 请求已经成功发起，但没有收到响应
         // \`error.request\` 在浏览器中是 XMLHttpRequest 的实例，
