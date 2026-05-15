@@ -126,6 +126,7 @@ export default [
   ...withPrefix('/doc', [...shared, ...docOnly]),
   ...withPrefix('/meeting', [...shared, ...meetingOnly]),
   { path: '/welcome', redirect: '/doc/welcome' },
+  { path: '/ai-writer', component: './StandaloneWriter', layout: false },
   { path: '/', component: './Landing', layout: false },
   { path: '/meeting', redirect: '/meeting/welcome' },
   { path: '/doc', redirect: '/doc/welcome' },
