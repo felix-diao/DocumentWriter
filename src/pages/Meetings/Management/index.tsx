@@ -36,7 +36,7 @@ import type { UploadProps } from 'antd/es/upload';
 import type { UploadRequestOption as RcCustomRequestOptions } from 'rc-upload/lib/interface';
 import dayjs, { type Dayjs } from 'dayjs';
 import React, { useEffect, useState } from 'react';
-import { history } from '@umijs/max';
+import { history, useLocation } from '@umijs/max';
 import meetingsApi, {
   isAudioUploadPendingError,
   type LocalMeetingAudio,
@@ -75,6 +75,7 @@ const normalizeOptionalMeetingField = (value?: string | null): string | null => 
 const isMeetingFormValidationError = (error: any) => Array.isArray(error?.errorFields);
 
 const MeetingManagement: React.FC = () => {
+  const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
@@ -278,7 +279,8 @@ const MeetingManagement: React.FC = () => {
   };
 
   const actionToMinutes = (meetingId: number) => {
-    history.push(`/meeting/meetings/minutes?meetingId=${meetingId}`);
+    const minutesPath = location.pathname.startsWith('/ai-meeting/') ? '/ai-meeting/minutes' : '/meeting/meetings/minutes';
+    history.push(`${minutesPath}?meetingId=${meetingId}`);
   };
 
   const columns: ColumnsType<Meeting> = [

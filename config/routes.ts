@@ -138,6 +138,17 @@ export default [
       { path: '/ai-writer', redirect: '/ai-writer/write' },
     ],
   },
+  {
+    path: '/ai-meeting',
+    component: './StandaloneMeeting',
+    layout: false,
+    routes: [
+      { path: '/ai-meeting/minutes', component: './Meetings/Minutes' },
+      { path: '/ai-meeting/manage', component: './Meetings/Management' },
+      { path: '/ai-meeting/sessions', component: './Meetings/Minutes' },
+      { path: '/ai-meeting', redirect: '/ai-meeting/manage' },
+    ],
+  },
   { path: '/', component: './Landing', layout: false },
   { path: '/meeting', redirect: '/meeting/welcome' },
   { path: '/doc', redirect: '/doc/welcome' },
