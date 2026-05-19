@@ -12,6 +12,7 @@ import {
   Question,
   SelectLang,
 } from '@/components';
+import { message } from 'antd';
 
 import defaultSettings from '../config/defaultSettings';
 import { errorConfig } from './requestErrorConfig';
@@ -98,9 +99,19 @@ export async function getInitialState(): Promise<{
         console.log('redeemTicket response:', response);
         if (response.success && response.data?.access_token) {
           setToken(response.data.access_token);
+          // ticket 兑换成功后立即获取用户信息，以便检查 needs_password_setup
+          try {
+            const rawUserInfo = await queryCurrentUser({ skipErrorHandler: true });
+            if (rawUserInfo) {
+              existingUser = transformUserInfo(rawUserInfo);
+            }
+          } catch (e) {
+            console.log('Failed to get user info after ticket redemption:', e);
+          }
         } else {
-          // ticket 无效（已使用/过期/不存在），显示提示
+          // ticket 无效（已使用/过期/不存在），显示提示给用户
           console.log('Ticket invalid:', response.message);
+          message.error(response.message || 'ticket 无效');
           // 由于无 token，后续流程会自动跳转到登录页
         }
         // 清除 URL 中的 ticket 参数
@@ -111,6 +122,7 @@ export async function getInitialState(): Promise<{
         const cleanUrl = window.location.pathname + window.location.hash;
         window.history.replaceState({}, '', cleanUrl);
         console.log('Ticket redemption failed:', error);
+        message.error('ticket 兑换失败，请重新获取');
       }
     }
   }
@@ -130,8 +142,11 @@ export async function getInitialState(): Promise<{
 
   const { location } = history;
 
+  // 检查是否有有效的 token（可能来自 localStorage 或刚兑换的 ticket）
+  const hasValidToken = localStorage.getItem('access_token');
+
   // 如果已有有效 token，即使是 login 页面也应该尝试获取用户信息
-  if (existingToken && existingUser) {
+  if (hasValidToken && existingUser) {
     // 新用户需要设置密码
     if (existingUser.needs_password_setup && location.pathname !== setPasswordPath) {
       // 保存原始目标路径，设置密码后跳转
