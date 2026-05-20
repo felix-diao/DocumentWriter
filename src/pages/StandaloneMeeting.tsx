@@ -15,15 +15,11 @@ const menuItems = [
   { key: '/ai-meeting/sessions', icon: <MessageOutlined />, label: '会话历史' },
 ];
 
-const setPasswordPath = '/user/set-password';
-const loginPath = '/user/login';
-
 const StandaloneMeeting: React.FC = () => {
   const { initialState } = useModel('@@initialState');
   const location = useLocation();
   const loading = initialState === undefined || initialState?.loading;
   const isLoggedIn = !!initialState?.currentUser;
-  const needsPasswordSetup = initialState?.currentUser?.needs_password_setup;
 
   const selectedKey = useMemo(() => {
     const match = menuItems.find((item) => location.pathname.startsWith(item.key));
@@ -31,17 +27,12 @@ const StandaloneMeeting: React.FC = () => {
   }, [location.pathname]);
 
   useEffect(() => {
-    if (loading) return;
-    // 新用户需要设置密码，跳转到设置密码页面
-    if (isLoggedIn && needsPasswordSetup && location.pathname !== setPasswordPath) {
-      history.push(`${setPasswordPath}?redirect=${encodeURIComponent(location.pathname)}`);
-      return;
+    if (!loading && !isLoggedIn) {
+      history.push(
+        `/user/login?redirect=${encodeURIComponent(location.pathname)}`,
+      );
     }
-    // 未登录跳转到登录页面
-    if (!isLoggedIn) {
-      history.push(`${loginPath}?redirect=${encodeURIComponent(location.pathname)}`);
-    }
-  }, [loading, isLoggedIn, needsPasswordSetup, location.pathname]);
+  }, [loading, isLoggedIn, location.pathname]);
 
   if (loading) {
     return (
@@ -58,8 +49,7 @@ const StandaloneMeeting: React.FC = () => {
     );
   }
 
-  // 未登录或需要设置密码时，返回 null 等待跳转
-  if (!isLoggedIn || needsPasswordSetup) {
+  if (!isLoggedIn) {
     return null;
   }
 

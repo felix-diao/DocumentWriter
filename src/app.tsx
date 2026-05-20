@@ -83,7 +83,7 @@ export async function getInitialState(): Promise<{
       }
     } catch (e) {
       // token 无效，继续处理 ticket
-    }
+      }
   }
 
   if (ticket) {
@@ -99,17 +99,8 @@ export async function getInitialState(): Promise<{
         console.log('redeemTicket response:', response);
         if (response.success && response.data?.access_token) {
           setToken(response.data.access_token);
-          // ticket 兑换成功后立即获取用户信息，以便检查 needs_password_setup
-          try {
-            const rawUserInfo = await queryCurrentUser({ skipErrorHandler: true });
-            if (rawUserInfo) {
-              existingUser = transformUserInfo(rawUserInfo);
-            }
-          } catch (e) {
-            console.log('Failed to get user info after ticket redemption:', e);
-          }
         } else {
-          // ticket 无效（已使用/过期/不存在），显示提示给用户
+          // ticket 无效（已使用/过期/不存在），显示提示
           console.log('Ticket invalid:', response.message);
           message.error(response.message || 'ticket 无效');
           // 由于无 token，后续流程会自动跳转到登录页
@@ -145,20 +136,8 @@ export async function getInitialState(): Promise<{
   // 检查是否有有效的 token（可能来自 localStorage 或刚兑换的 ticket）
   const hasValidToken = localStorage.getItem('access_token');
 
-  // 如果已有有效 token，即使是 login 页面也应该尝试获取用户信息
+   // 如果已有有效 token，即使是 login 页面也应该尝试获取用户信息
   if (hasValidToken && existingUser) {
-    // 新用户需要设置密码
-    if (existingUser.needs_password_setup && location.pathname !== setPasswordPath) {
-      // 保存原始目标路径，设置密码后跳转
-      const urlRedirect = new URLSearchParams(window.location.search).get('redirect');
-      const redirect = location.pathname !== loginPath ? location.pathname : (urlRedirect || '/doc/welcome');
-      history.push(`${setPasswordPath}?redirect=${encodeURIComponent(redirect)}`);
-      return {
-        fetchUserInfo,
-        currentUser: existingUser,
-        settings: defaultSettings as Partial<LayoutSettings>,
-      };
-    }
     // 已有有效 token 且获取到用户信息，如果在 login 页面则跳转到 welcome
     if (location.pathname === loginPath) {
       const redirect = new URLSearchParams(window.location.search).get('redirect');
@@ -170,7 +149,6 @@ export async function getInitialState(): Promise<{
       settings: defaultSettings as Partial<LayoutSettings>,
     };
   }
-
   // 无 token 或获取用户信息失败，按原逻辑处理
   if (![loginPath, '/user/register', '/user/register-result', setPasswordPath].includes(location.pathname)) {
     const currentUser = await fetchUserInfo();
@@ -218,12 +196,6 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
   },
   onPageChange: () => {
     const { location } = history;
-    // 新用户需要设置密码，跳转到设置密码页面
-    if (initialState?.currentUser?.needs_password_setup && location.pathname !== setPasswordPath) {
-      const redirect = location.pathname !== loginPath ? location.pathname : '/doc/welcome';
-      history.push(`${setPasswordPath}?redirect=${encodeURIComponent(redirect)}`);
-      return;
-    }
     if (!initialState?.currentUser && location.pathname !== loginPath && location.pathname !== setPasswordPath) {
       history.push(loginPath);
     }
