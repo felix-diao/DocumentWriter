@@ -46,7 +46,7 @@ export async function getInitialState(): Promise<{
   const ticket = urlParams.get('ticket');
 
   // 先检查是否已有 token，获取当前用户信息
-  const existingToken = localStorage.getItem('access_token');
+  let existingToken = localStorage.getItem('access_token');
   let existingUser: API.CurrentUser | undefined;
 
   // 转换用户信息的辅助函数
@@ -83,6 +83,8 @@ export async function getInitialState(): Promise<{
       }
     } catch (e) {
       // token 无效，继续处理 ticket
+      localStorage.removeItem('access_token');
+      existingToken = null;
       }
   }
 
