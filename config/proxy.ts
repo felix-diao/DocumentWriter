@@ -51,6 +51,16 @@ export default {
       changeOrigin: true,
       pathRewrite: { '^/api/knowledge': '/api/knowledge' }
     },
+    '/doc/AI/uploads/': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/doc/AI/uploads': '/uploads' }
+    },
+    '/ai-writer/uploads/': {
+      target: ragTarget,
+      changeOrigin: true,
+      pathRewrite: { '^/ai-writer/uploads': '/uploads' }
+    },
     '/AI/uploads/': {
       target: ragTarget,
       changeOrigin: true,
