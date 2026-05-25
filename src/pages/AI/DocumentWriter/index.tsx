@@ -3367,9 +3367,12 @@ const DocumentWriter: React.FC = () => {
                           >
                             <Button
                               type="link"
-                              onClick={() =>
-                                window.open('/AI/prompt-manager', '_blank')
-                              }
+                              onClick={() => {
+                                const target = window.location.pathname.startsWith('/ai-writer')
+                                  ? '/ai-writer/prompts'
+                                  : '/doc/AI/prompt-manager';
+                                window.open(target, '_blank');
+                              }}
                             >
                               去创建
                             </Button>
