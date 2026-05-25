@@ -1,5 +1,8 @@
 import {
   DislikeOutlined,
+  DownloadOutlined,
+  FilePdfOutlined,
+  FileWordOutlined,
   LikeOutlined,
   MessageOutlined,
   ReloadOutlined,
@@ -25,6 +28,12 @@ import {
   message,
 } from 'antd';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
 import React, {
   useCallback,
   useEffect,
@@ -52,7 +61,7 @@ interface LoadListParams {
 }
 
 const formatDateTime = (value?: string) =>
-  value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-';
+  value ? dayjs.utc(value).tz('Asia/Shanghai').format('YYYY-MM-DD HH:mm:ss') : '-';
 
 const roleColorMap: Record<string, string> = {
   query: 'blue',
@@ -513,6 +522,34 @@ const ConversationHistoryPage: React.FC = () => {
                   {detail.liked ? '已点赞' : '未点赞'}
                 </Descriptions.Item>
               </Descriptions>
+
+              {(detail?.pdfUrl || detail?.wordUrl) && (
+                <div style={{ marginBottom: 4 }}>
+                  <Space size="small">
+                    <Text type="secondary">生成文档：</Text>
+                    {detail.pdfUrl && (
+                      <Button
+                        size="small"
+                        type="link"
+                        icon={<FilePdfOutlined />}
+                        onClick={() => window.open(detail.pdfUrl, "_blank")}
+                      >
+                        PDF
+                      </Button>
+                    )}
+                    {detail.wordUrl && (
+                      <Button
+                        size="small"
+                        type="link"
+                        icon={<FileWordOutlined />}
+                        onClick={() => window.open(detail.wordUrl, "_blank")}
+                      >
+                        Word
+                      </Button>
+                    )}
+                  </Space>
+                </div>
+              )}
 
               <Divider />
 

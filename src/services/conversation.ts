@@ -34,6 +34,8 @@ export interface ConversationSummary {
   vectorScore?: number;
   tags?: string[];
   userId?: string;
+  pdfUrl?: string;
+  wordUrl?: string;
   metadata?: Record<string, any>;
 }
 
@@ -195,6 +197,8 @@ const normalizeConversationSummary = (raw: any): ConversationSummary => {
   const userId = ensureString(raw?.user_id || raw?.userId);
   const metadata =
     raw?.metadata && typeof raw.metadata === 'object' ? raw.metadata : undefined;
+  const pdfUrl = ensureString(raw?.pdf_url);
+  const wordUrl = ensureString(raw?.word_url);
 
   return {
     id: conversationId,
@@ -212,6 +216,8 @@ const normalizeConversationSummary = (raw: any): ConversationSummary => {
     tags,
     userId,
     metadata,
+    pdfUrl,
+    wordUrl,
   };
 };
 

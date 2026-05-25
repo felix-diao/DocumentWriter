@@ -3073,7 +3073,8 @@ const DocumentWriter: React.FC = () => {
                             导出
                           </Button>
                         </Dropdown>
-                        <Button
+{/* TODO: 保存到云端 - 后端未实现，暂时隐藏 */}
+                        {/* <Button
                           size="small"
                           type="primary"
                           icon={<CloudUploadOutlined />}
@@ -3081,7 +3082,7 @@ const DocumentWriter: React.FC = () => {
                           disabled={!content}
                         >
                           保存
-                        </Button>
+                        </Button> */}
                       </Space>
                     </div>
 
