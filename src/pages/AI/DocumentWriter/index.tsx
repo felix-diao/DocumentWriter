@@ -1863,6 +1863,26 @@ const DocumentWriter: React.FC = () => {
       setContent(normalizedText);
       setHtmlContent(normalizedHtml);
 
+      // 自动保存到草稿库
+      const draftDoc: SavedDocument = {
+        id: Date.now().toString(),
+        title: titleInput || prompt.split('\n')[0] || '未命名文档',
+        content: normalizedText,
+        type: documentType,
+        scenario: scenario || undefined,
+        url: resolvedPdfUrl || resolvedWordUrl,
+        createdAt: new Date(),
+        size: new Blob([normalizedText]).size,
+        pdfUrl: resolvedPdfUrl ?? undefined,
+        wordUrl: resolvedWordUrl ?? undefined,
+        pdfPath: pdfPathFromResponse ?? undefined,
+        wordPath: wordPathFromResponse ?? undefined,
+        aiRate: generateAiRate ?? null,
+      };
+      const nextDocs = [draftDoc, ...savedDocs];
+      setSavedDocs(nextDocs);
+      persistSavedDocs(nextDocs);
+
       // 延迟隐藏进度条
       setTimeout(() => {
         setGenerateProgressVisible(false);
