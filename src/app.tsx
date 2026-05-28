@@ -89,35 +89,26 @@ export async function getInitialState(): Promise<{
   }
 
   if (ticket) {
-    // 如果已有 token，不兑换 ticket，直接清除 ticket 参数，静默跳过
-    if (existingToken) {
-      console.log('Already logged in, skipping ticket redemption');
-      const cleanUrl = window.location.pathname + window.location.hash;
-      window.history.replaceState({}, '', cleanUrl);
-    } else {
-      // 无 token，尝试兑换 ticket
-      try {
-        const response = await redeemTicket({ ticket });
-        console.log('redeemTicket response:', response);
-        if (response.success && response.data?.access_token) {
-          setToken(response.data.access_token);
-        } else {
-          // ticket 无效（已使用/过期/不存在），显示提示
-          console.log('Ticket invalid:', response.message);
-          message.error(response.message || 'ticket 无效');
-          // 由于无 token，后续流程会自动跳转到登录页
-        }
-        // 清除 URL 中的 ticket 参数
-        const cleanUrl = window.location.pathname + window.location.hash;
-        window.history.replaceState({}, '', cleanUrl);
-      } catch (error) {
-        // 兑换失败，清除 ticket 参数
-        const cleanUrl = window.location.pathname + window.location.hash;
-        window.history.replaceState({}, '', cleanUrl);
-        console.log('Ticket redemption failed:', error);
-        message.error('ticket 兑换失败，请重新获取');
+    // 始终尝试兑换 ticket，后端会比较 token username 是否与 ticket 一致
+    try {
+      const response = await redeemTicket({ ticket });
+      console.log('redeemTicket response:', response);
+      if (response.success && response.data?.access_token) {
+        setToken(response.data.access_token);
+        // 清除旧用户信息，让下面重新获取
+        existingToken = response.data.access_token;
+        existingUser = undefined;
+      } else {
+        console.log('Ticket invalid:', response.message);
+        message.error(response.message || 'ticket 无效');
       }
+    } catch (error) {
+      console.log('Ticket redemption failed:', error);
+      message.error('ticket 兑换失败，请重新获取');
     }
+    // 清除 URL 中的 ticket 参数
+    const cleanUrl = window.location.pathname + window.location.hash;
+    window.history.replaceState({}, '', cleanUrl);
   }
 
   const fetchUserInfo = async () => {
