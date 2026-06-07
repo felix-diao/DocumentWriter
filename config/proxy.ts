@@ -10,7 +10,7 @@
  * @doc https://umijs.org/docs/guides/proxy
  */
 const backendTarget = 'http://127.0.0.1:8000';
-const ragTarget = process.env.RAG_SERVICE_URL || 'http://127.0.0.1:8080';
+const ragTarget = process.env.RAG_SERVICE_URL || 'http://127.0.0.1:8081';
 
 export default {
   // 如果需要自定义本地开发服务器  请取消注释按需调整
@@ -39,7 +39,7 @@ export default {
       changeOrigin: true,
       pathRewrite: { '^/api/currentUser': '/api/auth/me' }
     },
-    // /api/ai/document/write -> http://127.0.0.1:8080/api/document/write
+    // /api/ai/document/write -> http://127.0.0.1:8081/api/document/write
     '/api/ai/document/': {
       target: ragTarget,
       changeOrigin: true,

@@ -108,3 +108,14 @@ export async function aiMeetingAnalytics(params: {
         method: 'GET',
     });
 }
+
+// 上传写作素材文件，提取文本内容
+export async function extractMaterials(files: File[]) {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('files', file));
+    return request(`${DOCUMENT_API_BASE}/extract-materials`, {
+        method: 'POST',
+        data: formData,
+        requestType: 'form',
+    });
+}

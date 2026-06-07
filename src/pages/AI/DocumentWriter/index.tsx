@@ -40,7 +40,7 @@ import {
 } from 'antd';
 import * as Diff from 'diff';
 import React, { useEffect, useMemo, useState } from 'react';
-import { aiOptimizeDocument, aiWriteDocument } from '@/services/ai';
+import { aiOptimizeDocument, aiWriteDocument, extractMaterials } from '@/services/ai';
 import {
   exportToPDF,
   exportToText,
@@ -1294,6 +1294,8 @@ const DocumentWriter: React.FC = () => {
     'medium',
   );
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [materialTexts, setMaterialTexts] = useState<Record<string, string>>({});
+  const [materialsExtracting, setMaterialsExtracting] = useState(false);
   const [savedDocs, setSavedDocs] = useState<SavedDocument[]>(() =>
     loadSavedDocsFromStorage(),
   );
@@ -1777,8 +1779,14 @@ const DocumentWriter: React.FC = () => {
         .join('\n\n');
 
       const filesContent = uploadedFiles
-        .map((f) => `\n[附加素材: ${f.name}]`)
-        .join('');
+        .map((f) => {
+          const text = materialTexts[f.name];
+          if (text) {
+            return `\n[参考资料: ${f.name}]\n${text}`;
+          }
+          return `\n[附加素材: ${f.name}]`;
+        })
+        .join('\n');
 
       const documentTypeLabel = getDocumentTypeLabel(documentType);
       const scenarioLabel =
@@ -3273,8 +3281,27 @@ const DocumentWriter: React.FC = () => {
                     <div>
                       <Title level={5}>写作素材（可选）</Title>
                       <Upload
-                        beforeUpload={(file) => {
-                          setUploadedFiles([...uploadedFiles, file]);
+                        beforeUpload={async (file) => {
+                          const newFiles = [...uploadedFiles, file];
+                          setUploadedFiles(newFiles);
+                          // 上传并提取文件内容
+                          setMaterialsExtracting(true);
+                          try {
+                            const res = await extractMaterials(newFiles);
+                            if (res?.success && res.data) {
+                              const texts: Record<string, string> = {};
+                              res.data.forEach(
+                                (item: { filename: string; text: string }) => {
+                                  texts[item.filename] = item.text;
+                                },
+                              );
+                              setMaterialTexts(texts);
+                            }
+                          } catch (e) {
+                            console.warn('素材提取失败', e);
+                          } finally {
+                            setMaterialsExtracting(false);
+                          }
                           return false;
                         }}
                         multiple
@@ -3291,13 +3318,53 @@ const DocumentWriter: React.FC = () => {
                             const newFiles = [...uploadedFiles];
                             newFiles.splice(idx, 1);
                             setUploadedFiles(newFiles);
+                            // 重新提取剩余文件
+                            if (newFiles.length > 0) {
+                              setMaterialsExtracting(true);
+                              extractMaterials(newFiles)
+                                .then((res) => {
+                                  if (res?.success && res.data) {
+                                    const texts: Record<string, string> = {};
+                                    res.data.forEach(
+                                      (item: { filename: string; text: string }) => {
+                                        texts[item.filename] = item.text;
+                                      },
+                                    );
+                                    setMaterialTexts(texts);
+                                  }
+                                })
+                                .finally(() => setMaterialsExtracting(false));
+                            } else {
+                              setMaterialTexts({});
+                            }
                           }
                         }}
                       >
-                        <Button icon={<UploadOutlined />} block size="small">
+                        <Button
+                          icon={<UploadOutlined />}
+                          block
+                          size="small"
+                          loading={materialsExtracting}
+                        >
                           添加文件
                         </Button>
                       </Upload>
+                      {materialsExtracting && (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          正在提取文件内容...
+                        </Text>
+                      )}
+                      {Object.keys(materialTexts).length > 0 && (
+                        <Text type="success" style={{ fontSize: 12 }}>
+                          已提取 {Object.keys(materialTexts).length} 个文件，
+                          共{' '}
+                          {Object.values(materialTexts).reduce(
+                            (sum, t) => sum + t.length,
+                            0,
+                          )}{' '}
+                          字
+                        </Text>
+                      )}
                     </div>
 
                     <div>
