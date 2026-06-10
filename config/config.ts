@@ -190,5 +190,6 @@ export default defineConfig({
     // 字符串必须 JSON.stringify，否则 mako 替换成无引号原始值会产出 invalid JS
     'process.env.DEV_BACKEND_WS_BASE': JSON.stringify(devBackendWsBase),
     'process.env.DEV_BACKEND_WS_MODE': JSON.stringify(devBackendWsMode),
+    'process.env.WS_BASE_URL': JSON.stringify(process.env.WS_BASE_URL || ''),
   },
 });

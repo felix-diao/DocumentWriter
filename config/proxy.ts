@@ -10,7 +10,8 @@
  * @doc https://umijs.org/docs/guides/proxy
  */
 const backendTarget = 'http://127.0.0.1:8000';
-const ragTarget = process.env.RAG_SERVICE_URL || 'http://127.0.0.1:8081';
+const ragTarget = process.env.RAG_SERVICE_URL || 'https://127.0.0.1:8080';
+const proxySecure = process.env.PROXY_SECURE !== 'false';
 
 export default {
   // 如果需要自定义本地开发服务器  请取消注释按需调整
@@ -21,99 +22,118 @@ export default {
     '/api/auth/': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
     },
     // 兼容旧的登录接口路径
     '/api/login/account': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/login/account': '/api/auth/login' }
     },
     '/api/login/outLogin': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/login/outLogin': '/api/auth/logout' }
     },
     
     '/api/currentUser': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/currentUser': '/api/auth/me' }
     },
     // /api/ai/document/write -> http://127.0.0.1:8081/api/document/write
     '/api/ai/document/': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/ai/document': '/api/document' }
     },
     // 将 /api/knowledge/** 代理到 RAG 服务
     '/api/knowledge': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/knowledge': '/api/knowledge' }
     },
     '/doc/AI/uploads/': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/doc/AI/uploads': '/uploads' }
     },
     '/ai-writer/uploads/': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/ai-writer/uploads': '/uploads' }
     },
     '/AI/uploads/': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/AI/uploads': '/uploads' }
     },
     '/AI/word/': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/AI/word': '/generated_documents' }
     },
     '/AI/pdf/': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/AI/pdf': '/pdf' }
     },
     '/AI/txt/': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/AI/txt': '/txt' }
     },
     '/api/document': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/document': '/api/document' }
     },
     '/api/translate': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/translate': '/api/translate' }
     },
     '/api/llm': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/llm': '/api/llm' }
     },
     '/api/meeting/create': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/meeting/create': '/api/meetings' }
     },
     'api/meetings/audio/download': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/meetings/audio/download': '/api/meetings/audio/download' }
     },
     'api/meetings/files/download': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/meetings/files/download': '/api/meetings/files/download' }
     },
     '/api/meetings': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       ws: true,
       pathRewrite: { '^/api/meetings': '/api/meetings' }
     },
@@ -121,23 +141,27 @@ export default {
     '/api/minutes/volc/': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       ws: true,
     },
     // 不设置 ws:true，避免与 /api/minutes/volc/ 双重代理同一连接导致 code=1006
     '/api/minutes': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/minutes': '/api/minutes' },
     },
  
     '/api/prompts': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/prompts': '/api/prompts' }
     },
     '/api/conversations': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
       pathRewrite: { '^/api/conversations': '/api/conversations' },
     },
 
@@ -159,10 +183,12 @@ export default {
     '/api/documents/': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
     },
     '/api/rag/': {
       target: ragTarget,
       changeOrigin: true,
+      secure: proxySecure,
     },
     // 将 /api/meeting/** 代理到 RAG 服务（腾讯会议接口）
     

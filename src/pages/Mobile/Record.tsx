@@ -37,9 +37,21 @@ const RecordPage: React.FC = () => {
 
   const buildWsUrl = useCallback(() => {
     const token = getToken();
-    // 后端已配置 SSL，WebSocket 直接连后端，不走 ngrok/umi proxy
-    const protocol = 'wss:';
-    const host = '8.152.214.78:8080';
+    // 开发环境：通过环境变量直连后端（如 wss://localhost:8080）
+    // 生产环境：自动跟随当前页面域名和协议
+    // umi define 的 JSON.stringify 会给字符串加引号，需去掉
+    const wsBaseUrl = (process.env.WS_BASE_URL || '').replace(/^["']|["']$/g, '');
+
+    if (wsBaseUrl) {
+      const basePath = provider === 'volc'
+        ? `/api/meetings/minutes/volc/${meetingId}/live`
+        : `/api/meetings/minutes/local/${meetingId}/live`;
+      return `${wsBaseUrl}${basePath}?token=${encodeURIComponent(token)}`;
+    }
+
+    // 生产环境自动检测
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
     const basePath = provider === 'volc'
       ? `/api/meetings/minutes/volc/${meetingId}/live`
       : `/api/meetings/minutes/local/${meetingId}/live`;
