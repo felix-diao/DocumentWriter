@@ -32,8 +32,14 @@ function isWechatWork(): boolean {
 
 const MobileLayout: React.FC = () => {
   const [loginStatus, setLoginStatus] = useState<string>('');
+  const [needLogin, setNeedLogin] = useState<boolean>(false);
 
   useEffect(() => {
+    // 登录页不走免登逻辑，直接渲染
+    if (window.location.pathname === '/mobile/login') {
+      return;
+    }
+
     // 移动端 viewport 适配
     const meta = document.querySelector('meta[name=viewport]');
     if (meta) {
@@ -51,8 +57,10 @@ const MobileLayout: React.FC = () => {
         return;
       }
 
-      if (!isWechatWork()) {
-        setLoginStatus('非企微环境，跳过免登');
+      const isWx = isWechatWork();
+      if (!isWx) {
+        setLoginStatus('非企微环境');
+        setNeedLogin(true);
         return;
       }
 
@@ -73,6 +81,7 @@ const MobileLayout: React.FC = () => {
         });
         if (!configRes.success) {
           setLoginStatus('js-config 失败: ' + (configRes.message || 'unknown'));
+          setNeedLogin(true);
           return;
         }
         const cfg = configRes.data;
@@ -95,11 +104,13 @@ const MobileLayout: React.FC = () => {
           wx.invoke('getContext', {}, async (res: any) => {
             if (res.err_msg !== 'getContext:ok') {
               setLoginStatus('getContext 失败: ' + res.err_msg);
+              setNeedLogin(true);
               return;
             }
             const code = res.code;
             if (!code) {
               setLoginStatus('code 为空');
+              setNeedLogin(true);
               return;
             }
 
@@ -112,6 +123,7 @@ const MobileLayout: React.FC = () => {
               });
               if (!loginRes.success) {
                 setLoginStatus('wechat-login 失败: ' + (loginRes.message || 'unknown'));
+                setNeedLogin(true);
                 return;
               }
               const ticket = loginRes.data.ticket;
@@ -125,6 +137,7 @@ const MobileLayout: React.FC = () => {
               });
               if (!tokenRes.success) {
                 setLoginStatus('redeem 失败: ' + (tokenRes.message || 'unknown'));
+                setNeedLogin(true);
                 return;
               }
 
@@ -142,11 +155,16 @@ const MobileLayout: React.FC = () => {
         });
       } catch (e: any) {
         setLoginStatus('免登异常: ' + e.message);
+        setNeedLogin(true);
       }
     };
 
     doWechatLogin();
   }, []);
+
+  const handleLogin = () => {
+    window.location.href = '/mobile/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search);
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f6fa' }}>
@@ -160,7 +178,26 @@ const MobileLayout: React.FC = () => {
           免登: {loginStatus}
         </div>
       )}
-      <Outlet />
+      {needLogin && window.location.pathname !== '/mobile/login' && (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          justifyContent: 'center', minHeight: '100vh', padding: '0 24px',
+        }}>
+          <div style={{ fontSize: 16, color: '#666', marginBottom: 16, textAlign: 'center' }}>
+            {loginStatus || '需要登录'}
+          </div>
+          <button
+            onClick={handleLogin}
+            style={{
+              padding: '12px 32px', fontSize: 16, background: '#1677ff',
+              color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer',
+            }}
+          >
+            使用密码登录
+          </button>
+        </div>
+      )}
+      {(!needLogin || window.location.pathname === '/mobile/login') && <Outlet />}
     </div>
   );
 };

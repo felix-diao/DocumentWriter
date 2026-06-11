@@ -155,6 +155,7 @@ export default [
     layout: false,
     routes: [
       { path: '/mobile', redirect: '/mobile/meetings' },
+      { path: '/mobile/login', component: './Mobile/Login' },
       { path: '/mobile/meetings', component: './Mobile/MeetingList' },
       { path: '/mobile/record/:id', component: './Mobile/Record' },
       { path: '/mobile/detail/:id', component: './Mobile/MeetingDetail' },

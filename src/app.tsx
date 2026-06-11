@@ -143,7 +143,9 @@ export async function getInitialState(): Promise<{
     };
   }
   // 无 token 或获取用户信息失败，按原逻辑处理
-  if (![loginPath, '/user/register', '/user/register-result', setPasswordPath].includes(location.pathname)) {
+  // 移动端路由由 MobileLayout 自己处理登录态，不在这里强制跳转
+  const isMobilePath = location.pathname.startsWith('/mobile');
+  if (!isMobilePath && ![loginPath, '/user/register', '/user/register-result', setPasswordPath].includes(location.pathname)) {
     const currentUser = await fetchUserInfo();
     return {
       fetchUserInfo,
