@@ -168,16 +168,7 @@ const MobileLayout: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f6fa' }}>
-      {process.env.NODE_ENV === 'development' && loginStatus && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0,
-          background: '#fffbe6', color: '#ad6800',
-          padding: '4px 12px', fontSize: 12, zIndex: 9999,
-          textAlign: 'center',
-        }}>
-          免登: {loginStatus}
-        </div>
-      )}
+
       {needLogin && window.location.pathname !== '/mobile/login' && (
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center',
