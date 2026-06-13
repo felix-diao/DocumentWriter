@@ -1,6 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Outlet } from 'umi';
 import { request } from '@umijs/max';
+
+const DEBUG_PREFIX = '[DEBUG-wx]';
+
+function log(...args: any[]) {
+  // eslint-disable-next-line no-console
+  console.log(DEBUG_PREFIX, ...args);
+}
 
 // 开发环境启用 vConsole 方便手机调试
 if (process.env.NODE_ENV === 'development' || window.location.pathname.startsWith('/mobile')) {
@@ -30,14 +37,34 @@ function isWechatWork(): boolean {
   return ua.includes('wxwork');
 }
 
+// 判断当前是否在移动端登录页（兼容 /agent_officea/mobile/login 等前缀）
+function isMobileLoginPage(path: string): boolean {
+  return path.endsWith('/mobile/login');
+}
+
+type LoginState = 'checking' | 'needLogin' | 'loggedIn';
+
 const MobileLayout: React.FC = () => {
+  const [loginState, setLoginState] = useState<LoginState>('checking');
   const [loginStatus, setLoginStatus] = useState<string>('');
-  const [needLogin, setNeedLogin] = useState<boolean>(false);
+  const safetyTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
-    // 登录页不走免登逻辑，直接渲染
-    if (window.location.pathname === '/mobile/login') {
-      return;
+    const pathname = window.location.pathname;
+    log('init pathname=', pathname, 'href=', window.location.href);
+
+    const clearSafetyTimeout = () => {
+      if (safetyTimeoutRef.current) {
+        clearTimeout(safetyTimeoutRef.current);
+        safetyTimeoutRef.current = null;
+      }
+    };
+
+    // 登录页直接渲染，不跑免登
+    if (isMobileLoginPage(pathname)) {
+      log('login page, skip');
+      setLoginState('needLogin');
+      return () => clearSafetyTimeout();
     }
 
     // 移动端 viewport 适配
@@ -49,18 +76,28 @@ const MobileLayout: React.FC = () => {
       );
     }
 
-    // 企微免登
+    // 安全超时：10 秒内没确定状态，强制显示密码登录
+    safetyTimeoutRef.current = setTimeout(() => {
+      log('safety timeout');
+      setLoginStatus('登录检测超时，请使用密码登录');
+      setLoginState('needLogin');
+    }, 10000);
+
     const doWechatLogin = async () => {
       const token = localStorage.getItem('access_token');
+      log('token=', token ? 'exists' : 'none');
       if (token) {
-        setLoginStatus('已有 token，跳过免登');
+        clearSafetyTimeout();
+        setLoginState('loggedIn');
         return;
       }
 
       const isWx = isWechatWork();
+      log('isWechatWork=', isWx, 'UA=', navigator.userAgent);
       if (!isWx) {
+        clearSafetyTimeout();
         setLoginStatus('非企微环境');
-        setNeedLogin(true);
+        setLoginState('needLogin');
         return;
       }
 
@@ -68,29 +105,46 @@ const MobileLayout: React.FC = () => {
         setLoginStatus('加载企微 SDK...');
         await loadWechatScript();
         const wx = (window as any).wx;
+        log('wx loaded=', !!wx);
         if (!wx) {
+          clearSafetyTimeout();
           setLoginStatus('wx 对象不存在');
+          setLoginState('needLogin');
           return;
         }
 
         // 1. 获取 js-config
         const currentUrl = window.location.href.split('#')[0];
+        log('currentUrl=', currentUrl);
         setLoginStatus('获取 js-config...');
-        const configRes = await request('/api/auth/wechat-js-config', {
-          params: { url: currentUrl },
-        });
+        let configRes: any;
+        try {
+          configRes = await request('/api/auth/wechat-js-config', {
+            params: { url: currentUrl },
+          });
+        } catch (e: any) {
+          log('js-config request error', e?.message, e?.response?.data);
+          clearSafetyTimeout();
+          setLoginStatus('js-config 请求异常: ' + e.message);
+          setLoginState('needLogin');
+          return;
+        }
+        log('js-config response=', configRes);
         if (!configRes.success) {
+          clearSafetyTimeout();
           setLoginStatus('js-config 失败: ' + (configRes.message || 'unknown'));
-          setNeedLogin(true);
+          setLoginState('needLogin');
           return;
         }
         const cfg = configRes.data;
 
         // 2. wx.config
         setLoginStatus('wx.config...');
+        let readyFired = false;
+
         wx.config({
           beta: true,
-          debug: false,
+          debug: true,
           appId: cfg.corpId,
           timestamp: cfg.timestamp,
           nonceStr: cfg.nonceStr,
@@ -100,17 +154,22 @@ const MobileLayout: React.FC = () => {
 
         // 3. wx.ready → getContext 取 code
         wx.ready(async () => {
+          readyFired = true;
+          log('wx.ready fired');
           setLoginStatus('获取免登 code...');
           wx.invoke('getContext', {}, async (res: any) => {
+            log('getContext res=', res);
             if (res.err_msg !== 'getContext:ok') {
+              clearSafetyTimeout();
               setLoginStatus('getContext 失败: ' + res.err_msg);
-              setNeedLogin(true);
+              setLoginState('needLogin');
               return;
             }
             const code = res.code;
             if (!code) {
+              clearSafetyTimeout();
               setLoginStatus('code 为空');
-              setNeedLogin(true);
+              setLoginState('needLogin');
               return;
             }
 
@@ -121,9 +180,11 @@ const MobileLayout: React.FC = () => {
                 method: 'POST',
                 data: { code },
               });
+              log('wechat-login response=', loginRes);
               if (!loginRes.success) {
+                clearSafetyTimeout();
                 setLoginStatus('wechat-login 失败: ' + (loginRes.message || 'unknown'));
-                setNeedLogin(true);
+                setLoginState('needLogin');
                 return;
               }
               const ticket = loginRes.data.ticket;
@@ -135,60 +196,113 @@ const MobileLayout: React.FC = () => {
                 data: { ticket },
                 headers: { Authorization: 'Bearer ' },
               });
+              log('redeem-ticket response=', tokenRes);
               if (!tokenRes.success) {
+                clearSafetyTimeout();
                 setLoginStatus('redeem 失败: ' + (tokenRes.message || 'unknown'));
-                setNeedLogin(true);
+                setLoginState('needLogin');
                 return;
               }
 
               localStorage.setItem('access_token', tokenRes.data.access_token);
+              clearSafetyTimeout();
               setLoginStatus('免登成功');
+              log('reload');
               window.location.reload();
             } catch (e: any) {
+              log('wechat-login/redeem error', e?.message, e?.response?.data);
+              clearSafetyTimeout();
               setLoginStatus('请求异常: ' + e.message);
+              setLoginState('needLogin');
             }
           });
         });
 
         wx.error((err: any) => {
+          readyFired = true;
+          log('wx.error=', err);
+          clearSafetyTimeout();
           setLoginStatus('wx.error: ' + JSON.stringify(err));
+          setLoginState('needLogin');
         });
+
+        // wx.ready 5 秒未触发也兜底
+        setTimeout(() => {
+          if (!readyFired) {
+            log('wx.ready not fired in 5s');
+            clearSafetyTimeout();
+            setLoginStatus('wx.ready 未响应，请使用密码登录');
+            setLoginState('needLogin');
+          }
+        }, 5000);
       } catch (e: any) {
+        log('doWechatLogin error', e?.message);
+        clearSafetyTimeout();
         setLoginStatus('免登异常: ' + e.message);
-        setNeedLogin(true);
+        setLoginState('needLogin');
       }
     };
 
     doWechatLogin();
+
+    return () => clearSafetyTimeout();
   }, []);
 
   const handleLogin = () => {
-    window.location.href = '/mobile/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search);
+    const pathname = window.location.pathname;
+    const redirect = pathname + window.location.search;
+    const basePath = pathname.substring(0, pathname.lastIndexOf('/'));
+    const loginPath = basePath.endsWith('/mobile') ? basePath + '/login' : '/mobile/login';
+    log('handleLogin redirect=', redirect, 'loginPath=', loginPath);
+    window.location.href = loginPath + '?redirect=' + encodeURIComponent(redirect);
   };
 
+  // 加载中状态：不渲染子页面
+  if (loginState === 'checking') {
+    return (
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', minHeight: '100vh', background: '#f5f6fa',
+        padding: '0 24px',
+      }}>
+        <div style={{ width: 32, height: 32, border: '3px solid #e0e0e0', borderTop: '3px solid #1677ff', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+        <div style={{ marginTop: 16, color: '#666', fontSize: 14 }}>
+          {loginStatus || '正在检测登录状态...'}
+        </div>
+        <style>{`
+          @keyframes spin { 100% { transform: rotate(360deg); } }
+        `}</style>
+      </div>
+    );
+  }
+
+  // 需要登录：显示按钮，不渲染子页面
+  if (loginState === 'needLogin' && !isMobileLoginPage(window.location.pathname)) {
+    return (
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', minHeight: '100vh', background: '#f5f6fa', padding: '0 24px',
+      }}>
+        <div style={{ fontSize: 16, color: '#666', marginBottom: 16, textAlign: 'center' }}>
+          {loginStatus || '需要登录'}
+        </div>
+        <button
+          onClick={handleLogin}
+          style={{
+            padding: '12px 32px', fontSize: 16, background: '#1677ff',
+            color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer',
+          }}
+        >
+          使用密码登录
+        </button>
+      </div>
+    );
+  }
+
+  // 已登录 或 当前就是登录页：渲染子页面
   return (
     <div style={{ minHeight: '100vh', background: '#f5f6fa' }}>
-
-      {needLogin && window.location.pathname !== '/mobile/login' && (
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', minHeight: '100vh', padding: '0 24px',
-        }}>
-          <div style={{ fontSize: 16, color: '#666', marginBottom: 16, textAlign: 'center' }}>
-            {loginStatus || '需要登录'}
-          </div>
-          <button
-            onClick={handleLogin}
-            style={{
-              padding: '12px 32px', fontSize: 16, background: '#1677ff',
-              color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer',
-            }}
-          >
-            使用密码登录
-          </button>
-        </div>
-      )}
-      {(!needLogin || window.location.pathname === '/mobile/login') && <Outlet />}
+      <Outlet />
     </div>
   );
 };
