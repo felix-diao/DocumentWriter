@@ -39,7 +39,9 @@ function isWechatWork(): boolean {
 
 // 判断当前是否在移动端登录页（兼容 /agent_officea/mobile/login 等前缀）
 function isMobileLoginPage(path: string): boolean {
-  return path.endsWith('/mobile/login');
+  // 兼容 /mobile/login 和 /mobile/login/
+  const normalized = path.replace(/\/+$/, '');
+  return normalized.endsWith('/mobile/login');
 }
 
 type LoginState = 'checking' | 'needLogin' | 'loggedIn';
@@ -61,7 +63,7 @@ const MobileLayout: React.FC = () => {
     };
 
     // 登录页直接渲染，不跑免登
-    if (isMobileLoginPage(pathname)) {
+    if (window.location.pathname === '/mobile/login') {
       log('login page, skip');
       setLoginState('needLogin');
       return () => clearSafetyTimeout();
@@ -277,7 +279,7 @@ const MobileLayout: React.FC = () => {
   }
 
   // 需要登录：显示按钮，不渲染子页面
-  if (loginState === 'needLogin' && !isMobileLoginPage(window.location.pathname)) {
+  if (loginState === 'needLogin' && window.location.pathname !== '/mobile/login') {
     return (
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',
