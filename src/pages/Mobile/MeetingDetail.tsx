@@ -221,7 +221,7 @@ const MeetingDetail: React.FC = () => {
 
   // 判断是否为默认生成的标题（格式："会议 MM-DD HH:mm"）
   const isDefaultTitle = (title: string): boolean => {
-    return /^会议 \d{2}-\d{2} \d{2}:\d{2}$/.test(title);
+    return /^会议 \d{2}\/\d{2} \d{2}:\d{2}$/.test(title);
   };
 
   // 判断纪要状态
