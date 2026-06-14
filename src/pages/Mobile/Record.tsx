@@ -295,7 +295,7 @@ const RecordPage: React.FC = () => {
     requestAnimationFrame(() => {
       const container = transcriptContainerRef.current;
       if (container) {
-        container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight * 0.6);
+        container.scrollTop = container.scrollHeight - container.clientHeight / 2;
       }
     });
   }, [transcript, transcriptParts]);
