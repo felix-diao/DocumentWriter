@@ -293,7 +293,14 @@ const RecordPage: React.FC = () => {
 
   // 实时转写自动下滑
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const container = transcriptContainerRef.current;
+    if (!container) return;
+    setTimeout(() => {
+      container.scrollTo({
+        top: container.scrollHeight - container.clientHeight * 0.5,
+        behavior: 'smooth',
+      });
+    }, 50);
   }, [transcript, transcriptParts]);
 
   useEffect(() => {
