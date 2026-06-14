@@ -293,19 +293,14 @@ const RecordPage: React.FC = () => {
 
   // 实时转写自动下滑
   useEffect(() => {
-    const container = transcriptContainerRef.current;
-    const lastItem = container?.lastElementChild as HTMLElement;
-
-    if (!container || !lastItem) return;
-
-    container.scrollTo({
-      top: Math.max(
-        0,
-        lastItem.offsetTop - container.clientHeight / 2
-      ),
-      behavior: 'smooth',
-    });
+    transcriptEndRef.current?.scrollIntoView({ block: 'center' });
   }, [transcript, transcriptParts]);
+
+  useEffect(() => {
+    return () => {
+      stopRecording({ autoGenerate: false, redirect: false });
+    };
+  }, []);
 
   return (
     <div style={{ height: '100dvh', overflow: 'hidden', background: '#fff', display: 'flex', flexDirection: 'column' }}>
