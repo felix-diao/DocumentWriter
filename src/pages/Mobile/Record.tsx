@@ -28,7 +28,8 @@ const RecordPage: React.FC = () => {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const durationRef = useRef(0);
   const pausedRef = useRef(false);
-
+  const stoppingRef = useRef(false);
+  
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
     const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
@@ -79,6 +80,8 @@ const RecordPage: React.FC = () => {
         Toast.show({ content: '已发送测试音频块', duration: 1000 });
         setStatus('recording');
         setRecording(true);
+        pausedRef.current = false;
+        setPaused(false);
         startAudioCapture(stream, ws);
         startTimer();
       };
@@ -114,6 +117,7 @@ const RecordPage: React.FC = () => {
         console.log('WS closed:', e.code, e.reason);
         Toast.show({ content: `连接断开: code=${e.code}`, duration: 2000 });
         setRecording(false);
+        pausedRef.current = false;
         setPaused(false);
         stopTimer();
       };
@@ -185,7 +189,27 @@ const RecordPage: React.FC = () => {
     setPaused(pausedRef.current);
   };
 
-  const stopRecording = async () => {
+  const generateMinutesAfterRecording = async () => {
+    const url =
+      provider === 'volc'
+        ? `/api/meetings/minutes/volc/${meetingId}/generate`
+        : `/api/meetings/minutes/local/${meetingId}/generate`;
+
+    await request(url, {
+      method: 'POST',
+    });
+  };
+
+  const stopRecording = async (
+    options: { autoGenerate?: boolean; redirect?: boolean } = {},
+  ) => {
+    const { autoGenerate = true, redirect = true } = options;
+
+    if (stoppingRef.current) {
+      return;
+    }
+
+    stoppingRef.current = true;
     // 1. 先停止麦克风采集（释放硬件）
     if (processorRef.current) {
       processorRef.current.disconnect();
@@ -243,12 +267,26 @@ const RecordPage: React.FC = () => {
     });
 
     setRecording(false);
+    pausedRef.current = false;
     setPaused(false);
     setStatus('idle');
 
-    setTimeout(() => {
-      history.push('/mobile/meetings');
-    }, 500);
+    if (autoGenerate) {
+      try {
+        Toast.show({ icon: 'loading', content: '正在生成会议纪要...' });
+        await generateMinutesAfterRecording();
+        Toast.show({ icon: 'success', content: '会议纪要已开始生成' });
+      } catch (error) {
+        console.error('自动生成会议纪要失败:', error);
+        Toast.show({ icon: 'fail', content: '自动生成失败，可稍后在详情页手动生成' });
+      }
+    }
+
+    if (redirect) {
+      setTimeout(() => {
+        history.push('/mobile/meetings');
+      }, 500);
+    }
   };
 
 // 实时转写自动下滑
@@ -260,12 +298,12 @@ const RecordPage: React.FC = () => {
 
   useEffect(() => {
     return () => {
-      stopRecording();
+      stopRecording({ autoGenerate: false, redirect: false });
     };
   }, []);
 
   return (
-    <div style={{ minHeight: '100vh', background: '#fff', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100dvh', overflow: 'hidden', background: '#fff', display: 'flex', flexDirection: 'column' }}>
       <NavBar onBack={() => history.push('/mobile/meetings')}>
         {provider === 'local' ? '🔒 机密会议' : '💬 普通会议'}
       </NavBar>
@@ -398,7 +436,7 @@ const RecordPage: React.FC = () => {
               </div>
             </button>
 
-            <button onClick={stopRecording} style={{ textAlign: 'center' }}>
+            <button onClick={() => stopRecording()} style={{ textAlign: 'center' }}>
               <div style={{
                 width: 72,
                 height: 72,

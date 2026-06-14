@@ -37,6 +37,7 @@ const MeetingDetail: React.FC = () => {
   const [minutesData, setMinutesData] = useState<any>(null);
   const [minutesLoading, setMinutesLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [copied, setCopied] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -292,17 +293,22 @@ const MeetingDetail: React.FC = () => {
                     <button
                       onClick={() => {
                         const text = minutesData.summary?.paragraph || minutesData.summary_paragraph || '';
-                        navigator.clipboard.writeText(text).then(() => {
-                          Toast.show({ icon: 'success', content: '已复制' });
-                        }).catch(() => {
-                          Toast.show({ icon: 'fail', content: '复制失败' });
-                        });
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.style.position = 'fixed';
+                        ta.style.left = '-9999px';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 1500);
                       }}
                       style={{
                         position: 'absolute',
                         top: 12,
                         right: 12,
-                        background: '#00bfa5',
+                        background: copied ? '#52c41a' : '#00bfa5',
                         color: '#fff',
                         border: 'none',
                         borderRadius: 14,
@@ -311,7 +317,7 @@ const MeetingDetail: React.FC = () => {
                         cursor: 'pointer',
                       }}
                     >
-                      复制
+                      {copied ? '✓ 已复制' : '复制'}
                     </button>
                     {(() => {
                       const rawMd = minutesData.summary?.paragraph || minutesData.summary_paragraph || '';
