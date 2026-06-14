@@ -297,13 +297,7 @@ const RecordPage: React.FC = () => {
 
   // 实时转写自动下滑
   useEffect(() => {
-    const container = transcriptContainerRef.current;
-    const endEl = transcriptEndRef.current;
-    if (!container || !endEl) return;
-
-    const cRect = container.getBoundingClientRect();
-    const eRect = endEl.getBoundingClientRect();
-    container.scrollTop = eRect.top - cRect.top + container.scrollTop - cRect.height * 0.4;
+    transcriptEndRef.current?.scrollIntoView({ block: 'center' });
   }, [transcript, transcriptParts]);
 
   useEffect(() => {
@@ -389,7 +383,7 @@ const RecordPage: React.FC = () => {
             </div>
           </div>
         )}
-        <div ref={transcriptEndRef} />
+        <div ref={transcriptEndRef} style={{ height: '20vh' }} />
       </div>
 
       <div style={{
