@@ -67,7 +67,24 @@ const fetchMinutesStatus = async (meeting: Meeting): Promise<MinutesStatusInfo> 
 
   try {
     const res = await request(url);
-    return resolveMinutesStatus(res?.data);
+    const status = resolveMinutesStatus(res?.data);
+    const statusKey = `meeting_minutes_status_${meeting.id}`;
+    const cachedStatus = localStorage.getItem(statusKey);
+
+    if (status.status === 'completed' || status.status === 'failed') {
+      localStorage.removeItem(statusKey);
+      return status;
+    }
+
+    if (cachedStatus === 'processing') {
+      return { status: 'processing', text: '生成中' };
+    }
+
+    if (cachedStatus === 'failed') {
+      return { status: 'failed', text: '生成失败' };
+    }
+
+    return status;
   } catch (error) {
     console.error('获取会议纪要状态失败:', error);
     return { status: 'not_started', text: '未开始' };
@@ -116,8 +133,8 @@ const MeetingList: React.FC = () => {
   }, [fetchMeetings]);
 
   useEffect(() => {
-   const hasUnfinished = Object.values(minutesStatusMap).some(
-      (item) => item.status === 'processing' || item.status === 'not_started',
+    const hasUnfinished = Object.values(minutesStatusMap).some(
+      (item) => item.status === 'processing',
     );
 
     if (!hasUnfinished) {
@@ -125,7 +142,7 @@ const MeetingList: React.FC = () => {
     }
 
     const timer = window.setInterval(() => {
-      fetchMeetings();
+      fetchMeetings(false);
     }, 5000);
 
     return () => window.clearInterval(timer);

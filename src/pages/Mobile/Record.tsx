@@ -40,9 +40,9 @@ const RecordPage: React.FC = () => {
 
   const buildWsUrl = useCallback(() => {
     const token = getToken();
-    // 开发环境：通过环境变量直连后端（如 wss://localhost:8080）
+    // 开发环境：通过环境变量直连后端（如 wss://localhost:8080�?
     // 生产环境：自动跟随当前页面域名和协议
-    // umi define 的 JSON.stringify 会给字符串加引号，需去掉
+    // umi define �? JSON.stringify 会给字符串加引号，需去掉
     const wsBaseUrl = (process.env.WS_BASE_URL || '').replace(/^["']|["']$/g, '');
 
     if (wsBaseUrl) {
@@ -52,7 +52,7 @@ const RecordPage: React.FC = () => {
       return `${wsBaseUrl}${basePath}?token=${encodeURIComponent(token)}`;
     }
 
-    // 生产环境自动检测
+    // 生产环境自动检�?
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const basePath = provider === 'volc'
@@ -132,7 +132,7 @@ const RecordPage: React.FC = () => {
     const audioContext = new AudioContext({ sampleRate: 16000 });
     audioContextRef.current = audioContext;
 
-    // iOS Safari 需要 resume
+    // iOS Safari 需�? resume
     if (audioContext.state === 'suspended') {
       await audioContext.resume();
     }
@@ -191,6 +191,9 @@ const RecordPage: React.FC = () => {
   };
 
   const generateMinutesAfterRecording = async () => {
+    const statusKey = `meeting_minutes_status_${meetingId}`;
+    localStorage.setItem(statusKey, 'processing');
+
     const url =
       provider === 'volc'
         ? `/api/meetings/minutes/volc/${meetingId}/generate`
@@ -230,7 +233,7 @@ const RecordPage: React.FC = () => {
     }
     stopTimer();
 
-    // 2. 发送 stop，等待后端 completed/error（最多 60 秒）
+    // 2. 发�? stop，等待后�? completed/error（最�? 60 秒）
     await new Promise<void>((resolve) => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         const ws = wsRef.current;
@@ -252,7 +255,7 @@ const RecordPage: React.FC = () => {
         ws.addEventListener('message', onMsg);
         ws.send(JSON.stringify({ action: 'stop' }));
 
-        // 兜底：60 秒后强制关闭
+        // 兜底�?60 秒后强制关闭
         setTimeout(() => {
           if (!settled) {
             ws.removeEventListener('message', onMsg);
@@ -260,7 +263,7 @@ const RecordPage: React.FC = () => {
             wsRef.current = null;
             resolve();
           }
-        }, 60000);
+        }, 5000);
       } else {
         wsRef.current = null;
         resolve();
@@ -278,6 +281,7 @@ const RecordPage: React.FC = () => {
         await generateMinutesAfterRecording();
         Toast.show({ icon: 'success', content: '会议纪要已开始生成' });
       } catch (error) {
+        localStorage.setItem(`meeting_minutes_status_${meetingId}`, 'failed');
         console.error('自动生成会议纪要失败:', error);
         Toast.show({ icon: 'fail', content: '自动生成失败，可稍后在详情页手动生成' });
       }
@@ -293,7 +297,13 @@ const RecordPage: React.FC = () => {
 
   // 实时转写自动下滑
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ block: 'center' });
+    const container = transcriptContainerRef.current;
+    const endEl = transcriptEndRef.current;
+    if (!container || !endEl) return;
+
+    const cRect = container.getBoundingClientRect();
+    const eRect = endEl.getBoundingClientRect();
+    container.scrollTop = eRect.top - cRect.top + container.scrollTop - cRect.height * 0.4;
   }, [transcript, transcriptParts]);
 
   useEffect(() => {
