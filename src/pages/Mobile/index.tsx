@@ -86,9 +86,9 @@ const MobileLayout: React.FC = () => {
     }, 10000);
 
     const doWechatLogin = async () => {
-      const token = localStorage.getItem('access_token');
-      log('token=', token ? 'exists' : 'none');
-      if (token) {
+      const existing = localStorage.getItem('access_token');
+      log('token=', existing ? 'exists' : 'none');
+      if (existing) {
         clearSafetyTimeout();
         setLoginState('loggedIn');
         return;
@@ -104,139 +104,82 @@ const MobileLayout: React.FC = () => {
       }
 
       try {
-        setLoginStatus('加载企微 SDK...');
-        await loadWechatScript();
-        const wx = (window as any).wx;
-        log('wx loaded=', !!wx);
-        if (!wx) {
+        // 1. 先看 URL 上有没有 OAuth2 回调带回来的 code
+        const code = new URLSearchParams(window.location.search).get('code');
+        log('oauth code=', code);
+
+        if (code) {
+          // 先清掉 URL 上的 code/state：无论成功或失败都不残留旧 code（失败后刷新会重新走授权）
+          window.history.replaceState({}, document.title, window.location.origin + window.location.pathname);
+          // 有 code → 换 ticket → JWT
+          setLoginStatus('wechat-login...');
+          const loginRes = await request('/api/auth/wechat-login', {
+            method: 'POST',
+            data: { code },
+          });
+          log('wechat-login response=', loginRes);
+          if (!loginRes.success) {
+            clearSafetyTimeout();
+            setLoginStatus('wechat-login 失败: ' + (loginRes.message || 'unknown'));
+            setLoginState('needLogin');
+            return;
+          }
+          const ticket = loginRes.data.ticket;
+
+          setLoginStatus('redeem ticket...');
+          const tokenRes = await request('/api/auth/redeem-ticket', {
+            method: 'POST',
+            data: { ticket },
+            headers: { Authorization: 'Bearer ' },
+          });
+          log('redeem-ticket response=', tokenRes);
+          if (!tokenRes.success) {
+            clearSafetyTimeout();
+            setLoginStatus('redeem 失败: ' + (tokenRes.message || 'unknown'));
+            setLoginState('needLogin');
+            return;
+          }
+
+          localStorage.setItem('access_token', tokenRes.data.access_token);
           clearSafetyTimeout();
-          setLoginStatus('wx 对象不存在');
-          setLoginState('needLogin');
+          setLoginStatus('免登成功');
+          log('reload');
+          window.location.reload();
           return;
         }
 
-        // 1. 获取 js-config
+        // 2. 没 code → 拿 corpId/agentId，跳转企业微信 OAuth2 授权（snsapi_base 静默）
+        setLoginStatus('跳转企业微信授权...');
         const currentUrl = window.location.href.split('#')[0];
-        log('currentUrl=', currentUrl);
-        setLoginStatus('获取 js-config...');
-        let configRes: any;
+        let cfgRes: any;
         try {
-          configRes = await request('/api/auth/wechat-js-config', {
+          cfgRes = await request('/api/auth/wechat-js-config', {
             params: { url: currentUrl },
           });
         } catch (e: any) {
-          log('js-config request error', e?.message, e?.response?.data);
           clearSafetyTimeout();
-          setLoginStatus('js-config 请求异常: ' + e.message);
+          setLoginStatus('获取配置异常: ' + e.message);
           setLoginState('needLogin');
           return;
         }
-        log('js-config response=', configRes);
-        if (!configRes.success) {
+        if (!cfgRes.success) {
           clearSafetyTimeout();
-          setLoginStatus('js-config 失败: ' + (configRes.message || 'unknown'));
+          setLoginStatus('获取配置失败: ' + (cfgRes.message || 'unknown'));
           setLoginState('needLogin');
           return;
         }
-        const cfg = configRes.data;
-
-        // 2. wx.config
-        setLoginStatus('wx.config...');
-        let readyFired = false;
-
-        wx.config({
-          beta: true,
-          debug: true,
-          appId: cfg.corpId,
-          timestamp: cfg.timestamp,
-          nonceStr: cfg.nonceStr,
-          signature: cfg.signature,
-          jsApiList: [],
-        });
-
-        // 3. wx.ready → getContext 取 code
-        wx.ready(async () => {
-          readyFired = true;
-          log('wx.ready fired');
-          setLoginStatus('获取免登 code...');
-          wx.invoke('getContext', {}, async (res: any) => {
-            log('getContext res=', res);
-            if (res.err_msg !== 'getContext:ok') {
-              clearSafetyTimeout();
-              setLoginStatus('getContext 失败: ' + res.err_msg);
-              setLoginState('needLogin');
-              return;
-            }
-            const code = res.code;
-            if (!code) {
-              clearSafetyTimeout();
-              setLoginStatus('code 为空');
-              setLoginState('needLogin');
-              return;
-            }
-
-            try {
-              // 4. code → ticket
-              setLoginStatus('wechat-login...');
-              const loginRes = await request('/api/auth/wechat-login', {
-                method: 'POST',
-                data: { code },
-              });
-              log('wechat-login response=', loginRes);
-              if (!loginRes.success) {
-                clearSafetyTimeout();
-                setLoginStatus('wechat-login 失败: ' + (loginRes.message || 'unknown'));
-                setLoginState('needLogin');
-                return;
-              }
-              const ticket = loginRes.data.ticket;
-
-              // 5. ticket → JWT
-              setLoginStatus('redeem ticket...');
-              const tokenRes = await request('/api/auth/redeem-ticket', {
-                method: 'POST',
-                data: { ticket },
-                headers: { Authorization: 'Bearer ' },
-              });
-              log('redeem-ticket response=', tokenRes);
-              if (!tokenRes.success) {
-                clearSafetyTimeout();
-                setLoginStatus('redeem 失败: ' + (tokenRes.message || 'unknown'));
-                setLoginState('needLogin');
-                return;
-              }
-
-              localStorage.setItem('access_token', tokenRes.data.access_token);
-              clearSafetyTimeout();
-              setLoginStatus('免登成功');
-              log('reload');
-              window.location.reload();
-            } catch (e: any) {
-              log('wechat-login/redeem error', e?.message, e?.response?.data);
-              clearSafetyTimeout();
-              setLoginStatus('请求异常: ' + e.message);
-              setLoginState('needLogin');
-            }
-          });
-        });
-
-        wx.error((err: any) => {
-          readyFired = true;
-          log('wx.error=', err);
-          clearSafetyTimeout();
-          setLoginStatus('wx.error: ' + JSON.stringify(err));
-          setLoginState('needLogin');
-        });
-
-        // wx.ready 5 秒未触发也兜底
-        setTimeout(() => {
-          if (!readyFired) {
-            log('wx.ready not fired in 5s');
-            clearSafetyTimeout();
-            setLoginStatus('wx.ready 未响应，请使用密码登录');
-            setLoginState('needLogin');
-          }
-        }, 5000);
+        const corpId = cfgRes.data.corpId;
+        const agentId = cfgRes.data.agentId;
+        const redirect = encodeURIComponent(currentUrl);
+        const oauthUrl =
+          'https://open.weixin.qq.com/connect/oauth2/authorize' +
+          '?appid=' + corpId +
+          '&redirect_uri=' + redirect +
+          '&response_type=code&scope=snsapi_base' +
+          '&agentid=' + agentId +
+          '&state=wxlogin#wechat_redirect';
+        log('redirect to oauth=', oauthUrl);
+        window.location.href = oauthUrl;
       } catch (e: any) {
         log('doWechatLogin error', e?.message);
         clearSafetyTimeout();
@@ -244,7 +187,6 @@ const MobileLayout: React.FC = () => {
         setLoginState('needLogin');
       }
     };
-
     doWechatLogin();
 
     return () => clearSafetyTimeout();

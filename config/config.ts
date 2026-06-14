@@ -21,7 +21,8 @@ const devBackendWsBase = UMI_ENV === 'dev'
  * @description 部署时的路径，如果部署在非根目录下，需要配置这个变量
  * @doc https://umijs.org/docs/api/config#publicpath
  */
-const PUBLIC_PATH: string = '/';
+const PUBLIC_PATH: string = process.env.PUBLIC_PATH || '/';
+const BASE_PATH: string = process.env.BASE_PATH || '/';
 
 export default defineConfig({
   /**
@@ -30,7 +31,7 @@ export default defineConfig({
    * @doc https://umijs.org/docs/api/config#hash
    */
   hash: true,
-
+  base: BASE_PATH,
   publicPath: PUBLIC_PATH,
 
   /**

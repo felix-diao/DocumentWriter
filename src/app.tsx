@@ -144,7 +144,7 @@ export async function getInitialState(): Promise<{
   }
   // 无 token 或获取用户信息失败，按原逻辑处理
   // 移动端路由由 MobileLayout 自己处理登录态，不在这里强制跳转
-  const isMobilePath = location.pathname.startsWith('/mobile');
+  const isMobilePath = location.pathname.replace(/^\/agent_officea/, '').startsWith('/mobile');
   if (!isMobilePath && ![loginPath, '/user/register', '/user/register-result', setPasswordPath].includes(location.pathname)) {
     const currentUser = await fetchUserInfo();
     return {
@@ -191,7 +191,9 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
   },
   onPageChange: () => {
     const { location } = history;
-    if (!initialState?.currentUser && location.pathname !== loginPath && location.pathname !== setPasswordPath) {
+    const isMobilePath = location.pathname.replace(/^\/agent_officea/, '').startsWith('/mobile');
+    if (!isMobilePath && !initialState?.currentUser && location.pathname !== loginPath && location.pathname !==
+  setPasswordPath){
       history.push(loginPath);
     }
   },
