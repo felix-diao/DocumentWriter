@@ -40,6 +40,9 @@ const MeetingDetail: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoTitleAppliedRef = useRef(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editTitleValue, setEditTitleValue] = useState('');
 
   const provider = meeting?.provider || localStorage.getItem(`meeting_provider_${meetingId}`) || 'local';
 
@@ -114,6 +117,30 @@ const MeetingDetail: React.FC = () => {
     }
   }, [minutesData, minutesLoading]);
 
+  // 摘要生成完成后，自动用 AI 标题替换默认标题
+  useEffect(() => {
+    if (autoTitleAppliedRef.current) return;
+    if (!meeting || !minutesData) return;
+
+    const aiTitle = minutesData?.summary?.title;
+    if (!aiTitle || typeof aiTitle !== 'string' || !aiTitle.trim()) return;
+    if (!isDefaultTitle(meeting.title)) return;
+
+    const applyTitle = async () => {
+      try {
+        await request(`/api/meetings/${meetingId}`, {
+          method: 'PUT',
+          data: { title: aiTitle.trim() },
+        });
+        setMeeting((prev) => (prev ? { ...prev, title: aiTitle.trim() } : prev));
+        autoTitleAppliedRef.current = true;
+      } catch {
+        // 静默失败，不影响页面
+      }
+    };
+    applyTitle();
+  }, [meeting, minutesData]);
+
   const handleGenerate = async () => {
     setGenerating(true);
     try {
@@ -140,6 +167,24 @@ const MeetingDetail: React.FC = () => {
       Toast.show({ icon: 'fail', content: err.message || '生成失败' });
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleTitleSave = async () => {
+    const newTitle = editTitleValue.trim();
+    if (!newTitle || newTitle === meeting?.title) {
+      setEditingTitle(false);
+      return;
+    }
+    try {
+      await request(`/api/meetings/${meetingId}`, {
+        method: 'PUT',
+        data: { title: newTitle },
+      });
+      setMeeting((prev) => (prev ? { ...prev, title: newTitle } : prev));
+      setEditingTitle(false);
+    } catch {
+      Toast.show({ icon: 'fail', content: '标题修改失败' });
     }
   };
 
@@ -174,6 +219,11 @@ const MeetingDetail: React.FC = () => {
 
   const transcriptBlocks = getTranscriptBlocks();
 
+  // 判断是否为默认生成的标题（格式："会议 MM-DD HH:mm"）
+  const isDefaultTitle = (title: string): boolean => {
+    return /^会议 \d{2}-\d{2} \d{2}:\d{2}$/.test(title);
+  };
+
   // 判断纪要状态
   const hasSummary = !!(minutesData?.summary?.paragraph || minutesData?.summary_paragraph);
   const hasTranscript = !!(minutesData?.stream_transcript_text || minutesData?.transcript_text);
@@ -205,10 +255,61 @@ const MeetingDetail: React.FC = () => {
       <NavBar onBack={() => history.push('/mobile/meetings')}>会议详情</NavBar>
 
       <div style={{ background: '#fff', padding: 16, marginBottom: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          <div style={{ fontSize: 20, fontWeight: 'bold', color: '#333' }}>
-            {meeting.title}
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+          {editingTitle ? (
+            <input
+              value={editTitleValue}
+              onChange={(e) => setEditTitleValue(e.target.value)}
+              onBlur={handleTitleSave}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleTitleSave();
+                if (e.key === 'Escape') {
+                  setEditingTitle(false);
+                }
+              }}
+              autoFocus
+              style={{
+                fontSize: 20,
+                fontWeight: 'bold',
+                color: '#333',
+                border: '2px solid #1677ff',
+                borderRadius: 6,
+                padding: '4px 10px',
+                maxWidth: '100%',
+                width: 260,
+                outline: 'none',
+                background: '#fff',
+                boxSizing: 'border-box',
+              }}
+            />
+          ) : (
+            <div
+              onClick={() => {
+                setEditingTitle(true);
+                setEditTitleValue(meeting.title);
+              }}
+              style={{
+                fontSize: 20,
+                fontWeight: 'bold',
+                color: '#333',
+                cursor: 'pointer',
+                padding: '2px 4px',
+                borderBottom: '2px dashed transparent',
+                transition: 'border-color 0.2s',
+                maxWidth: '100%',
+                wordBreak: 'break-all',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderBottomColor = '#1677ff';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderBottomColor = 'transparent';
+              }}
+              title="点击编辑会议标题"
+            >
+              {meeting.title}
+            </div>
+          )}
           {meeting.provider === 'local' && (
             <span style={{
               fontSize: 12, fontWeight: 'bold', color: '#cf1322',
