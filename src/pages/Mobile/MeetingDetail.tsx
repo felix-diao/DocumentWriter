@@ -277,6 +277,7 @@ const MeetingDetail: React.FC = () => {
                 {/* AI 核心摘要 */}
                 {hasSummary && (
                   <div style={{
+                    position: 'relative',
                     background: '#f5f6fa',
                     borderRadius: 12,
                     padding: 16,
@@ -288,6 +289,30 @@ const MeetingDetail: React.FC = () => {
                     <div style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 12, color: '#00bfa5' }}>
                       AI 核心摘要
                     </div>
+                    <button
+                      onClick={() => {
+                        const text = minutesData.summary?.paragraph || minutesData.summary_paragraph || '';
+                        navigator.clipboard.writeText(text).then(() => {
+                          Toast.show({ icon: 'success', content: '已复制' });
+                        }).catch(() => {
+                          Toast.show({ icon: 'fail', content: '复制失败' });
+                        });
+                      }}
+                      style={{
+                        position: 'absolute',
+                        top: 12,
+                        right: 12,
+                        background: '#00bfa5',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 14,
+                        padding: '4px 14px',
+                        fontSize: 13,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      复制
+                    </button>
                     {(() => {
                       const rawMd = minutesData.summary?.paragraph || minutesData.summary_paragraph || '';
                       const formattedMd = rawMd.replace(/\n\*\*([^*]+)\*\*\n/g, '\n\n## $1\n\n');

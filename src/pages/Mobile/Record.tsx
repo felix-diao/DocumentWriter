@@ -20,6 +20,7 @@ const RecordPage: React.FC = () => {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'recording' | 'error'>('idle');
 
   const wsRef = useRef<WebSocket | null>(null);
+  const transcriptContainerRef = useRef<HTMLDivElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -250,6 +251,13 @@ const RecordPage: React.FC = () => {
     }, 500);
   };
 
+// 实时转写自动下滑
+  useEffect(() => {
+    if (transcriptContainerRef.current) {
+      transcriptContainerRef.current.scrollTop = transcriptContainerRef.current.scrollHeight;
+    }
+  }, [transcript, transcriptParts]);
+
   useEffect(() => {
     return () => {
       stopRecording();
@@ -292,7 +300,7 @@ const RecordPage: React.FC = () => {
         `}</style>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 120px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 120px' }} ref={transcriptContainerRef}>
         {transcriptParts.length === 0 && !transcript && (
           <div style={{ textAlign: 'center', color: '#ccc', paddingTop: 40 }}>
             {status === 'idle' ? '点击开始录音' : '等待转译内容...'}
