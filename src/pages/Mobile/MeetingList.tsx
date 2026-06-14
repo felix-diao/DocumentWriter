@@ -17,30 +17,119 @@ interface Meeting {
   created_at: string;
 }
 
+type MinutesStatus = 'loading' | 'not_started' | 'processing' | 'completed' | 'failed';
+
+interface MinutesStatusInfo {
+  status: MinutesStatus;
+  text: string;
+}
+
+const resolveMinutesStatus = (data: any): MinutesStatusInfo => {
+  const hasSummary = !!(
+    data?.summary?.paragraph ||
+    data?.summary?.summary_text ||
+    data?.summary_paragraph ||
+    data?.summary_text
+  );
+
+  const rawStatus = String(
+    data?.processing_status ||
+      data?.audio_status ||
+      data?.asr_status ||
+      data?.minutes_job_status ||
+      data?.status ||
+      '',
+  ).toLowerCase();
+
+  if (hasSummary || rawStatus === 'completed' || rawStatus === 'success' || rawStatus === '已完成') {
+    return { status: 'completed', text: '已完成' };
+  }
+
+  if (['processing', 'running', 'submitted', 'pending', 'uploading'].includes(rawStatus)) {
+    return { status: 'processing', text: '生成中' };
+  }
+
+  if (['failed', 'error'].includes(rawStatus)) {
+    return { status: 'failed', text: '生成失败' };
+  }
+
+  return { status: 'not_started', text: '未开始' };
+};
+
+const fetchMinutesStatus = async (meeting: Meeting): Promise<MinutesStatusInfo> => {
+  const provider =
+    meeting.provider || localStorage.getItem(`meeting_provider_${meeting.id}`) || 'local';
+
+  const url =
+    provider === 'volc'
+      ? `/api/meetings/minutes/volc/${meeting.id}`
+      : `/api/meetings/minutes/local/${meeting.id}`;
+
+  try {
+    const res = await request(url);
+    return resolveMinutesStatus(res?.data);
+  } catch (error) {
+    console.error('获取会议纪要状态失败:', error);
+    return { status: 'not_started', text: '未开始' };
+  }
+};
+
 const MeetingList: React.FC = () => {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [minutesStatusMap, setMinutesStatusMap] = useState<Record<number, MinutesStatusInfo>>({});
   const [loading, setLoading] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [typeModalVisible, setTypeModalVisible] = useState(false);
 
-  const fetchMeetings = useCallback(async () => {
-    setLoading(true);
+  const fetchMeetings = useCallback(async (showLoading = true) => {
+    if (showLoading) {
+      setLoading(true);
+    }
+
     try {
       const res = await request('/api/meetings');
       if (res.success) {
-        setMeetings(res.data || []);
+        const list: Meeting[] = res.data || [];
+        setMeetings(list);
+
+        const entries = await Promise.all(
+          list.map(async (meeting) => {
+            const status = await fetchMinutesStatus(meeting);
+            return [meeting.id, status] as const;
+          }),
+        );
+
+        setMinutesStatusMap(Object.fromEntries(entries));
       }
     } catch (err) {
       Toast.show({ icon: 'fail', content: '获取会议列表失败' });
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     fetchMeetings();
   }, [fetchMeetings]);
+
+  useEffect(() => {
+   const hasUnfinished = Object.values(minutesStatusMap).some(
+      (item) => item.status === 'processing' || item.status === 'not_started',
+    );
+
+    if (!hasUnfinished) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      fetchMeetings();
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [minutesStatusMap, fetchMeetings]);
 
   const handleCreate = () => {
     setTypeModalVisible(true);
@@ -121,7 +210,24 @@ const MeetingList: React.FC = () => {
         {filteredMeetings.map((meeting, index) => (
           <div
             key={meeting.id}
-            onClick={() => history.push(`/mobile/detail/${meeting.id}`)}
+            
+            onClick={() => {
+              const minutesStatus = minutesStatusMap[meeting.id];
+
+              if (minutesStatus?.status !== 'completed') {
+                Toast.show({
+                  icon: 'fail',
+                  content:
+                    minutesStatus?.status === 'failed'
+                      ? '会议纪要生成失败，请稍后重试'
+                      : '会议纪要生成中，请稍后',
+                });
+                return;
+              }
+
+              history.push(`/mobile/detail/${meeting.id}`);
+            }}
+
             style={{
               background: index === 0 ? '#00bfa5' : '#fff',
               borderRadius: 12,
@@ -174,6 +280,22 @@ const MeetingList: React.FC = () => {
                     💬 普通
                   </span>
                 )}
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 'bold',
+                    color: minutesStatusMap[meeting.id]?.status === 'completed' ? '#389e0d' : '#d48806',
+                    background:
+                      minutesStatusMap[meeting.id]?.status === 'completed' ? '#f6ffed' : '#fff7e6',
+                    padding: '2px 8px',
+                    borderRadius: 10,
+                    border: `1px solid ${
+                      minutesStatusMap[meeting.id]?.status === 'completed' ? '#b7eb8f' : '#ffd591'
+                    }`,
+                  }}
+                >
+                  {minutesStatusMap[meeting.id]?.text || '状态获取中'}
+                </span>
               </div>
               <div
                 style={{

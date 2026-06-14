@@ -289,12 +289,15 @@ const RecordPage: React.FC = () => {
     }
   };
 
-// 实时转写自动下滑
+
+  // 实时转写自动下滑
   useEffect(() => {
-    const container = transcriptContainerRef.current;
-    if (container) {
-      container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight * 0.6);
-    }
+    requestAnimationFrame(() => {
+      const container = transcriptContainerRef.current;
+      if (container) {
+        container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight * 0.6);
+      }
+    });
   }, [transcript, transcriptParts]);
 
   useEffect(() => {
