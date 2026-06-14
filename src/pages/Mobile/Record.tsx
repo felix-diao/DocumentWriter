@@ -62,6 +62,8 @@ const RecordPage: React.FC = () => {
   }, [meetingId, provider]);
 
   const startRecording = async () => {
+    stoppingRef.current = false;
+
     setStatus('connecting');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -209,6 +211,10 @@ const RecordPage: React.FC = () => {
   ) => {
     const { autoGenerate = true, redirect = true } = options;
 
+    if (autoGenerate) {
+      localStorage.setItem(`meeting_minutes_status_${meetingId}`, 'processing');
+    }
+
     if (stoppingRef.current) {
       return;
     }
@@ -276,21 +282,18 @@ const RecordPage: React.FC = () => {
     setStatus('idle');
 
     if (autoGenerate) {
-      try {
-        Toast.show({ icon: 'loading', content: '正在生成会议纪要...' });
-        await generateMinutesAfterRecording();
-        Toast.show({ icon: 'success', content: '会议纪要已开始生成' });
-      } catch (error) {
-        localStorage.setItem(`meeting_minutes_status_${meetingId}`, 'failed');
+      const statusKey = `meeting_minutes_status_${meetingId}`;
+
+      void generateMinutesAfterRecording().catch((error) => {
         console.error('自动生成会议纪要失败:', error);
-        Toast.show({ icon: 'fail', content: '自动生成失败，可稍后在详情页手动生成' });
-      }
+        localStorage.setItem(statusKey, 'failed');
+      });
+
+      Toast.show({ icon: 'success', content: '会议纪要已开始生成' });
     }
 
     if (redirect) {
-      setTimeout(() => {
-        history.push('/mobile/meetings');
-      }, 500);
+      history.push('/mobile/meetings');
     }
   };
 
