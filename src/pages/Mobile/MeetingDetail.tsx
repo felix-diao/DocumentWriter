@@ -283,32 +283,37 @@ const MeetingDetail: React.FC = () => {
               }}
             />
           ) : (
-            <div
-              onClick={() => {
-                setEditingTitle(true);
-                setEditTitleValue(meeting.title);
-              }}
-              style={{
-                fontSize: 20,
-                fontWeight: 'bold',
-                color: '#333',
-                cursor: 'pointer',
-                padding: '2px 4px',
-                borderBottom: '2px dashed transparent',
-                transition: 'border-color 0.2s',
-                maxWidth: '100%',
-                wordBreak: 'break-all',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderBottomColor = '#1677ff';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderBottomColor = 'transparent';
-              }}
-              title="点击编辑会议标题"
-            >
-              {meeting.title}
-            </div>
+            <>
+              <div
+                style={{
+                  fontSize: 20,
+                  fontWeight: 'bold',
+                  color: '#333',
+                  maxWidth: '100%',
+                  wordBreak: 'break-all',
+                }}
+              >
+                {meeting.title}
+              </div>
+              <button
+                onClick={() => {
+                  setEditingTitle(true);
+                  setEditTitleValue(meeting.title);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: 16,
+                  cursor: 'pointer',
+                  padding: '2px 6px',
+                  color: '#bbb',
+                  flexShrink: 0,
+                }}
+                title="修改会议标题"
+              >
+                ✏️
+              </button>
+            </>
           )}
           {meeting.provider === 'local' && (
             <span style={{

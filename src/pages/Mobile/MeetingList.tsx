@@ -56,7 +56,14 @@ const resolveMinutesStatus = (data: any): MinutesStatusInfo => {
   return { status: 'not_started', text: '未开始' };
 };
 
-const fetchMinutesStatus = async (meeting: Meeting): Promise<MinutesStatusInfo> => {
+// 判断是否为默认生成的标题（格式："会议 MM/DD HH:mm"）
+const isDefaultTitle = (title: string): boolean => {
+  return /^会议 \d{2}\/\d{2} \d{2}:\d{2}$/.test(title);
+};
+
+const fetchMinutesStatus = async (
+  meeting: Meeting,
+): Promise<{ status: MinutesStatusInfo; updatedTitle?: string }> => {
   const provider =
     meeting.provider || localStorage.getItem(`meeting_provider_${meeting.id}`) || 'local';
 
@@ -67,27 +74,49 @@ const fetchMinutesStatus = async (meeting: Meeting): Promise<MinutesStatusInfo> 
 
   try {
     const res = await request(url);
-    const status = resolveMinutesStatus(res?.data);
+    const data = res?.data;
+
+    // 自动标题替换：AI 总结生成后，用 summary.title 替换默认标题
+    let updatedTitle: string | undefined;
+    const aiTitle = data?.summary?.title;
+    if (
+      aiTitle &&
+      typeof aiTitle === 'string' &&
+      aiTitle.trim() &&
+      isDefaultTitle(meeting.title)
+    ) {
+      try {
+        await request(`/api/meetings/${meeting.id}`, {
+          method: 'PUT',
+          data: { title: aiTitle.trim() },
+        });
+        updatedTitle = aiTitle.trim();
+      } catch {
+        // 静默失败
+      }
+    }
+
+    const status = resolveMinutesStatus(data);
     const statusKey = `meeting_minutes_status_${meeting.id}`;
     const cachedStatus = localStorage.getItem(statusKey);
 
     if (status.status === 'completed' || status.status === 'failed') {
       localStorage.removeItem(statusKey);
-      return status;
+      return { status, updatedTitle };
     }
 
     if (cachedStatus === 'processing') {
-      return { status: 'processing', text: '生成中' };
+      return { status: { status: 'processing', text: '生成中' }, updatedTitle };
     }
 
     if (cachedStatus === 'failed') {
-      return { status: 'failed', text: '生成失败' };
+      return { status: { status: 'failed', text: '生成失败' }, updatedTitle };
     }
 
-    return status;
+    return { status, updatedTitle };
   } catch (error) {
     console.error('获取会议纪要状态失败:', error);
-    return { status: 'not_started', text: '未开始' };
+    return { status: { status: 'not_started', text: '未开始' } };
   }
 };
 
@@ -112,12 +141,30 @@ const MeetingList: React.FC = () => {
 
         const entries = await Promise.all(
           list.map(async (meeting) => {
-            const status = await fetchMinutesStatus(meeting);
-            return [meeting.id, status] as const;
+            const result = await fetchMinutesStatus(meeting);
+            return [meeting.id, result] as const;
           }),
         );
 
-        setMinutesStatusMap(Object.fromEntries(entries));
+        const statusMap: Record<number, MinutesStatusInfo> = {};
+        const titleUpdates: Record<number, string> = {};
+        entries.forEach(([id, result]) => {
+          statusMap[id] = result.status;
+          if (result.updatedTitle) {
+            titleUpdates[id] = result.updatedTitle;
+          }
+        });
+
+        setMinutesStatusMap(statusMap);
+
+        // 本地刷新已自动替换的标题
+        if (Object.keys(titleUpdates).length > 0) {
+          setMeetings((prev) =>
+            prev.map((m) =>
+              titleUpdates[m.id] ? { ...m, title: titleUpdates[m.id] } : m,
+            ),
+          );
+        }
       }
     } catch (err) {
       Toast.show({ icon: 'fail', content: '获取会议列表失败' });
