@@ -21,6 +21,7 @@ const RecordPage: React.FC = () => {
 
   const wsRef = useRef<WebSocket | null>(null);
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -292,12 +293,7 @@ const RecordPage: React.FC = () => {
 
   // 实时转写自动下滑
   useEffect(() => {
-    requestAnimationFrame(() => {
-      const container = transcriptContainerRef.current;
-      if (container) {
-        container.scrollTop = container.scrollHeight - container.clientHeight / 2;
-      }
-    });
+    transcriptEndRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [transcript, transcriptParts]);
 
   useEffect(() => {
@@ -383,6 +379,7 @@ const RecordPage: React.FC = () => {
             </div>
           </div>
         )}
+        <div ref={transcriptEndRef} />
       </div>
 
       <div style={{
