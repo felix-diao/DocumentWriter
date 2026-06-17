@@ -324,6 +324,8 @@ const MeetingList: React.FC = () => {
                       padding: '2px 8px',
                       borderRadius: 10,
                       border: '1px solid #ffccc7',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
                     }}
                   >
                     🔒 机密
@@ -339,6 +341,8 @@ const MeetingList: React.FC = () => {
                       padding: '2px 8px',
                       borderRadius: 10,
                       border: '1px solid #87e8de',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
                     }}
                   >
                     💬 普通
@@ -356,6 +360,8 @@ const MeetingList: React.FC = () => {
                     border: `1px solid ${
                       minutesStatusMap[meeting.id]?.status === 'completed' ? '#b7eb8f' : '#ffd591'
                     }`,
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
                   }}
                 >
                   {minutesStatusMap[meeting.id]?.text || '状态获取中'}
