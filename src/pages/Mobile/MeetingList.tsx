@@ -56,9 +56,9 @@ const resolveMinutesStatus = (data: any): MinutesStatusInfo => {
   return { status: 'not_started', text: '未开始' };
 };
 
-// 判断是否为默认生成的标题（格式："会议 MM/DD HH:mm"）
+// 判断是否为默认生成的标题（格式："会议 MM/DD HH:mm" 或 "会议 MM/DD HH:mm:ss"）
 const isDefaultTitle = (title: string): boolean => {
-  return /^会议 \d{2}\/\d{2} \d{2}:\d{2}$/.test(title);
+  return /^会议 \d{2}\/\d{2} \d{2}:\d{2}(:\d{2})?$/.test(title);
 };
 
 const fetchMinutesStatus = async (
@@ -205,6 +205,7 @@ const MeetingList: React.FC = () => {
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
+      second: '2-digit',
     })}`;
     try {
       const res = await request('/api/meetings', {
@@ -225,9 +226,13 @@ const MeetingList: React.FC = () => {
     }
   };
 
-  const filteredMeetings = meetings.filter((m) =>
-    m.title.toLowerCase().includes(searchKeyword.toLowerCase())
-  );
+  const filteredMeetings = meetings.filter((m) => {
+    const matchesSearch = m.title.toLowerCase().includes(searchKeyword.toLowerCase());
+    // 隐藏未开始（没有录音）的会议，避免误创建的会议占据列表
+    const status = minutesStatusMap[m.id];
+    const isNotStarted = status?.status === 'not_started';
+    return matchesSearch && !isNotStarted;
+  });
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f6fa', paddingBottom: 80 }}>
