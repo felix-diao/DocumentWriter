@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { NavBar, Toast } from 'antd-mobile';
 import { useParams, history } from 'umi';
 import { request } from '@umijs/max';
+import { useWakeLock } from '@/hooks/useWakeLock';
 
 const getToken = (): string => {
   return localStorage.getItem('access_token') || '';
@@ -11,6 +12,9 @@ const RecordPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const meetingId = parseInt(id || '0', 10);
   const provider = localStorage.getItem(`meeting_provider_${meetingId}`) || 'local';
+
+  // 进入会议流程后保持屏幕常亮，离开页面自动释放
+  useWakeLock(true);
 
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
