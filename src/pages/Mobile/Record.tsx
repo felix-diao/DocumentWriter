@@ -13,8 +13,8 @@ const RecordPage: React.FC = () => {
   const meetingId = parseInt(id || '0', 10);
   const provider = localStorage.getItem(`meeting_provider_${meetingId}`) || 'local';
 
-  // 进入会议流程后保持屏幕常亮，离开页面自动释放
-  useWakeLock(true);
+  // 屏幕常亮：在用户点击开始录音时申请，离开页面自动释放
+  const { request: requestWakeLock } = useWakeLock();
 
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -70,6 +70,9 @@ const RecordPage: React.FC = () => {
 
     setStatus('connecting');
     try {
+      // 用户手势触发屏幕常亮（iOS 必须在用户操作后调用）
+      await requestWakeLock();
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 

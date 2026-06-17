@@ -1,52 +1,68 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-export function useWakeLock(active: boolean) {
-  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+export function useWakeLock() {
+  const wakeLockRef = useRef<any>(null);
   const noSleepRef = useRef<any>(null);
+  const [active, setActive] = useState(false);
 
-  useEffect(() => {
-    if (!active) {
-      return;
-    }
-
-    const acquire = async () => {
+  const release = useCallback(async () => {
+    if (wakeLockRef.current) {
       try {
-        if ('wakeLock' in navigator) {
-          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-        } else {
-          if (!noSleepRef.current) {
-            const NoSleep = (await import('nosleep.js')).default;
-            noSleepRef.current = new NoSleep();
-          }
-          await noSleepRef.current.enable();
-        }
-      } catch (e) {
-        // 某些浏览器/环境会拒绝，静默处理即可
-        // eslint-disable-next-line no-console
-        console.warn('Wake lock acquire failed:', e);
+        await wakeLockRef.current.release();
+      } catch {
+        // ignore
       }
-    };
-
-    const release = () => {
-      wakeLockRef.current?.release().catch(() => {});
       wakeLockRef.current = null;
-      noSleepRef.current?.disable();
+    }
+    if (noSleepRef.current) {
+      try {
+        await noSleepRef.current.disable();
+      } catch {
+        // ignore
+      }
       noSleepRef.current = null;
-    };
+    }
+    setActive(false);
+  }, []);
 
-    acquire();
+  const request = useCallback(async () => {
+    // 先释放旧的，避免重复
+    await release();
 
-    const handleVisibility = () => {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        setActive(true);
+      } else {
+        const NoSleep = (await import('nosleep.js')).default;
+        noSleepRef.current = new NoSleep();
+        await noSleepRef.current.enable();
+        setActive(true);
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('Wake lock request failed:', e);
+      setActive(false);
+    }
+  }, [release]);
+
+  // 切回前台时，如果之前是 active 状态，重新申请
+  useEffect(() => {
+    const handler = () => {
       if (document.visibilityState === 'visible' && active) {
-        acquire();
+        request();
       }
     };
+    document.addEventListener('visibilitychange', handler);
+    return () => document.removeEventListener('visibilitychange', handler);
+  }, [active, request]);
 
-    document.addEventListener('visibilitychange', handleVisibility);
-
+  // 组件卸载时释放
+  useEffect(() => {
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibility);
       release();
     };
-  }, [active]);
+  }, [release]);
+
+  return { request, release, active };
 }
