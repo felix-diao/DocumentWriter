@@ -3,6 +3,7 @@ import { NavBar, Toast } from 'antd-mobile';
 import { useParams, history } from 'umi';
 import { request } from '@umijs/max';
 import { useWakeLock } from '@/hooks/useWakeLock';
+import { PauseOutlined, CaretRightOutlined, StopOutlined } from '@ant-design/icons';
 
 const getToken = (): string => {
   return localStorage.getItem('access_token') || '';
@@ -426,7 +427,10 @@ const RecordPage: React.FC = () => {
           </div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 40 }}>
-            <button onClick={togglePause} style={{ textAlign: 'center' }}>
+            <button
+              onClick={togglePause}
+              style={{ textAlign: 'center', border: 'none', background: 'none', padding: 0 }}
+            >
               <div style={{
                 width: 56,
                 height: 56,
@@ -438,12 +442,9 @@ const RecordPage: React.FC = () => {
                 border: '2px solid #ddd',
               }}>
                 {paused ? (
-                  <div style={{ width: 0, height: 0, borderLeft: '16px solid #00bfa5', borderTop: '10px solid transparent', borderBottom: '10px solid transparent', marginLeft: 4 }} />
+                  <CaretRightOutlined style={{ fontSize: 24, color: '#00bfa5' }} />
                 ) : (
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    <div style={{ width: 4, height: 20, background: '#666', borderRadius: 2 }} />
-                    <div style={{ width: 4, height: 20, background: '#666', borderRadius: 2 }} />
-                  </div>
+                  <PauseOutlined style={{ fontSize: 20, color: '#666' }} />
                 )}
               </div>
               <div style={{ fontSize: 11, color: '#999', marginTop: 6 }}>
@@ -451,7 +452,10 @@ const RecordPage: React.FC = () => {
               </div>
             </button>
 
-            <button onClick={() => stopRecording()} style={{ textAlign: 'center' }}>
+            <button
+              onClick={() => stopRecording()}
+              style={{ textAlign: 'center', border: 'none', background: 'none', padding: 0 }}
+            >
               <div style={{
                 width: 72,
                 height: 72,
@@ -462,9 +466,9 @@ const RecordPage: React.FC = () => {
                 justifyContent: 'center',
                 boxShadow: '0 4px 16px rgba(255,77,79,0.4)',
               }}>
-                <div style={{ width: 24, height: 24, borderRadius: 4, background: '#fff' }} />
+                <StopOutlined style={{ fontSize: 28, color: '#fff' }} />
               </div>
-              <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>点击结束录音</div>
+              <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>结束录音</div>
             </button>
           </div>
         )}
