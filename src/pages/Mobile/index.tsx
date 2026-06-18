@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Outlet } from 'umi';
 import { request } from '@umijs/max';
+import { normalizeAppPath, withAppBase } from '@/utils/appPath';
 
 const DEBUG_PREFIX = '[DEBUG-wx]';
 
@@ -10,7 +11,7 @@ function log(...args: any[]) {
 }
 
 // 开发环境启用 vConsole 方便手机调试
-if (process.env.NODE_ENV === 'development' || window.location.pathname.startsWith('/mobile')) {
+if (process.env.NODE_ENV === 'development' || normalizeAppPath(window.location.pathname).startsWith('/mobile')) {
   import('vconsole').then((VConsole) => {
     new VConsole.default();
   }).catch(() => {});
@@ -63,7 +64,7 @@ const MobileLayout: React.FC = () => {
     };
 
     // 登录页直接渲染，不跑免登
-    if (window.location.pathname === '/mobile/login') {
+    if (isMobileLoginPage(window.location.pathname)) {
       log('login page, skip');
       setLoginState('needLogin');
       return () => clearSafetyTimeout();
@@ -196,7 +197,7 @@ const MobileLayout: React.FC = () => {
     const pathname = window.location.pathname;
     const redirect = pathname + window.location.search;
     const basePath = pathname.substring(0, pathname.lastIndexOf('/'));
-    const loginPath = basePath.endsWith('/mobile') ? basePath + '/login' : '/mobile/login';
+    const loginPath = basePath.endsWith('/mobile') ? basePath + '/login' : withAppBase('/mobile/login');
     log('handleLogin redirect=', redirect, 'loginPath=', loginPath);
     window.location.href = loginPath + '?redirect=' + encodeURIComponent(redirect);
   };
@@ -221,7 +222,7 @@ const MobileLayout: React.FC = () => {
   }
 
   // 需要登录：显示按钮，不渲染子页面
-  if (loginState === 'needLogin' && window.location.pathname !== '/mobile/login') {
+  if (loginState === 'needLogin' && !isMobileLoginPage(window.location.pathname)) {
     return (
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',

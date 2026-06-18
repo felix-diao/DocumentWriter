@@ -5,6 +5,7 @@ import { Alert, App, Form } from 'antd';
 import { createStyles } from 'antd-style';
 import React, { useState } from 'react';
 import { Footer } from '@/components';
+import { withAppBase } from '@/utils/appPath';
 import { setPassword } from '@/services/ant-design-pro/api';
 import Settings from '../../../../config/defaultSettings';
 
@@ -54,7 +55,7 @@ const SetPassword: React.FC = () => {
   // 获取跳转目标
   const getRedirect = () => {
     const urlParams = new URL(window.location.href).searchParams;
-    return urlParams.get('redirect') || '/doc/welcome';
+    return withAppBase(urlParams.get('redirect') || '/doc/welcome');
   };
 
   const handleSubmit = async (values: any) => {

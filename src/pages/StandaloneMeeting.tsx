@@ -6,6 +6,7 @@ import {
 } from '@ant-design/icons';
 import { Layout, Menu, Spin, Typography } from 'antd';
 import { useEffect, useMemo } from 'react';
+import { normalizeAppPath, withAppBase } from '@/utils/appPath';
 
 const { Sider, Content } = Layout;
 
@@ -22,14 +23,15 @@ const StandaloneMeeting: React.FC = () => {
   const isLoggedIn = !!initialState?.currentUser;
 
   const selectedKey = useMemo(() => {
-    const match = menuItems.find((item) => location.pathname.startsWith(item.key));
+    const currentAppPath = normalizeAppPath(location.pathname);
+    const match = menuItems.find((item) => currentAppPath.startsWith(item.key));
     return match?.key ?? menuItems[0].key;
   }, [location.pathname]);
 
   useEffect(() => {
     if (!loading && !isLoggedIn) {
       history.push(
-        `/user/login?redirect=${encodeURIComponent(location.pathname)}`,
+        `/user/login?redirect=${encodeURIComponent(normalizeAppPath(location.pathname))}`,
       );
     }
   }, [loading, isLoggedIn, location.pathname]);
@@ -79,7 +81,7 @@ const StandaloneMeeting: React.FC = () => {
           mode="inline"
           selectedKeys={[selectedKey]}
           items={menuItems}
-          onClick={({ key }) => history.push(key)}
+          onClick={({ key }) => history.push(String(key))}
           style={{ borderInlineEnd: 'none' }}
         />
       </Sider>

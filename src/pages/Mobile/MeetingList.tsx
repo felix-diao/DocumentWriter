@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { NavBar, SearchBar, Modal, Toast, SpinLoading } from 'antd-mobile';
 import { SearchOutline, AddOutline, RightOutline } from 'antd-mobile-icons';
 import { history } from 'umi';
+import { withAppBase } from '@/utils/appPath';
 import { request } from '@umijs/max';
 
 interface Meeting {

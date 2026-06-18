@@ -1,6 +1,7 @@
 import { history, useIntl } from '@umijs/max';
 import { Button, Card, Result } from 'antd';
 import React from 'react';
+import { withAppBase } from '@/utils/appPath';
 
 const NoFoundPage: React.FC = () => (
   <Card variant="borderless">

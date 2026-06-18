@@ -2,6 +2,7 @@ import { history, useModel } from '@umijs/max';
 import { Card, theme } from 'antd';
 import React from 'react';
 import InfoCard from '@/components/InfoCard';
+import { withAppBase } from '@/utils/appPath';
 
 const Landing: React.FC = () => {
   const { token } = theme.useToken();

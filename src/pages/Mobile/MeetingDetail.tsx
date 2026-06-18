@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { NavBar, Tabs, Toast, SpinLoading } from 'antd-mobile';
 import { useParams, history } from 'umi';
+import { withAppBase } from '@/utils/appPath';
 import { request } from '@umijs/max';
 import ReactMarkdown from 'react-markdown';
 

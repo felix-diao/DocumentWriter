@@ -12,6 +12,7 @@ import {
 import { history, useModel } from '@umijs/max';
 import React, { useState } from 'react';
 import { changePassword, outLogin } from '@/services/ant-design-pro/api';
+import { withAppBase } from '@/utils/appPath';
 
 const UserInfo: React.FC = () => {
   const { initialState, setInitialState } = useModel('@@initialState');

@@ -1296,7 +1296,12 @@ const MeetingMinutes: React.FC = () => {
 		const isLoopbackHost = (hostname: string) =>
 			hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '0.0.0.0';
 		const pageHostIsLoopback = isLoopbackHost(window.location.hostname);
-		const sameOriginUrl = () => `${protocol}://${window.location.host}${path}`;
+		const sameOriginPath = path.startsWith('/agent_officea/')
+			? path
+			: path === '/api' || path.startsWith('/api/')
+				? `/agent_officea${path}`
+				: path;
+		const sameOriginUrl = () => `${protocol}://${window.location.host}${sameOriginPath}`;
 		const wsMode = String((process.env as any).DEV_BACKEND_WS_MODE || 'auto').trim().toLowerCase();
 
 		// auto: 保持原有“本机直连、远程同源代理”的策略。

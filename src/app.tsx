@@ -1,4 +1,5 @@
 import React from 'react';
+import axios from 'axios';
 import { history, Link } from '@umijs/max';
 import { LinkOutlined } from '@ant-design/icons';
 import type { Settings as LayoutSettings } from '@ant-design/pro-components';
@@ -19,15 +20,19 @@ import { errorConfig } from './requestErrorConfig';
 import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
 import { redeemTicket } from '@/services/ant-design-pro/api';
 import { setToken } from '@/utils/auth';
+import { normalizeAppPath, toAppRoute } from '@/utils/appPath';
 import '@ant-design/v5-patch-for-react-19';
 
 const isDev = process.env.NODE_ENV === 'development';
 const isDevOrTest = isDev || process.env.CI;
 const loginPath = '/user/login';
 const setPasswordPath = '/user/set-password';
+const API_BASE_PATH = process.env.API_BASE_PATH || '/agent_officea';
+
+axios.defaults.baseURL = API_BASE_PATH;
 
 const getEntry = (): 'doc' | 'meeting' => {
-  const path = window.location.pathname;
+  const path = normalizeAppPath(window.location.pathname);
   if (path === '/meeting' || path.startsWith('/meeting/')) return 'meeting';
   return 'doc';
 };
@@ -125,6 +130,7 @@ export async function getInitialState(): Promise<{
   };
 
   const { location } = history;
+  const currentAppPath = normalizeAppPath(location.pathname);
 
   // 检查是否有有效的 token（可能来自 localStorage 或刚兑换的 ticket）
   const hasValidToken = localStorage.getItem('access_token');
@@ -132,9 +138,9 @@ export async function getInitialState(): Promise<{
    // 如果已有有效 token，即使是 login 页面也应该尝试获取用户信息
   if (hasValidToken && existingUser) {
     // 已有有效 token 且获取到用户信息，如果在 login 页面则跳转到 welcome
-    if (location.pathname === loginPath) {
+    if (currentAppPath === loginPath) {
       const redirect = new URLSearchParams(window.location.search).get('redirect');
-      history.push(redirect || '/doc/welcome');
+      history.push(toAppRoute(redirect || '/doc/welcome'));
     }
     return {
       fetchUserInfo,
@@ -144,8 +150,8 @@ export async function getInitialState(): Promise<{
   }
   // 无 token 或获取用户信息失败，按原逻辑处理
   // 移动端路由由 MobileLayout 自己处理登录态，不在这里强制跳转
-  const isMobilePath = location.pathname.replace(/^\/agent_officea/, '').startsWith('/mobile');
-  if (!isMobilePath && ![loginPath, '/user/register', '/user/register-result', setPasswordPath].includes(location.pathname)) {
+  const isMobilePath = currentAppPath.startsWith('/mobile');
+  if (!isMobilePath && ![loginPath, '/user/register', '/user/register-result', setPasswordPath].includes(currentAppPath)) {
     const currentUser = await fetchUserInfo();
     return {
       fetchUserInfo,
@@ -191,8 +197,9 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
   },
   onPageChange: () => {
     const { location } = history;
-    const isMobilePath = location.pathname.replace(/^\/agent_officea/, '').startsWith('/mobile');
-    if (!isMobilePath && !initialState?.currentUser && location.pathname !== loginPath && location.pathname !==
+    const currentAppPath = normalizeAppPath(location.pathname);
+    const isMobilePath = currentAppPath.startsWith('/mobile');
+    if (!isMobilePath && !initialState?.currentUser && currentAppPath !== loginPath && currentAppPath !==
   setPasswordPath){
       history.push(loginPath);
     }
@@ -230,6 +237,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
     </>
   ),
   ...initialState?.settings,
+  title: getEntry() === 'meeting' ? 'AI 会议助手' : 'AI 文档助手',
 });
 
 /**
@@ -238,6 +246,6 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
  * @see https://umijs.org/docs/max/request#配置
  */
 export const request: RequestConfig = {
-  baseURL:  '' ,
+  baseURL: API_BASE_PATH,
   ...errorConfig,
 };

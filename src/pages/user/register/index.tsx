@@ -19,6 +19,7 @@ import { createStyles } from 'antd-style';
 import React, { useState } from 'react';
 import { Footer } from '@/components';
 import { register } from '@/services/ant-design-pro/api';
+import { withAppBase } from '@/utils/appPath';
 import Settings from '../../../../config/defaultSettings';
 
 const useStyles = createStyles(({ token }) => {

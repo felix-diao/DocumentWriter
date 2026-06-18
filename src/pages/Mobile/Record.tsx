@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { NavBar, Toast } from 'antd-mobile';
 import { useParams, history } from 'umi';
+import { withAppBase } from '@/utils/appPath';
 import { request } from '@umijs/max';
 import { useWakeLock } from '@/hooks/useWakeLock';
 import { PauseOutlined, CaretRightOutlined, StopOutlined } from '@ant-design/icons';
@@ -61,13 +62,14 @@ const RecordPage: React.FC = () => {
       return `${wsBaseUrl}${basePath}?token=${encodeURIComponent(token)}`;
     }
 
-    // 生产环境自动检�?
+    // 生产环境自动检测：走 nginx 的 /agent_officea/api 前缀。
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const basePath = provider === 'volc'
       ? `/api/meetings/minutes/volc/${meetingId}/live`
       : `/api/meetings/minutes/local/${meetingId}/live`;
-    return `${protocol}//${host}${basePath}?token=${encodeURIComponent(token)}`;
+    const sameOriginPath = `/agent_officea${basePath}`;
+    return `${protocol}//${host}${sameOriginPath}?token=${encodeURIComponent(token)}`;
   }, [meetingId, provider]);
 
   const handleWsMessage = (event: MessageEvent) => {
