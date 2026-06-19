@@ -35,6 +35,10 @@ const RecordPage: React.FC = () => {
   const durationRef = useRef(0);
   const pausedRef = useRef(false);
   const stoppingRef = useRef(false);
+  const recordingRef = useRef(false);
+  const interruptedRef = useRef(false);
+  const lastProcessTimeRef = useRef(Date.now());
+  const watchdogRef = useRef<NodeJS.Timeout | null>(null);
   
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
@@ -66,8 +70,136 @@ const RecordPage: React.FC = () => {
     return `${protocol}//${host}${basePath}?token=${encodeURIComponent(token)}`;
   }, [meetingId, provider]);
 
+  const handleWsMessage = (event: MessageEvent) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === 'partial' || data.type === 'final') {
+        const text = data.accumulated || data.text || '';
+        setTranscript(text);
+        if (data.type === 'final' && data.text) {
+          setTranscriptParts(prev => [...prev, data.text]);
+        }
+      }
+      if (data.type === 'completed') {
+        Toast.show({ icon: 'success', content: '录音总结已生成' });
+      }
+      if (data.type === 'error') {
+        Toast.show({ icon: 'fail', content: data.message || '处理失败' });
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const setupWebSocket = (): Promise<WebSocket> => {
+    return new Promise((resolve, reject) => {
+      const wsUrl = buildWsUrl();
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ action: 'config', rate: 16000, channels: 1 }));
+        wsRef.current = ws;
+        resolve(ws);
+      };
+
+      ws.onmessage = handleWsMessage;
+
+      ws.onerror = (e: Event) => {
+        console.error('WS error:', e);
+        reject(e);
+      };
+
+      ws.onclose = (e: CloseEvent) => {
+        console.log('WS closed:', e.code, e.reason);
+        if (recordingRef.current && !stoppingRef.current && !interruptedRef.current) {
+          autoPause('连接断开');
+        }
+      };
+    });
+  };
+
+  const startWatchdog = () => {
+    stopWatchdog();
+    lastProcessTimeRef.current = Date.now();
+    watchdogRef.current = window.setInterval(() => {
+      if (recordingRef.current && !pausedRef.current && !interruptedRef.current) {
+        if (Date.now() - lastProcessTimeRef.current > 2500) {
+          console.warn('watchdog: audio process timeout');
+          autoPause('音频中断');
+        }
+      }
+    }, 1000);
+  };
+
+  const stopWatchdog = () => {
+    if (watchdogRef.current) {
+      clearInterval(watchdogRef.current);
+      watchdogRef.current = null;
+    }
+  };
+
+  const stopAudioCapture = () => {
+    stopWatchdog();
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    if (sourceRef.current) {
+      sourceRef.current.disconnect();
+      sourceRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+  };
+
+  const autoPause = (reason: string) => {
+    if (!recordingRef.current || interruptedRef.current) return;
+    console.log('autoPause:', reason);
+    interruptedRef.current = true;
+    pausedRef.current = true;
+    setPaused(true);
+    stopAudioCapture();
+    stopTimer();
+    Toast.show({ icon: 'fail', content: '录音已暂停，点击继续' });
+  };
+
+  const resumeFromInterruption = async () => {
+    try {
+      // 1. 确保 WebSocket 连接
+      let ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        ws = await setupWebSocket();
+      }
+
+      // 2. 重新获取麦克风并初始化音频
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      await startAudioCapture(stream, ws);
+
+      // 3. 恢复状态
+      interruptedRef.current = false;
+      pausedRef.current = false;
+      setPaused(false);
+      startWatchdog();
+      startTimer(false);
+      Toast.show({ content: '已恢复录音' });
+    } catch (err: any) {
+      console.error('resume failed:', err);
+      setStatus('error');
+      Toast.show({ icon: 'fail', content: err.message || '恢复录音失败' });
+    }
+  };
+
   const startRecording = async () => {
     stoppingRef.current = false;
+    interruptedRef.current = false;
 
     setStatus('connecting');
     try {
@@ -77,61 +209,16 @@ const RecordPage: React.FC = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      const wsUrl = buildWsUrl();
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = 'arraybuffer';
-      wsRef.current = ws;
+      const ws = await setupWebSocket();
 
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ action: 'config', rate: 16000, channels: 1 }));
-        // 诊断：立即发送一个二进制测试消息
-        const testData = new Int16Array(1024);
-        for (let i = 0; i < 1024; i++) testData[i] = i % 32767;
-        ws.send(testData.buffer);
-        Toast.show({ content: '已发送测试音频块', duration: 1000 });
-        setStatus('recording');
-        setRecording(true);
-        pausedRef.current = false;
-        setPaused(false);
-        startAudioCapture(stream, ws);
-        startTimer();
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'partial' || data.type === 'final') {
-            const text = data.accumulated || data.text || '';
-            setTranscript(text);
-            if (data.type === 'final' && data.text) {
-              setTranscriptParts(prev => [...prev, data.text]);
-            }
-          }
-          if (data.type === 'completed') {
-            Toast.show({ icon: 'success', content: '录音总结已生成' });
-          }
-          if (data.type === 'error') {
-            Toast.show({ icon: 'fail', content: data.message || '处理失败' });
-          }
-        } catch {
-          // ignore
-        }
-      };
-
-      ws.onerror = (e: Event) => {
-        console.error('WS error:', e);
-        setStatus('error');
-        Toast.show({ icon: 'fail', content: 'WebSocket 错误，查看控制台' });
-      };
-
-      ws.onclose = (e: CloseEvent) => {
-        console.log('WS closed:', e.code, e.reason);
-        Toast.show({ content: `连接断开: code=${e.code}`, duration: 2000 });
-        setRecording(false);
-        pausedRef.current = false;
-        setPaused(false);
-        stopTimer();
-      };
+      setStatus('recording');
+      setRecording(true);
+      recordingRef.current = true;
+      pausedRef.current = false;
+      setPaused(false);
+      await startAudioCapture(stream, ws);
+      startTimer();
+      startWatchdog();
     } catch (err: any) {
       setStatus('error');
       Toast.show({ icon: 'fail', content: err.message || '启动录音失败' });
@@ -155,6 +242,7 @@ const RecordPage: React.FC = () => {
 
     let sendCount = 0;
     processor.onaudioprocess = (e) => {
+      lastProcessTimeRef.current = Date.now();
       if (pausedRef.current || ws.readyState !== WebSocket.OPEN) return;
       const input = e.inputBuffer.getChannelData(0);
       const pcm16 = float32ToInt16PCM(input);
@@ -167,6 +255,31 @@ const RecordPage: React.FC = () => {
 
     source.connect(processor);
     processor.connect(audioContext.destination);
+
+    // 监听系统中断（如来电、通知抢占麦克风）
+    const track = stream.getAudioTracks()[0];
+    if (track) {
+      track.onmute = () => {
+        console.log('audio track muted');
+        autoPause('麦克风被占用');
+      };
+      track.onended = () => {
+        console.log('audio track ended');
+        autoPause('麦克风中断');
+      };
+    }
+
+    audioContext.onstatechange = () => {
+      console.log('audioContext state:', audioContext.state);
+      if (
+        recordingRef.current &&
+        !pausedRef.current &&
+        !interruptedRef.current &&
+        (audioContext.state === 'suspended' || audioContext.state === 'interrupted')
+      ) {
+        autoPause('音频上下文中断');
+      }
+    };
   };
 
   const float32ToInt16PCM = (input: Float32Array): Int16Array => {
@@ -178,8 +291,11 @@ const RecordPage: React.FC = () => {
     return output;
   };
 
-  const startTimer = () => {
-    durationRef.current = 0;
+  const startTimer = (reset = true) => {
+    if (reset) {
+      durationRef.current = 0;
+      setDuration(0);
+    }
     timerRef.current = setInterval(() => {
       if (!pausedRef.current) {
         durationRef.current += 1;
@@ -195,7 +311,13 @@ const RecordPage: React.FC = () => {
     }
   };
 
-  const togglePause = () => {
+  const togglePause = async () => {
+    // 如果是中断导致的暂停，点击继续需要重新初始化
+    if (interruptedRef.current && pausedRef.current) {
+      await resumeFromInterruption();
+      return;
+    }
+
     pausedRef.current = !pausedRef.current;
     setPaused(pausedRef.current);
   };
@@ -228,24 +350,10 @@ const RecordPage: React.FC = () => {
     }
 
     stoppingRef.current = true;
-    // 1. 先停止麦克风采集（释放硬件）
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
-    }
-    if (sourceRef.current) {
-      sourceRef.current.disconnect();
-      sourceRef.current = null;
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
-    stopTimer();
+    recordingRef.current = false;
+    interruptedRef.current = false;
+    stopWatchdog();
+    stopAudioCapture();
 
     // 2. 发�? stop，等待后�? completed/error（最�? 60 秒）
     await new Promise<void>((resolve) => {
@@ -325,7 +433,13 @@ const RecordPage: React.FC = () => {
 
       <div style={{ textAlign: 'center', padding: '20px 0' }}>
         <div style={{ fontSize: 14, color: '#00bfa5', marginBottom: 8 }}>
-          {status === 'connecting' ? '正在连接...' : recording ? '正在录音转译中...' : '准备就绪'}
+          {status === 'connecting'
+            ? '正在连接...'
+            : !recording
+            ? '准备就绪'
+            : paused
+            ? '录音已暂停'
+            : '正在录音转译中...'}
         </div>
         <div style={{ fontSize: 48, fontWeight: 'bold', fontFamily: 'monospace', color: '#333' }}>
           {formatTime(duration)}
