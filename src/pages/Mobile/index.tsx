@@ -10,13 +10,6 @@ function log(...args: any[]) {
   console.log(DEBUG_PREFIX, ...args);
 }
 
-// 开发环境启用 vConsole 方便手机调试
-if (process.env.NODE_ENV === 'development' || normalizeAppPath(window.location.pathname).startsWith('/mobile')) {
-  import('vconsole').then((VConsole) => {
-    new VConsole.default();
-  }).catch(() => {});
-}
-
 // 动态加载企业微信 JS-SDK
 function loadWechatScript(): Promise<void> {
   return new Promise((resolve, reject) => {
