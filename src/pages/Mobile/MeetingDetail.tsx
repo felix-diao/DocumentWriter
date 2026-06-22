@@ -220,9 +220,9 @@ const MeetingDetail: React.FC = () => {
 
   const transcriptBlocks = getTranscriptBlocks();
 
-  // 判断是否为默认生成的标题（格式："会议 MM-DD HH:mm"）
+  // 判断是否为默认生成的标题（格式："会议 MM/DD HH:mm" 或 "会议 MM/DD HH:mm:ss"）
   const isDefaultTitle = (title: string): boolean => {
-    return /^会议 \d{2}\/\d{2} \d{2}:\d{2}$/.test(title);
+    return /^会议 \d{2}\/\d{2} \d{2}:\d{2}(:\d{2})?$/.test(title);
   };
 
   // 判断纪要状态
@@ -558,7 +558,54 @@ const MeetingDetail: React.FC = () => {
 
         <Tabs.Tab title="转译内容" key="transcript">
           <div style={{ padding: 16, minHeight: 300 }}>
-            {transcriptBlocks.length > 0 ? (
+            {minutesData?.speaker_segments && minutesData.speaker_segments.length > 0 ? (
+              // 火山妙记返回了说话人分段，按说话人展示
+              minutesData.speaker_segments.map((seg: any, idx: number) => (
+                <div key={idx} style={{ marginBottom: 16 }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    marginBottom: 6,
+                  }}>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      background: ['#00bfa5', '#ff7a45', '#722ed1', '#1890ff'][idx % 4],
+                      color: '#fff',
+                      fontSize: 12,
+                      fontWeight: 'bold',
+                      flexShrink: 0,
+                    }}>
+                      {(seg.speaker || '未知').slice(0, 1)}
+                    </span>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: '#333' }}>
+                      {seg.speaker || '未知'}
+                    </span>
+                    <span style={{ fontSize: 12, color: '#999', marginLeft: 'auto' }}>
+                      {formatTime(seg.start_time)}
+                    </span>
+                  </div>
+                  <div style={{
+                    background: '#fff',
+                    borderRadius: 8,
+                    padding: 12,
+                    fontSize: 15,
+                    lineHeight: 1.7,
+                    color: '#333',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                    marginLeft: 36,
+                  }}>
+                    {seg.text}
+                  </div>
+                </div>
+              ))
+            ) : transcriptBlocks.length > 0 ? (
+              // 兼容老数据：没有 speaker_segments 时按段落展示
               transcriptBlocks.map((block, idx) => (
                 <div key={idx} style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 12, color: '#00bfa5', marginBottom: 6, fontWeight: 'bold' }}>
