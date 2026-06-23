@@ -225,6 +225,19 @@ const MeetingDetail: React.FC = () => {
     return /^会议 \d{2}\/\d{2} \d{2}:\d{2}(:\d{2})?$/.test(title);
   };
 
+  // 将秒数格式化为 MM:SS 或 HH:MM:SS
+  const formatTime = (seconds?: number) => {
+    if (!seconds || seconds < 0) return '00:00';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    if (h > 0) {
+      return `${pad(h)}:${pad(m)}:${pad(s)}`;
+    }
+    return `${pad(m)}:${pad(s)}`;
+  };
+
   // 判断纪要状态
   const hasSummary = !!(minutesData?.summary?.paragraph || minutesData?.summary_paragraph);
   const hasTranscript = !!(minutesData?.stream_transcript_text || minutesData?.transcript_text);
@@ -587,7 +600,7 @@ const MeetingDetail: React.FC = () => {
                       {seg.speaker || '未知'}
                     </span>
                     <span style={{ fontSize: 12, color: '#999', marginLeft: 'auto' }}>
-                      {formatTime(seg.start_time)}
+                      {formatTime((seg.start_ms || 0) / 1000)}
                     </span>
                   </div>
                   <div style={{
