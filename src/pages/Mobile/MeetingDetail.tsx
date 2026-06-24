@@ -45,16 +45,21 @@ const MeetingDetail: React.FC = () => {
   const [editingTitle, setEditingTitle] = useState(false);
   const [editTitleValue, setEditTitleValue] = useState('');
 
-  const provider = meeting?.provider || localStorage.getItem(`meeting_provider_${meetingId}`) || 'local';
+  const getProvider = () =>
+    meeting?.provider || localStorage.getItem(`meeting_provider_${meetingId}`) || 'local';
 
   useEffect(() => {
     loadMeeting();
-    loadAudios();
-    loadMinutes();
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
   }, [meetingId]);
+
+  useEffect(() => {
+    if (!meeting) return;
+    loadAudios();
+    loadMinutes();
+  }, [meeting, meetingId]);
 
   const loadMeeting = async () => {
     try {
@@ -69,7 +74,7 @@ const MeetingDetail: React.FC = () => {
 
   const loadAudios = async () => {
     try {
-      const res = await request(`/api/meetings/audio/${meetingId}?provider=${provider}`);
+      const res = await request(`/api/meetings/audio/${meetingId}?provider=${getProvider()}`);
       if (res.success) {
         setAudios(res.data || []);
         if (res.data?.length > 0 && res.data[0].file_url) {
@@ -84,7 +89,7 @@ const MeetingDetail: React.FC = () => {
   const loadMinutes = async () => {
     setMinutesLoading(true);
     try {
-      const path = provider === 'volc'
+      const path = getProvider() === 'volc'
         ? `/api/meetings/minutes/volc/${meetingId}`
         : `/api/meetings/minutes/local/${meetingId}`;
       const res = await request(path);
@@ -109,7 +114,8 @@ const MeetingDetail: React.FC = () => {
     const isProcessing =
       minutesData?.processing_status === 'processing' ||
       minutesData?.audio_status === 'processing' ||
-      minutesData?.asr_status === 'processing';
+      minutesData?.asr_status === 'processing' ||
+      minutesData?.minutes_job_status === 'running';
 
     if (isProcessing && !minutesLoading) {
       pollTimerRef.current = setInterval(() => {
@@ -145,7 +151,7 @@ const MeetingDetail: React.FC = () => {
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      const path = provider === 'volc'
+      const path = getProvider() === 'volc'
         ? `/api/meetings/minutes/volc/${meetingId}/generate`
         : `/api/meetings/minutes/local/${meetingId}/generate`;
       const res = await request(path, { method: 'POST' });
@@ -244,7 +250,8 @@ const MeetingDetail: React.FC = () => {
   const isProcessing =
     minutesData?.processing_status === 'processing' ||
     minutesData?.audio_status === 'processing' ||
-    minutesData?.asr_status === 'processing';
+    minutesData?.asr_status === 'processing' ||
+    minutesData?.minutes_job_status === 'running';
   const canGenerate = hasTranscript && !hasSummary && !isProcessing;
 
   if (loading) {
