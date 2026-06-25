@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { NavBar, Toast, Modal } from 'antd-mobile';
+import { NavBar, Toast } from 'antd-mobile';
 import { useParams, history } from 'umi';
 import { withAppBase } from '@/utils/appPath';
 import { request } from '@umijs/max';
@@ -28,6 +28,7 @@ const RecordPage: React.FC = () => {
   }
   const [transcriptParts, setTranscriptParts] = useState<TranscriptPart[]>([]);
   const [status, setStatus] = useState<'idle' | 'connecting' | 'recording' | 'error'>('idle');
+  const [exitConfirmVisible, setExitConfirmVisible] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
@@ -44,7 +45,7 @@ const RecordPage: React.FC = () => {
   const interruptedRef = useRef(false);
   const lastProcessTimeRef = useRef(Date.now());
   const watchdogRef = useRef<NodeJS.Timeout | null>(null);
-  const confirmShownRef = useRef(false);
+  const backConfirmOnConfirmRef = useRef<(() => void) | null>(null);
 
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
@@ -337,34 +338,38 @@ const RecordPage: React.FC = () => {
   };
 
   const handleBackConfirm = (onConfirm?: () => void) => {
-    if (confirmShownRef.current) return;
+    console.log('[Record] handleBackConfirm called', { recording: recordingRef.current, exitConfirmVisible });
+    if (exitConfirmVisible) return;
 
     // 未开始录音时直接返回会议列表
     if (!recordingRef.current) {
+      console.log('[Record] not recording, go back to list');
       history.push('/mobile/meetings');
       return;
     }
 
-    confirmShownRef.current = true;
+    console.log('[Record] show exit confirm modal');
+    backConfirmOnConfirmRef.current = onConfirm || null;
+    setExitConfirmVisible(true);
+  };
 
-    Modal.confirm({
-      title: '提示',
-      content: '是否结束当前录音并自动生成会议总结？',
-      confirmText: '确认',
-      cancelText: '取消',
-      onConfirm: () => {
-        confirmShownRef.current = false;
-        if (onConfirm) {
-          onConfirm();
-        } else {
-          stopRecording();
-        }
-      },
-      onCancel: () => {
-        confirmShownRef.current = false;
-        pauseRecording();
-      },
-    });
+  const handleBackConfirmOk = () => {
+    console.log('[Record] exit confirm ok');
+    setExitConfirmVisible(false);
+    const onConfirm = backConfirmOnConfirmRef.current;
+    backConfirmOnConfirmRef.current = null;
+    if (onConfirm) {
+      onConfirm();
+    } else {
+      stopRecording();
+    }
+  };
+
+  const handleBackConfirmCancel = () => {
+    console.log('[Record] exit confirm cancel');
+    setExitConfirmVisible(false);
+    backConfirmOnConfirmRef.current = null;
+    pauseRecording();
   };
 
   const generateMinutesAfterRecording = async () => {
@@ -505,17 +510,23 @@ const RecordPage: React.FC = () => {
     if (!recording) return;
 
     // 压入一个 guard state，使返回键触发 popstate 而不直接离开页面
+    console.log('[Record] push popstate guard');
     window.history.pushState({ recordingGuard: true }, '', window.location.href);
 
     const handlePopState = () => {
+      console.log('[Record] popstate fired', { recording: recordingRef.current });
       if (recordingRef.current) {
-        window.history.pushState({ recordingGuard: true }, '', window.location.href);
-        handleBackConfirm();
+        // 延迟处理，避免与浏览器返回动画冲突导致卡顿
+        setTimeout(() => {
+          window.history.pushState({ recordingGuard: true }, '', window.location.href);
+          handleBackConfirm();
+        }, 0);
       }
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => {
+      console.log('[Record] remove popstate listener');
       window.removeEventListener('popstate', handlePopState);
     };
   }, [recording]);
@@ -683,6 +694,73 @@ const RecordPage: React.FC = () => {
           </div>
         )}
       </div>
+      {exitConfirmVisible && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.6)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              handleBackConfirmCancel();
+            }
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 12,
+              padding: 20,
+              width: '100%',
+              maxWidth: 300,
+            }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 8 }}>提示</div>
+            <div style={{ fontSize: 14, color: '#333', marginBottom: 20, lineHeight: 1.5 }}>
+              是否结束当前录音并自动生成会议总结？
+            </div>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button
+                onClick={handleBackConfirmCancel}
+                style={{
+                  flex: 1,
+                  padding: '10px 0',
+                  borderRadius: 6,
+                  border: '1px solid #ddd',
+                  background: '#fff',
+                  color: '#666',
+                  fontSize: 14,
+                }}
+              >
+                取消
+              </button>
+              <button
+                onClick={handleBackConfirmOk}
+                style={{
+                  flex: 1,
+                  padding: '10px 0',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: '#00bfa5',
+                  color: '#fff',
+                  fontSize: 14,
+                }}
+              >
+                确认
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
