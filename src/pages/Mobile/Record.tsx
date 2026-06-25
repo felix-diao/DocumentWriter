@@ -22,7 +22,11 @@ const RecordPage: React.FC = () => {
   const [paused, setPaused] = useState(false);
   const [duration, setDuration] = useState(0);
   const [transcript, setTranscript] = useState('');
-  const [transcriptParts, setTranscriptParts] = useState<string[]>([]);
+  interface TranscriptPart {
+    text: string;
+    speaker?: string;
+  }
+  const [transcriptParts, setTranscriptParts] = useState<TranscriptPart[]>([]);
   const [status, setStatus] = useState<'idle' | 'connecting' | 'recording' | 'error'>('idle');
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -79,7 +83,7 @@ const RecordPage: React.FC = () => {
         const text = data.accumulated || data.text || '';
         setTranscript(text);
         if (data.type === 'final' && data.text) {
-          setTranscriptParts(prev => [...prev, data.text]);
+          setTranscriptParts(prev => [...prev, { text: data.text, speaker: data.speaker }]);
         }
       }
       if (data.type === 'completed') {
@@ -479,6 +483,7 @@ const RecordPage: React.FC = () => {
         {transcriptParts.map((part, idx) => (
           <div key={idx} style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>
+              {part.speaker ? `${part.speaker} · ` : ''}
               {formatTime(Math.min((idx + 1) * 10, duration))}
             </div>
             <div style={{
@@ -489,12 +494,12 @@ const RecordPage: React.FC = () => {
               lineHeight: 1.6,
               color: '#333',
             }}>
-              {part}
+              {part.text}
             </div>
           </div>
         ))}
 
-        {transcript && !transcriptParts.includes(transcript) && (
+        {transcript && !transcriptParts.some(p => p.text === transcript) && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>实时</div>
             <div style={{
