@@ -27,7 +27,7 @@ const RecordPage: React.FC = () => {
     speaker?: string;
   }
   const [transcriptParts, setTranscriptParts] = useState<TranscriptPart[]>([]);
-  const [status, setStatus] = useState<'idle' | 'connecting' | 'recording' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'connecting' | 'recording' | 'uploading' | 'error'>('idle');
   const [exitConfirmVisible, setExitConfirmVisible] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -429,6 +429,7 @@ const RecordPage: React.FC = () => {
     stoppingRef.current = true;
     recordingRef.current = false;
     interruptedRef.current = false;
+    setStatus('uploading');
     stopWatchdog();
     stopAudioCapture();
 
@@ -437,12 +438,19 @@ const RecordPage: React.FC = () => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         const ws = wsRef.current;
         let settled = false;
+        let stopWaitTimer: number | undefined;
 
         const onMsg = (e: MessageEvent) => {
           try {
             const data = JSON.parse(e.data);
             if (data.type === 'completed' || data.type === 'error') {
+              if (settled) return;
               settled = true;
+
+              if (stopWaitTimer !== undefined) {
+                window.clearTimeout(stopWaitTimer);
+              }
+
               ws.removeEventListener('message', onMsg);
               ws.close();
               wsRef.current = null;
@@ -454,15 +462,16 @@ const RecordPage: React.FC = () => {
         ws.addEventListener('message', onMsg);
         ws.send(JSON.stringify({ action: 'stop' }));
 
-        // 兜底�?60 秒后强制关闭
-        setTimeout(() => {
+        // 最多等待后端保存并上传录音完成
+        stopWaitTimer = window.setTimeout(() => {
           if (!settled) {
+            settled = true;
             ws.removeEventListener('message', onMsg);
             ws.close();
             wsRef.current = null;
             resolve();
           }
-        }, 5000);
+        }, 30000);
       } else {
         wsRef.current = null;
         resolve();
@@ -568,6 +577,8 @@ const RecordPage: React.FC = () => {
         <div style={{ fontSize: 14, color: '#00bfa5', marginBottom: 8 }}>
           {status === 'connecting'
             ? '正在连接...'
+            : status === 'uploading'
+            ? '录音上传中...'
             : !recording
             ? '准备就绪'
             : paused
