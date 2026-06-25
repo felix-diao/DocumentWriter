@@ -348,7 +348,9 @@ const RecordPage: React.FC = () => {
       return;
     }
 
-    console.log('[Record] show exit confirm modal');
+    // 录音中点击返回，先暂停录音，再弹窗让用户选择
+    console.log('[Record] recording, pause first then show modal');
+    pauseRecording();
     backConfirmOnConfirmRef.current = typeof onConfirm === 'function' ? onConfirm : null;
     setExitConfirmVisible(true);
   };
@@ -369,7 +371,7 @@ const RecordPage: React.FC = () => {
     console.log('[Record] exit confirm cancel');
     setExitConfirmVisible(false);
     backConfirmOnConfirmRef.current = null;
-    pauseRecording();
+    // 点击返回时已暂停，取消后保持暂停状态，用户可手动继续
   };
 
   const generateMinutesAfterRecording = async () => {
