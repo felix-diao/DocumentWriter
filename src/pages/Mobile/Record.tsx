@@ -47,6 +47,7 @@ const RecordPage: React.FC = () => {
   const interruptedRef = useRef(false);
   const lastProcessTimeRef = useRef(Date.now());
   const watchdogRef = useRef<NodeJS.Timeout | null>(null);
+  const heartbeatRef = useRef<NodeJS.Timeout | null>(null);
   const backConfirmOnConfirmRef = useRef<(() => void) | null>(null);
 
   const formatTime = (seconds: number) => {
@@ -152,7 +153,7 @@ const RecordPage: React.FC = () => {
     lastProcessTimeRef.current = Date.now();
     watchdogRef.current = window.setInterval(() => {
       if (recordingRef.current && !pausedRef.current && !interruptedRef.current) {
-        if (Date.now() - lastProcessTimeRef.current > 2500) {
+        if (Date.now() - lastProcessTimeRef.current > 8000) {
           console.warn('watchdog: audio process timeout');
           autoPause('音频中断');
         }
@@ -164,6 +165,22 @@ const RecordPage: React.FC = () => {
     if (watchdogRef.current) {
       clearInterval(watchdogRef.current);
       watchdogRef.current = null;
+    }
+  };
+
+  const startHeartbeat = () => {
+    stopHeartbeat();
+    heartbeatRef.current = window.setInterval(() => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ action: 'heartbeat' }));
+      }
+    }, 5000);
+  };
+
+  const stopHeartbeat = () => {
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current);
+      heartbeatRef.current = null;
     }
   };
 
@@ -195,12 +212,14 @@ const RecordPage: React.FC = () => {
     setPaused(true);
     flushCurrentTranscript();  // 断连前把当前 partial 落袋
     stopAudioCapture();
+    startHeartbeat();  // 暂停期间持续心跳，保持 WS 存活
     stopTimer();
     Toast.show({ icon: 'fail', content: '录音已暂停，点击继续' });
   };
 
   const resumeFromInterruption = async () => {
     try {
+      stopHeartbeat();
       // 1. 确保 WebSocket 连接
       let ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -300,15 +319,23 @@ const RecordPage: React.FC = () => {
       };
     }
 
-    audioContext.onstatechange = () => {
+    audioContext.onstatechange = async () => {
       console.log('audioContext state:', audioContext.state);
       if (
         recordingRef.current &&
         !pausedRef.current &&
-        !interruptedRef.current &&
-        (audioContext.state === 'suspended' || audioContext.state === 'interrupted')
+        !interruptedRef.current
       ) {
-        autoPause('音频上下文中断');
+        if (audioContext.state === 'interrupted' || audioContext.state === 'suspended') {
+          try {
+            await audioContext.resume();
+            console.log('audioContext resume succeeded');
+            return;
+          } catch (resumeErr) {
+            console.warn('audioContext resume failed:', resumeErr);
+          }
+          autoPause('音频上下文中断');
+        }
       }
     };
   };
@@ -431,6 +458,7 @@ const RecordPage: React.FC = () => {
     interruptedRef.current = false;
     setStatus('uploading');
     stopWatchdog();
+    stopHeartbeat();
     stopAudioCapture();
 
     // 2. 发�? stop，等待后�? completed/error（最�? 60 秒）
