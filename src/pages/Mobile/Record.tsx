@@ -34,6 +34,7 @@ const RecordPage: React.FC = () => {
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const committedTextRef = useRef('');   // 已 final 的文本累积，跨 session 保留
+  const recordingSessionIdRef = useRef<string>(''); // 一次连续录音的标识，断连重连复用
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -120,7 +121,12 @@ const RecordPage: React.FC = () => {
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
-        ws.send(JSON.stringify({ action: 'config', rate: 16000, channels: 1 }));
+        ws.send(JSON.stringify({
+          action: 'config',
+          rate: 16000,
+          channels: 1,
+          recording_session_id: recordingSessionIdRef.current,
+        }));
         wsRef.current = ws;
         resolve(ws);
       };
@@ -223,6 +229,8 @@ const RecordPage: React.FC = () => {
   const startRecording = async () => {
     stoppingRef.current = false;
     interruptedRef.current = false;
+    // 每次开始新的连续录音，生成新的 recording_session_id
+    recordingSessionIdRef.current = crypto.randomUUID();
 
     setStatus('connecting');
     try {
