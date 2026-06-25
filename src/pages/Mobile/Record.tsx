@@ -33,6 +33,7 @@ const RecordPage: React.FC = () => {
   const wsRef = useRef<WebSocket | null>(null);
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const committedTextRef = useRef('');   // 已 final 的文本累积，跨 session 保留
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -78,15 +79,28 @@ const RecordPage: React.FC = () => {
     return `${protocol}//${host}${sameOriginPath}?token=${encodeURIComponent(token)}`;
   }, [meetingId, provider]);
 
+  const flushCurrentTranscript = () => {
+    // 断连或暂停时，把当前未 final 的 partial 文本落袋，避免丢失
+    setTranscript(prev => {
+      if (prev && !transcriptParts.some(p => p.text === prev)) {
+        setTranscriptParts(parts => [...parts, { text: prev }]);
+        committedTextRef.current += prev;
+      }
+      return '';
+    });
+  };
+
   const handleWsMessage = (event: MessageEvent) => {
     try {
       const data = JSON.parse(event.data);
-      if (data.type === 'partial' || data.type === 'final') {
-        const text = data.accumulated || data.text || '';
-        setTranscript(text);
-        if (data.type === 'final' && data.text) {
-          setTranscriptParts(prev => [...prev, { text: data.text, speaker: data.speaker }]);
-        }
+      if (data.type === 'partial') {
+        // partial 只显示当前正在识别的这一句，不重复显示已 final 的历史
+        setTranscript(data.text || '');
+      }
+      if (data.type === 'final' && data.text) {
+        setTranscriptParts(prev => [...prev, { text: data.text, speaker: data.speaker }]);
+        committedTextRef.current += data.text;
+        setTranscript('');
       }
       if (data.type === 'completed') {
         Toast.show({ icon: 'success', content: '录音总结已生成' });
@@ -173,6 +187,7 @@ const RecordPage: React.FC = () => {
     interruptedRef.current = true;
     pausedRef.current = true;
     setPaused(true);
+    flushCurrentTranscript();  // 断连前把当前 partial 落袋
     stopAudioCapture();
     stopTimer();
     Toast.show({ icon: 'fail', content: '录音已暂停，点击继续' });
@@ -392,6 +407,8 @@ const RecordPage: React.FC = () => {
     options: { autoGenerate?: boolean; redirect?: boolean } = {},
   ) => {
     const { autoGenerate = true, redirect = true } = options;
+
+    flushCurrentTranscript();  // 结束前把最后未 final 的 partial 落袋
 
     if (autoGenerate) {
       localStorage.setItem(`meeting_minutes_status_${meetingId}`, 'processing');
