@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { NavBar, Toast } from 'antd-mobile';
+import { NavBar, Toast, Modal } from 'antd-mobile';
 import { useParams, history } from 'umi';
 import { withAppBase } from '@/utils/appPath';
 import { request } from '@umijs/max';
@@ -44,7 +44,8 @@ const RecordPage: React.FC = () => {
   const interruptedRef = useRef(false);
   const lastProcessTimeRef = useRef(Date.now());
   const watchdogRef = useRef<NodeJS.Timeout | null>(null);
-  
+  const confirmShownRef = useRef(false);
+
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
     const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
@@ -328,6 +329,37 @@ const RecordPage: React.FC = () => {
     setPaused(pausedRef.current);
   };
 
+  const pauseRecording = () => {
+    if (!recordingRef.current) return;
+    if (pausedRef.current) return;
+    pausedRef.current = true;
+    setPaused(true);
+  };
+
+  const handleBackConfirm = (onConfirm?: () => void) => {
+    if (!recordingRef.current || confirmShownRef.current) return;
+    confirmShownRef.current = true;
+
+    Modal.confirm({
+      title: '提示',
+      content: '是否结束当前录音并自动生成会议总结？',
+      confirmText: '确认',
+      cancelText: '取消',
+      onConfirm: () => {
+        confirmShownRef.current = false;
+        if (onConfirm) {
+          onConfirm();
+        } else {
+          stopRecording();
+        }
+      },
+      onCancel: () => {
+        confirmShownRef.current = false;
+        pauseRecording();
+      },
+    });
+  };
+
   const generateMinutesAfterRecording = async () => {
     const statusKey = `meeting_minutes_status_${meetingId}`;
     localStorage.setItem(statusKey, 'processing');
@@ -431,9 +463,66 @@ const RecordPage: React.FC = () => {
     };
   }, []);
 
+  // 拦截录音中的返回行为：应用内返回、浏览器返回、企微返回
+  useEffect(() => {
+    let unblock: (() => void) | null = null;
+
+    const blocker = (tx: any) => {
+      if (!recordingRef.current) {
+        if (tx && typeof tx.retry === 'function') {
+          tx.retry();
+        }
+        return;
+      }
+      handleBackConfirm(() => {
+        if (unblock) {
+          unblock();
+          unblock = null;
+        }
+        stopRecording();
+      });
+    };
+
+    try {
+      unblock = history.block(blocker);
+    } catch (e) {
+      console.warn('history.block not available:', e);
+    }
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (recordingRef.current) {
+        e.preventDefault();
+        e.returnValue = '是否结束当前录音并自动生成会议总结？';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    const wx = (window as any).wx;
+    const wxHistoryBackHandler = () => {
+      if (recordingRef.current) {
+        handleBackConfirm();
+        return true;
+      }
+      return false;
+    };
+    if (wx && typeof wx.onHistoryBack === 'function') {
+      wx.onHistoryBack(wxHistoryBackHandler);
+    }
+
+    return () => {
+      if (unblock) {
+        unblock();
+      }
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (wx && typeof wx.onHistoryBack === 'function') {
+        wx.onHistoryBack(() => false);
+      }
+    };
+  }, []);
+
   return (
     <div style={{ height: '100dvh', overflow: 'hidden', background: '#fff', display: 'flex', flexDirection: 'column' }}>
-      <NavBar onBack={() => history.push('/mobile/meetings')}>
+      <NavBar onBack={handleBackConfirm}>
         {provider === 'local' ? '🔒 机密会议' : '💬 普通会议'}
       </NavBar>
 
