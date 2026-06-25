@@ -337,7 +337,7 @@ const RecordPage: React.FC = () => {
     setPaused(true);
   };
 
-  const handleBackConfirm = (onConfirm?: () => void) => {
+  const handleBackConfirm = (onConfirm?: (() => void) | unknown) => {
     console.log('[Record] handleBackConfirm called', { recording: recordingRef.current, exitConfirmVisible });
     if (exitConfirmVisible) return;
 
@@ -349,7 +349,7 @@ const RecordPage: React.FC = () => {
     }
 
     console.log('[Record] show exit confirm modal');
-    backConfirmOnConfirmRef.current = onConfirm || null;
+    backConfirmOnConfirmRef.current = typeof onConfirm === 'function' ? onConfirm : null;
     setExitConfirmVisible(true);
   };
 
@@ -358,7 +358,7 @@ const RecordPage: React.FC = () => {
     setExitConfirmVisible(false);
     const onConfirm = backConfirmOnConfirmRef.current;
     backConfirmOnConfirmRef.current = null;
-    if (onConfirm) {
+    if (typeof onConfirm === 'function') {
       onConfirm();
     } else {
       stopRecording();
