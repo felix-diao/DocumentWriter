@@ -337,7 +337,14 @@ const RecordPage: React.FC = () => {
   };
 
   const handleBackConfirm = (onConfirm?: () => void) => {
-    if (!recordingRef.current || confirmShownRef.current) return;
+    if (confirmShownRef.current) return;
+
+    // 未开始录音时直接返回会议列表
+    if (!recordingRef.current) {
+      history.push('/mobile/meetings');
+      return;
+    }
+
     confirmShownRef.current = true;
 
     Modal.confirm({
@@ -463,32 +470,8 @@ const RecordPage: React.FC = () => {
     };
   }, []);
 
-  // 拦截录音中的返回行为：应用内返回、浏览器返回、企微返回
+  // 拦截录音中的返回行为：企微返回 / 页面关闭提示
   useEffect(() => {
-    let unblock: (() => void) | null = null;
-
-    const blocker = (tx: any) => {
-      if (!recordingRef.current) {
-        if (tx && typeof tx.retry === 'function') {
-          tx.retry();
-        }
-        return;
-      }
-      handleBackConfirm(() => {
-        if (unblock) {
-          unblock();
-          unblock = null;
-        }
-        stopRecording();
-      });
-    };
-
-    try {
-      unblock = history.block(blocker);
-    } catch (e) {
-      console.warn('history.block not available:', e);
-    }
-
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (recordingRef.current) {
         e.preventDefault();
@@ -510,15 +493,32 @@ const RecordPage: React.FC = () => {
     }
 
     return () => {
-      if (unblock) {
-        unblock();
-      }
       window.removeEventListener('beforeunload', handleBeforeUnload);
       if (wx && typeof wx.onHistoryBack === 'function') {
         wx.onHistoryBack(() => false);
       }
     };
   }, []);
+
+  // 拦截手机物理/虚拟返回键（非企微环境兜底）
+  useEffect(() => {
+    if (!recording) return;
+
+    // 压入一个 guard state，使返回键触发 popstate 而不直接离开页面
+    window.history.pushState({ recordingGuard: true }, '', window.location.href);
+
+    const handlePopState = () => {
+      if (recordingRef.current) {
+        window.history.pushState({ recordingGuard: true }, '', window.location.href);
+        handleBackConfirm();
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [recording]);
 
   return (
     <div style={{ height: '100dvh', overflow: 'hidden', background: '#fff', display: 'flex', flexDirection: 'column' }}>
