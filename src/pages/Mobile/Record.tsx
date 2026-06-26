@@ -35,6 +35,7 @@ const RecordPage: React.FC = () => {
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const committedTextRef = useRef('');   // 已 final 的文本累积，跨 session 保留
   const recordingSessionIdRef = useRef<string>(''); // 一次连续录音的标识，断连重连复用
+  const currentTranscriptRef = useRef(''); // 当前实时行文本的同步 ref
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -49,6 +50,11 @@ const RecordPage: React.FC = () => {
   const watchdogRef = useRef<NodeJS.Timeout | null>(null);
   const heartbeatRef = useRef<NodeJS.Timeout | null>(null);
   const backConfirmOnConfirmRef = useRef<(() => void) | null>(null);
+
+  // 把 transcript state 同步到 ref，方便在 WebSocket 回调里读到最新值
+  useEffect(() => {
+    currentTranscriptRef.current = transcript;
+  }, [transcript]);
 
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
@@ -100,6 +106,12 @@ const RecordPage: React.FC = () => {
         setTranscript(data.text || '');
       }
       if (data.type === 'final' && data.text) {
+        const current = currentTranscriptRef.current;
+        // 如果当前实时行里还有未落袋的内容，且 final 只是增量片段，先把草稿 flush 进去
+        if (current && current !== data.text && !current.endsWith(data.text)) {
+          setTranscriptParts(prev => [...prev, { text: current }]);
+          committedTextRef.current += current;
+        }
         setTranscriptParts(prev => [...prev, { text: data.text, speaker: data.speaker }]);
         committedTextRef.current += data.text;
         setTranscript('');
