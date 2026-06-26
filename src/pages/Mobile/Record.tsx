@@ -50,6 +50,7 @@ const RecordPage: React.FC = () => {
   const watchdogRef = useRef<NodeJS.Timeout | null>(null);
   const heartbeatRef = useRef<NodeJS.Timeout | null>(null);
   const backConfirmOnConfirmRef = useRef<(() => void) | null>(null);
+  const stopResolveRef = useRef<((value?: any) => void) | null>(null);
 
   // 把 transcript state 同步到 ref，方便在 WebSocket 回调里读到最新值
   useEffect(() => {
@@ -111,6 +112,13 @@ const RecordPage: React.FC = () => {
         committedTextRef.current += data.text;
         // final 后实时行保持为最新 accumulated，避免空一下
         setTranscript(data.accumulated || '');
+      }
+      if (data.type === 'completed' || data.type === 'session_saved' || data.type === 'error') {
+        // 通知 stopRecording 后端已处理完当前 session
+        if (stopResolveRef.current) {
+          stopResolveRef.current(data.type === 'error' ? new Error(data.message || '处理失败') : null);
+          stopResolveRef.current = null;
+        }
       }
       if (data.type === 'completed') {
         Toast.show({ icon: 'success', content: '录音总结已生成' });
@@ -432,24 +440,12 @@ const RecordPage: React.FC = () => {
     // 点击返回时已暂停，取消后保持暂停状态，用户可手动继续
   };
 
-  const generateMinutesAfterRecording = async () => {
-    const statusKey = `meeting_minutes_status_${meetingId}`;
-    localStorage.setItem(statusKey, 'processing');
-
-    const url =
-      provider === 'volc'
-        ? `/api/meetings/minutes/volc/${meetingId}/generate`
-        : `/api/meetings/minutes/local/${meetingId}/generate`;
-
-    await request(url, {
-      method: 'POST',
-    });
-  };
-
   const stopRecording = async (
-    options: { autoGenerate?: boolean; redirect?: boolean } = {},
+    options: { autoGenerate?: boolean; redirect?: boolean; waitForCompleted?: boolean } = {},
   ) => {
     const { autoGenerate = true, redirect = true } = options;
+    // 只有用户主动结束录音时才等待后端 completed；页面卸载时直接清理。
+    const waitForCompleted = options.waitForCompleted ?? (redirect && autoGenerate);
 
     flushCurrentTranscript();  // 结束前把最后未 final 的 partial 落袋
 
@@ -469,10 +465,33 @@ const RecordPage: React.FC = () => {
     stopTimer();
     stopAudioCapture();
 
-    // 立即发送 stop 并关闭 WS，后端异步完成 WAV 落盘和 TOS 上传
-    // POST /generate 后端自带重试等待转写就绪，前端无需等待
+    // 发送 stop，等待后端返回 completed/session_saved 后再关闭 WS
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ action: 'stop' }));
+
+      if (waitForCompleted) {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            stopResolveRef.current = (err: any) => {
+              stopResolveRef.current = null;
+              if (err instanceof Error) {
+                reject(err);
+              } else {
+                resolve();
+              }
+            };
+            // 15 秒超时兜底
+            setTimeout(() => {
+              if (stopResolveRef.current) {
+                stopResolveRef.current(null);
+              }
+            }, 15000);
+          });
+        } catch (err) {
+          console.error('等待录音结束消息失败:', err);
+        }
+      }
+
       wsRef.current.close();
     }
     wsRef.current = null;
@@ -485,12 +504,35 @@ const RecordPage: React.FC = () => {
     if (autoGenerate) {
       const statusKey = `meeting_minutes_status_${meetingId}`;
 
-      void generateMinutesAfterRecording().catch((error) => {
+      try {
+        if (provider === 'volc') {
+          // 1. 先合并音频片段
+          const finalRes = await request(`/api/meetings/minutes/volc/${meetingId}/finalize-recording`, {
+            method: 'POST',
+            data: { recording_session_id: recordingSessionIdRef.current },
+          });
+          const audioId = finalRes?.data?.audio_id;
+
+          // 2. 再基于合并后的音频生成纪要
+          if (audioId) {
+            await request(`/api/meetings/minutes/volc/${meetingId}/generate?audio_id=${audioId}`, {
+              method: 'POST',
+            });
+          } else {
+            throw new Error('合并音频未返回 audio_id');
+          }
+        } else {
+          // local provider：直接生成纪要
+          await request(`/api/meetings/minutes/local/${meetingId}/generate`, {
+            method: 'POST',
+          });
+        }
+        Toast.show({ icon: 'success', content: '会议纪要已开始生成' });
+      } catch (error) {
         console.error('自动生成会议纪要失败:', error);
         localStorage.setItem(statusKey, 'failed');
-      });
-
-      Toast.show({ icon: 'success', content: '会议纪要已开始生成' });
+        Toast.show({ icon: 'fail', content: '会议纪要生成失败' });
+      }
     }
 
     if (redirect) {
