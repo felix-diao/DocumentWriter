@@ -467,6 +467,7 @@ const RecordPage: React.FC = () => {
     setStatus('uploading');
     stopWatchdog();
     stopHeartbeat();
+    stopTimer();
     stopAudioCapture();
 
     // 等待后端 saving_audio 事件（转写已落 DB，约 2-5 秒）
