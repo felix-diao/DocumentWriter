@@ -102,19 +102,15 @@ const RecordPage: React.FC = () => {
     try {
       const data = JSON.parse(event.data);
       if (data.type === 'partial') {
-        // 实时行显示 accumulated，包含已 final 历史 + 当前识别内容
+        // 实时行展示完整 accumulated（历史 + 当前草稿），保持连贯
         setTranscript(data.accumulated || data.text || '');
       }
       if (data.type === 'final' && data.text) {
-        const current = currentTranscriptRef.current;
-        // 如果当前实时行里还有未落袋的内容，且 final 只是增量片段，先把草稿 flush 进去
-        if (current && current !== data.text && !current.endsWith(data.text)) {
-          setTranscriptParts(prev => [...prev, { text: current }]);
-          committedTextRef.current += current;
-        }
+        // 只把当前 final 这句落袋；实时行里的 accumulated 是预览，不要整段 flush
         setTranscriptParts(prev => [...prev, { text: data.text, speaker: data.speaker }]);
         committedTextRef.current += data.text;
-        setTranscript('');
+        // final 后实时行保持为最新 accumulated，避免空一下
+        setTranscript(data.accumulated || '');
       }
       if (data.type === 'completed') {
         Toast.show({ icon: 'success', content: '录音总结已生成' });
