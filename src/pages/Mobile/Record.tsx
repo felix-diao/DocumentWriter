@@ -102,8 +102,8 @@ const RecordPage: React.FC = () => {
     try {
       const data = JSON.parse(event.data);
       if (data.type === 'partial') {
-        // partial 只显示当前正在识别的这一句，不重复显示已 final 的历史
-        setTranscript(data.text || '');
+        // 实时行显示 accumulated，包含已 final 历史 + 当前识别内容
+        setTranscript(data.accumulated || data.text || '');
       }
       if (data.type === 'final' && data.text) {
         const current = currentTranscriptRef.current;
