@@ -464,61 +464,18 @@ const RecordPage: React.FC = () => {
     stoppingRef.current = true;
     recordingRef.current = false;
     interruptedRef.current = false;
-    setStatus('uploading');
     stopWatchdog();
     stopHeartbeat();
     stopTimer();
     stopAudioCapture();
 
-    // 等待后端 saving_audio 事件（转写已落 DB，约 2-5 秒）
-    // 此时即可安全发起 POST /generate，不必等慢速 TOS 上传完成
-    await new Promise<void>((resolve) => {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        const ws = wsRef.current;
-        let settled = false;
-        let stopWaitTimer: number | undefined;
-
-        const onMsg = (e: MessageEvent) => {
-          try {
-            const data = JSON.parse(e.data);
-            if (
-              data.type === 'saving_audio' ||
-              data.type === 'completed' ||
-              data.type === 'error'
-            ) {
-              if (settled) return;
-              settled = true;
-
-              if (stopWaitTimer !== undefined) {
-                window.clearTimeout(stopWaitTimer);
-              }
-
-              ws.removeEventListener('message', onMsg);
-              ws.close();
-              wsRef.current = null;
-              resolve();
-            }
-          } catch {}
-        };
-
-        ws.addEventListener('message', onMsg);
-        ws.send(JSON.stringify({ action: 'stop' }));
-
-        // 最长等 10 秒兜底，超时也继续
-        stopWaitTimer = window.setTimeout(() => {
-          if (!settled) {
-            settled = true;
-            ws.removeEventListener('message', onMsg);
-            ws.close();
-            wsRef.current = null;
-            resolve();
-          }
-        }, 10000);
-      } else {
-        wsRef.current = null;
-        resolve();
-      }
-    });
+    // 立即发送 stop 并关闭 WS，后端异步完成 WAV 落盘和 TOS 上传
+    // POST /generate 后端自带重试等待转写就绪，前端无需等待
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: 'stop' }));
+      wsRef.current.close();
+    }
+    wsRef.current = null;
 
     setRecording(false);
     pausedRef.current = false;
