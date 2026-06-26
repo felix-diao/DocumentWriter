@@ -464,55 +464,17 @@ const RecordPage: React.FC = () => {
     stoppingRef.current = true;
     recordingRef.current = false;
     interruptedRef.current = false;
-    setStatus('uploading');
     stopWatchdog();
     stopHeartbeat();
     stopAudioCapture();
 
-    // 2. 发�? stop，等待后�? completed/error（最�? 60 秒）
-    await new Promise<void>((resolve) => {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        const ws = wsRef.current;
-        let settled = false;
-        let stopWaitTimer: number | undefined;
-
-        const onMsg = (e: MessageEvent) => {
-          try {
-            const data = JSON.parse(e.data);
-            if (data.type === 'completed' || data.type === 'error') {
-              if (settled) return;
-              settled = true;
-
-              if (stopWaitTimer !== undefined) {
-                window.clearTimeout(stopWaitTimer);
-              }
-
-              ws.removeEventListener('message', onMsg);
-              ws.close();
-              wsRef.current = null;
-              resolve();
-            }
-          } catch {}
-        };
-
-        ws.addEventListener('message', onMsg);
-        ws.send(JSON.stringify({ action: 'stop' }));
-
-        // 最多等待后端保存并上传录音完成
-        stopWaitTimer = window.setTimeout(() => {
-          if (!settled) {
-            settled = true;
-            ws.removeEventListener('message', onMsg);
-            ws.close();
-            wsRef.current = null;
-            resolve();
-          }
-        }, 30000);
-      } else {
-        wsRef.current = null;
-        resolve();
-      }
-    });
+    // 发送 stop 后立即关闭 WS，不等待后端完成音频上传
+    // 后端会异步完成 WAV 落盘、TOS 上传、DB 写入，前端通过列表轮询感知结果
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: 'stop' }));
+      wsRef.current.close();
+    }
+    wsRef.current = null;
 
     setRecording(false);
     pausedRef.current = false;

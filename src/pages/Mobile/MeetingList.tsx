@@ -140,6 +140,11 @@ const MeetingList: React.FC = () => {
         const list: Meeting[] = res.data || [];
         setMeetings(list);
 
+        // 列表拿到后立即结束 loading，卡片先渲染，状态徽章异步到位
+        if (showLoading) {
+          setLoading(false);
+        }
+
         const entries = await Promise.all(
           list.map(async (meeting) => {
             const result = await fetchMinutesStatus(meeting);
@@ -166,10 +171,11 @@ const MeetingList: React.FC = () => {
             ),
           );
         }
+      } else if (showLoading) {
+        setLoading(false);
       }
     } catch (err) {
       Toast.show({ icon: 'fail', content: '获取会议列表失败' });
-    } finally {
       if (showLoading) {
         setLoading(false);
       }
