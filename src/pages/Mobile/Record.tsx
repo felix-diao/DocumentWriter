@@ -10,6 +10,11 @@ const getToken = (): string => {
   return localStorage.getItem('access_token') || '';
 };
 
+const WS_RECONNECT_DELAYS_MS = [1000, 2000, 4000];
+const WS_CONNECT_TIMEOUT_MS = 8000;
+const MAX_PENDING_AUDIO_CHUNKS = 120;
+const INTERRUPTED_FINALIZE_DELAY_MS = 120000;
+
 const RecordPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const meetingId = parseInt(id || '0', 10);
@@ -49,6 +54,11 @@ const RecordPage: React.FC = () => {
   const lastProcessTimeRef = useRef(Date.now());
   const watchdogRef = useRef<NodeJS.Timeout | null>(null);
   const heartbeatRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectingRef = useRef(false);
+  const reconnectAttemptRef = useRef(0);
+  const pendingAudioChunksRef = useRef<ArrayBuffer[]>([]);
+  const interruptedFinalizeTimerRef = useRef<number | null>(null);
+  const autoFinalizingRef = useRef(false);
   const backConfirmOnConfirmRef = useRef<(() => void) | null>(null);
 
   // 把 transcript state 同步到 ref，方便在 WebSocket 回调里读到最新值
@@ -123,38 +133,189 @@ const RecordPage: React.FC = () => {
     }
   };
 
-  const setupWebSocket = (): Promise<WebSocket> => {
+  const flushPendingAudioChunks = (ws: WebSocket) => {
+    const pendingChunks = pendingAudioChunksRef.current;
+
+    while (
+      pendingChunks.length > 0 &&
+      ws.readyState === WebSocket.OPEN
+    ) {
+      const chunk = pendingChunks[0];
+
+      try {
+        ws.send(chunk);
+        pendingChunks.shift();
+      } catch (error) {
+        console.warn('发送缓存音频失败:', error);
+        break;
+      }
+    }
+  };
+
+  function setupWebSocket(): Promise<WebSocket> {
     return new Promise((resolve, reject) => {
       const wsUrl = buildWsUrl();
       const ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
 
+      let settled = false;
+
+      const rejectConnection = (error: unknown) => {
+        if (settled) return;
+
+        settled = true;
+        window.clearTimeout(connectTimeout);
+
+        reject(
+          error instanceof Error
+            ? error
+            : new Error('WebSocket 连接失败'),
+        );
+      };
+
+      const connectTimeout = window.setTimeout(() => {
+        rejectConnection(
+          new Error('WebSocket 连接超时'),
+        );
+        ws.close();
+      }, WS_CONNECT_TIMEOUT_MS);
+
       ws.onopen = () => {
-        ws.send(JSON.stringify({
-          action: 'config',
-          rate: 16000,
-          channels: 1,
-          recording_session_id: recordingSessionIdRef.current,
-        }));
-        wsRef.current = ws;
-        resolve(ws);
+        if (settled) {
+          ws.close();
+          return;
+        }
+
+        try {
+          ws.send(JSON.stringify({
+            action: 'config',
+            rate: 16000,
+            channels: 1,
+            recording_session_id: recordingSessionIdRef.current,
+          }));
+
+          wsRef.current = ws;
+          flushPendingAudioChunks(ws);
+
+          settled = true;
+          window.clearTimeout(connectTimeout);
+          resolve(ws);
+        } catch (error) {
+          rejectConnection(error);
+          ws.close();
+        }
       };
 
       ws.onmessage = handleWsMessage;
 
-      ws.onerror = (e: Event) => {
-        console.error('WS error:', e);
-        reject(e);
+      ws.onerror = (event: Event) => {
+        console.error('WS error:', event);
+        rejectConnection(
+          new Error('WebSocket 连接异常'),
+        );
       };
 
-      ws.onclose = (e: CloseEvent) => {
-        console.log('WS closed:', e.code, e.reason);
-        if (recordingRef.current && !stoppingRef.current && !interruptedRef.current) {
-          autoPause('连接断开');
+      ws.onclose = (event: CloseEvent) => {
+        console.log(
+          'WS closed:',
+          event.code,
+          event.reason,
+        );
+
+        if (wsRef.current === ws) {
+          wsRef.current = null;
+        }
+
+        rejectConnection(
+          new Error('WebSocket 连接已关闭'),
+        );
+
+        if (
+          recordingRef.current &&
+          !stoppingRef.current &&
+          !interruptedRef.current
+        ) {
+          if (provider === 'volc') {
+            void reconnectWebSocket();
+          } else {
+            autoPause('连接断开');
+          }
         }
       };
     });
-  };
+  }
+
+  async function reconnectWebSocket(): Promise<void> {
+    if (
+      reconnectingRef.current ||
+      !recordingRef.current ||
+      stoppingRef.current ||
+      interruptedRef.current
+    ) {
+      return;
+    }
+
+    reconnectingRef.current = true;
+    reconnectAttemptRef.current = 0;
+    setStatus('connecting');
+
+    // 保存断线前尚未 final 的实时文字。
+    // transcriptParts 和 committedTextRef 不清空。
+    flushCurrentTranscript();
+
+    Toast.show({
+      content: '连接中断，正在自动重连',
+    });
+
+    for (
+      let index = 0;
+      index < WS_RECONNECT_DELAYS_MS.length;
+      index += 1
+    ) {
+      const attempt = index + 1;
+      const delayMs = WS_RECONNECT_DELAYS_MS[index];
+
+      reconnectAttemptRef.current = attempt;
+
+      await new Promise<void>(resolve => {
+        window.setTimeout(resolve, delayMs);
+      });
+
+      if (
+        !recordingRef.current ||
+        stoppingRef.current ||
+        interruptedRef.current
+      ) {
+        reconnectingRef.current = false;
+        return;
+      }
+
+      try {
+        await setupWebSocket();
+
+        reconnectingRef.current = false;
+        reconnectAttemptRef.current = 0;
+        setStatus('recording');
+        startWatchdog();
+
+        Toast.show({
+          icon: 'success',
+          content: '连接已恢复，继续录音',
+        });
+        return;
+      } catch (error) {
+        console.warn(
+          `WS 第 ${attempt} 次重连失败:`,
+          error,
+        );
+      }
+    }
+
+    reconnectingRef.current = false;
+    reconnectAttemptRef.current = 0;
+
+    autoPause('自动重连失败');
+  }
 
   const startWatchdog = () => {
     stopWatchdog();
@@ -178,11 +339,27 @@ const RecordPage: React.FC = () => {
 
   const startHeartbeat = () => {
     stopHeartbeat();
-    heartbeatRef.current = window.setInterval(() => {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ action: 'heartbeat' }));
+
+    const sendHeartbeat = () => {
+      if (
+        wsRef.current &&
+        wsRef.current.readyState === WebSocket.OPEN
+      ) {
+        wsRef.current.send(
+          JSON.stringify({
+            action: 'heartbeat',
+          }),
+        );
       }
-    }, 5000);
+    };
+
+    // 暂停后立即发送一次，之后每 30 秒发送一次。
+    sendHeartbeat();
+
+    heartbeatRef.current = window.setInterval(
+      sendHeartbeat,
+      30000,
+    );
   };
 
   const stopHeartbeat = () => {
@@ -190,6 +367,120 @@ const RecordPage: React.FC = () => {
       clearInterval(heartbeatRef.current);
       heartbeatRef.current = null;
     }
+  };
+
+  const clearInterruptedFinalizeTimer = () => {
+    if (interruptedFinalizeTimerRef.current !== null) {
+      window.clearTimeout(interruptedFinalizeTimerRef.current);
+      interruptedFinalizeTimerRef.current = null;
+    }
+  };
+
+  const closeWebSocketWithoutStop = () => {
+    const ws = wsRef.current;
+
+    if (ws) {
+      ws.onclose = null;
+      ws.onerror = null;
+      ws.onmessage = null;
+
+      if (
+        ws.readyState === WebSocket.OPEN ||
+        ws.readyState === WebSocket.CONNECTING
+      ) {
+        ws.close();
+      }
+    }
+
+    wsRef.current = null;
+  };
+
+  const finalizeInterruptedRecording = async (reason: string) => {
+    if (
+      autoFinalizingRef.current ||
+      stoppingRef.current ||
+      !recordingSessionIdRef.current
+    ) {
+      return;
+    }
+
+    autoFinalizingRef.current = true;
+    stoppingRef.current = true;
+    recordingRef.current = false;
+    interruptedRef.current = false;
+
+    flushCurrentTranscript();
+    clearInterruptedFinalizeTimer();
+    stopHeartbeat();
+    stopWatchdog();
+    stopTimer();
+    stopAudioCapture();
+    closeWebSocketWithoutStop();
+    setRecording(false);
+    pausedRef.current = false;
+    setPaused(false);
+    setStatus('uploading');
+
+    localStorage.setItem(
+      `meeting_minutes_status_${meetingId}`,
+      'processing',
+    );
+
+    try {
+      // 给后端一点时间感知 WS 关闭并保存当前 session 的已有音频。
+      await new Promise<void>(resolve => {
+        window.setTimeout(resolve, 3000);
+      });
+
+      const finalRes = await request(
+        `/api/meetings/minutes/volc/${meetingId}/finalize-and-generate`,
+        {
+          method: 'POST',
+          data: {
+            recording_session_id: recordingSessionIdRef.current,
+          },
+        },
+      );
+
+      const resultStatus = finalRes?.data?.status;
+
+      if (resultStatus === 'failed_no_audio') {
+        throw new Error('没有可用录音，无法生成会议纪要');
+      }
+
+      Toast.show({
+        icon: 'success',
+        content: '录音已自动收尾，会议纪要开始生成',
+      });
+
+      history.push('/mobile/meetings');
+    } catch (error) {
+      console.error('异常中断自动收尾失败:', reason, error);
+      localStorage.setItem(
+        `meeting_minutes_status_${meetingId}`,
+        'failed',
+      );
+      setStatus('error');
+      Toast.show({
+        icon: 'fail',
+        content: '异常中断自动收尾失败',
+      });
+    } finally {
+      autoFinalizingRef.current = false;
+      stoppingRef.current = false;
+    }
+  };
+
+  const scheduleInterruptedFinalize = (reason: string) => {
+    clearInterruptedFinalizeTimer();
+
+    if (provider !== 'volc') {
+      return;
+    }
+
+    interruptedFinalizeTimerRef.current = window.setTimeout(() => {
+      void finalizeInterruptedRecording(reason);
+    }, INTERRUPTED_FINALIZE_DELAY_MS);
   };
 
   const stopAudioCapture = () => {
@@ -222,22 +513,23 @@ const RecordPage: React.FC = () => {
     stopAudioCapture();
     startHeartbeat();  // 暂停期间持续心跳，保持 WS 存活
     stopTimer();
+    scheduleInterruptedFinalize(reason);
     Toast.show({ icon: 'fail', content: '录音已暂停，点击继续' });
   };
 
   const resumeFromInterruption = async () => {
     try {
+      clearInterruptedFinalizeTimer();
       stopHeartbeat();
       // 1. 确保 WebSocket 连接
-      let ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        ws = await setupWebSocket();
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        await setupWebSocket();
       }
 
       // 2. 重新获取麦克风并初始化音频
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      await startAudioCapture(stream, ws);
+      await startAudioCapture(stream);
 
       // 3. 恢复状态
       interruptedRef.current = false;
@@ -254,6 +546,8 @@ const RecordPage: React.FC = () => {
   };
 
   const startRecording = async () => {
+    clearInterruptedFinalizeTimer();
+    autoFinalizingRef.current = false;
     stoppingRef.current = false;
     interruptedRef.current = false;
     // 每次开始新的连续录音，生成新的 recording_session_id
@@ -267,14 +561,14 @@ const RecordPage: React.FC = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      const ws = await setupWebSocket();
+      await setupWebSocket();
 
       setStatus('recording');
       setRecording(true);
       recordingRef.current = true;
       pausedRef.current = false;
       setPaused(false);
-      await startAudioCapture(stream, ws);
+      await startAudioCapture(stream);
       startTimer();
       startWatchdog();
     } catch (err: any) {
@@ -283,11 +577,11 @@ const RecordPage: React.FC = () => {
     }
   };
 
-  const startAudioCapture = async (stream: MediaStream, ws: WebSocket) => {
+  const startAudioCapture = async (stream: MediaStream) => {
     const audioContext = new AudioContext({ sampleRate: 16000 });
     audioContextRef.current = audioContext;
 
-    // iOS Safari 需�? resume
+    // iOS Safari 需要 resume
     if (audioContext.state === 'suspended') {
       await audioContext.resume();
     }
@@ -299,15 +593,46 @@ const RecordPage: React.FC = () => {
     processorRef.current = processor;
 
     let sendCount = 0;
-    processor.onaudioprocess = (e) => {
+
+    processor.onaudioprocess = (event) => {
       lastProcessTimeRef.current = Date.now();
-      if (pausedRef.current || ws.readyState !== WebSocket.OPEN) return;
-      const input = e.inputBuffer.getChannelData(0);
+
+      if (pausedRef.current) {
+        return;
+      }
+
+      const input = event.inputBuffer.getChannelData(0);
       const pcm16 = float32ToInt16PCM(input);
-      ws.send(pcm16.buffer);
-      sendCount++;
-      if (sendCount <= 3) {
-        Toast.show({ content: `已发送音频块 #${sendCount}`, duration: 800 });
+      const audioChunk = pcm16.buffer.slice(0) as ArrayBuffer;
+      const activeWs = wsRef.current;
+
+      if (
+        activeWs &&
+        activeWs.readyState === WebSocket.OPEN
+      ) {
+        activeWs.send(audioChunk);
+        sendCount += 1;
+
+        if (sendCount <= 3) {
+          Toast.show({
+            content: `已发送音频块 #${sendCount}`,
+            duration: 800,
+          });
+        }
+        return;
+      }
+
+      if (reconnectingRef.current) {
+        pendingAudioChunksRef.current.push(
+          audioChunk,
+        );
+
+        if (
+          pendingAudioChunksRef.current.length >
+          MAX_PENDING_AUDIO_CHUNKS
+        ) {
+          pendingAudioChunksRef.current.shift();
+        }
       }
     };
 
@@ -384,15 +709,28 @@ const RecordPage: React.FC = () => {
       return;
     }
 
-    pausedRef.current = !pausedRef.current;
-    setPaused(pausedRef.current);
+    const nextPaused = !pausedRef.current;
+
+    pausedRef.current = nextPaused;
+    setPaused(nextPaused);
+
+    if (nextPaused) {
+      // 手动暂停时没有 PCM，使用低频心跳保持 WS 存活。
+      startHeartbeat();
+    } else {
+      // 继续录音后由 PCM 作为活跃信号。
+      stopHeartbeat();
+      lastProcessTimeRef.current = Date.now();
+    }
   };
 
   const pauseRecording = () => {
     if (!recordingRef.current) return;
     if (pausedRef.current) return;
+
     pausedRef.current = true;
     setPaused(true);
+    startHeartbeat();
   };
 
   const handleBackConfirm = (onConfirm?: (() => void) | unknown) => {
@@ -450,6 +788,7 @@ const RecordPage: React.FC = () => {
     stoppingRef.current = true;
     recordingRef.current = false;
     interruptedRef.current = false;
+    clearInterruptedFinalizeTimer();
     setStatus('uploading');
     stopWatchdog();
     stopHeartbeat();
@@ -518,20 +857,20 @@ const RecordPage: React.FC = () => {
       void (async () => {
         try {
           if (provider === 'volc') {
-            // 1. 先合并音频片段
-            const finalRes = await request(`/api/meetings/minutes/volc/${meetingId}/finalize-recording`, {
-              method: 'POST',
-              data: { recording_session_id: recordingSessionIdRef.current },
-            });
-            const audioId = finalRes?.data?.audio_id;
-
-            // 2. 再基于合并后的音频生成纪要
-            if (audioId) {
-              await request(`/api/meetings/minutes/volc/${meetingId}/generate?audio_id=${audioId}`, {
+            const finalRes = await request(
+              `/api/meetings/minutes/volc/${meetingId}/finalize-and-generate`,
+              {
                 method: 'POST',
-              });
-            } else {
-              throw new Error('合并音频未返回 audio_id');
+                data: {
+                  recording_session_id: recordingSessionIdRef.current,
+                },
+              },
+            );
+
+            const resultStatus = finalRes?.data?.status;
+
+            if (resultStatus === 'failed_no_audio') {
+              throw new Error('没有可用录音，无法生成会议纪要');
             }
           } else {
             // local provider：直接生成纪要
@@ -553,6 +892,35 @@ const RecordPage: React.FC = () => {
     }
   };
 
+  const cleanupRecordingOnPageLeave = () => {
+    if (
+      !recordingRef.current ||
+      stoppingRef.current ||
+      autoFinalizingRef.current
+    ) {
+      return;
+    }
+
+    console.log('[Record] page leave while recording, close ws without stop');
+
+    recordingRef.current = false;
+    interruptedRef.current = false;
+    pausedRef.current = false;
+
+    if (provider === 'volc' && recordingSessionIdRef.current) {
+      localStorage.setItem(
+        `meeting_minutes_status_${meetingId}`,
+        'processing',
+      );
+    }
+
+    clearInterruptedFinalizeTimer();
+    stopHeartbeat();
+    stopWatchdog();
+    stopTimer();
+    stopAudioCapture();
+    closeWebSocketWithoutStop();
+  };
 
   // 实时转写自动下滑
   useEffect(() => {
@@ -560,8 +928,15 @@ const RecordPage: React.FC = () => {
   }, [transcript, transcriptParts]);
 
   useEffect(() => {
+    const handlePageHide = () => {
+      cleanupRecordingOnPageLeave();
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+
     return () => {
-      stopRecording({ autoGenerate: false, redirect: false });
+      window.removeEventListener('pagehide', handlePageHide);
+      cleanupRecordingOnPageLeave();
     };
   }, []);
 
