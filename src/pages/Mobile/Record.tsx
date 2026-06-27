@@ -50,7 +50,6 @@ const RecordPage: React.FC = () => {
   const watchdogRef = useRef<NodeJS.Timeout | null>(null);
   const heartbeatRef = useRef<NodeJS.Timeout | null>(null);
   const backConfirmOnConfirmRef = useRef<(() => void) | null>(null);
-  const stopResolveRef = useRef<((value?: any) => void) | null>(null);
 
   // 把 transcript state 同步到 ref，方便在 WebSocket 回调里读到最新值
   useEffect(() => {
@@ -112,14 +111,6 @@ const RecordPage: React.FC = () => {
         committedTextRef.current += data.text;
         // final 后实时行保持为最新 accumulated，避免空一下
         setTranscript(data.accumulated || '');
-      }
-      if (data.type === 'saving_audio' || data.type === 'session_saved' || data.type === 'completed' || data.type === 'error') {
-        // saving_audio: 转写已落库，可安全发起 generate
-        // completed/session_saved: WS 转写全部结束信号
-        if (stopResolveRef.current) {
-          stopResolveRef.current(data.type === 'error' ? new Error(data.message || '处理失败') : null);
-          stopResolveRef.current = null;
-        }
       }
       if (data.type === 'completed') {
         Toast.show({ icon: 'success', content: '录音总结已生成' });
@@ -442,11 +433,9 @@ const RecordPage: React.FC = () => {
   };
 
   const stopRecording = async (
-    options: { autoGenerate?: boolean; redirect?: boolean; waitForCompleted?: boolean } = {},
+    options: { autoGenerate?: boolean; redirect?: boolean } = {},
   ) => {
     const { autoGenerate = true, redirect = true } = options;
-    // 只有用户主动结束录音时才等待后端 completed；页面卸载时直接清理。
-    const waitForCompleted = options.waitForCompleted ?? (redirect && autoGenerate);
 
     flushCurrentTranscript();  // 结束前把最后未 final 的 partial 落袋
 
@@ -461,42 +450,61 @@ const RecordPage: React.FC = () => {
     stoppingRef.current = true;
     recordingRef.current = false;
     interruptedRef.current = false;
+    setStatus('uploading');
     stopWatchdog();
     stopHeartbeat();
     stopTimer();
     stopAudioCapture();
 
-    // 发送 stop，等待 saving_audio（转写已落库）后再关闭 WS
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ action: 'stop' }));
+    // 等待后端 saving_audio 事件（转写已落 DB，约 2-5 秒）
+    // 此时即可安全发起 POST /generate，不必等慢速 TOS 上传完成
+    await new Promise<void>((resolve) => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        const ws = wsRef.current;
+        let settled = false;
+        let stopWaitTimer: number | undefined;
 
-      if (waitForCompleted) {
-        // 等待 saving_audio：后端已提交转写文本到 DB，可安全发起 generate
-        try {
-          await new Promise<void>((resolve, reject) => {
-            stopResolveRef.current = (err: any) => {
-              stopResolveRef.current = null;
-              if (err instanceof Error) {
-                reject(err);
-              } else {
-                resolve();
+        const onMsg = (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (
+              data.type === 'saving_audio' ||
+              data.type === 'completed' ||
+              data.type === 'error'
+            ) {
+              if (settled) return;
+              settled = true;
+
+              if (stopWaitTimer !== undefined) {
+                window.clearTimeout(stopWaitTimer);
               }
-            };
-            // 8 秒超时兜底，避免极端情况卡死
-            setTimeout(() => {
-              if (stopResolveRef.current) {
-                stopResolveRef.current(null);
-              }
-            }, 8000);
-          });
-        } catch (err) {
-          console.error('等待 saving_audio 超时:', err);
-        }
+
+              ws.removeEventListener('message', onMsg);
+              ws.close();
+              wsRef.current = null;
+              resolve();
+            }
+          } catch {}
+        };
+
+        ws.addEventListener('message', onMsg);
+        ws.send(JSON.stringify({ action: 'stop' }));
+
+        // 最长等 10 秒兜底，超时也继续
+        stopWaitTimer = window.setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            ws.removeEventListener('message', onMsg);
+            ws.close();
+            wsRef.current = null;
+            resolve();
+          }
+        }, 10000);
+      } else {
+        wsRef.current = null;
+        resolve();
       }
-
-      wsRef.current.close();
-    }
-    wsRef.current = null;
+    });
 
     setRecording(false);
     pausedRef.current = false;
