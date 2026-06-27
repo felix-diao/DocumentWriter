@@ -113,8 +113,9 @@ const RecordPage: React.FC = () => {
         // final 后实时行保持为最新 accumulated，避免空一下
         setTranscript(data.accumulated || '');
       }
-      if (data.type === 'completed' || data.type === 'session_saved' || data.type === 'error') {
-        // 通知 stopRecording 后端已处理完当前 session
+      if (data.type === 'saving_audio' || data.type === 'session_saved' || data.type === 'completed' || data.type === 'error') {
+        // saving_audio: 转写已落库，可安全发起 generate
+        // completed/session_saved: WS 转写全部结束信号
         if (stopResolveRef.current) {
           stopResolveRef.current(data.type === 'error' ? new Error(data.message || '处理失败') : null);
           stopResolveRef.current = null;
@@ -465,11 +466,12 @@ const RecordPage: React.FC = () => {
     stopTimer();
     stopAudioCapture();
 
-    // 发送 stop，等待后端返回 completed/session_saved 后再关闭 WS
+    // 发送 stop，等待 saving_audio（转写已落库）后再关闭 WS
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ action: 'stop' }));
 
       if (waitForCompleted) {
+        // 等待 saving_audio：后端已提交转写文本到 DB，可安全发起 generate
         try {
           await new Promise<void>((resolve, reject) => {
             stopResolveRef.current = (err: any) => {
@@ -480,15 +482,15 @@ const RecordPage: React.FC = () => {
                 resolve();
               }
             };
-            // 15 秒超时兜底
+            // 8 秒超时兜底，避免极端情况卡死
             setTimeout(() => {
               if (stopResolveRef.current) {
                 stopResolveRef.current(null);
               }
-            }, 15000);
+            }, 8000);
           });
         } catch (err) {
-          console.error('等待录音结束消息失败:', err);
+          console.error('等待 saving_audio 超时:', err);
         }
       }
 
@@ -504,35 +506,38 @@ const RecordPage: React.FC = () => {
     if (autoGenerate) {
       const statusKey = `meeting_minutes_status_${meetingId}`;
 
-      try {
-        if (provider === 'volc') {
-          // 1. 先合并音频片段
-          const finalRes = await request(`/api/meetings/minutes/volc/${meetingId}/finalize-recording`, {
-            method: 'POST',
-            data: { recording_session_id: recordingSessionIdRef.current },
-          });
-          const audioId = finalRes?.data?.audio_id;
+      // 后台发起生成请求，不阻塞跳转会议列表
+      void (async () => {
+        try {
+          if (provider === 'volc') {
+            // 1. 先合并音频片段
+            const finalRes = await request(`/api/meetings/minutes/volc/${meetingId}/finalize-recording`, {
+              method: 'POST',
+              data: { recording_session_id: recordingSessionIdRef.current },
+            });
+            const audioId = finalRes?.data?.audio_id;
 
-          // 2. 再基于合并后的音频生成纪要
-          if (audioId) {
-            await request(`/api/meetings/minutes/volc/${meetingId}/generate?audio_id=${audioId}`, {
+            // 2. 再基于合并后的音频生成纪要
+            if (audioId) {
+              await request(`/api/meetings/minutes/volc/${meetingId}/generate?audio_id=${audioId}`, {
+                method: 'POST',
+              });
+            } else {
+              throw new Error('合并音频未返回 audio_id');
+            }
+          } else {
+            // local provider：直接生成纪要
+            await request(`/api/meetings/minutes/local/${meetingId}/generate`, {
               method: 'POST',
             });
-          } else {
-            throw new Error('合并音频未返回 audio_id');
           }
-        } else {
-          // local provider：直接生成纪要
-          await request(`/api/meetings/minutes/local/${meetingId}/generate`, {
-            method: 'POST',
-          });
+          Toast.show({ icon: 'success', content: '会议纪要已开始生成' });
+        } catch (error) {
+          console.error('自动生成会议纪要失败:', error);
+          localStorage.setItem(statusKey, 'failed');
+          Toast.show({ icon: 'fail', content: '会议纪要生成失败' });
         }
-        Toast.show({ icon: 'success', content: '会议纪要已开始生成' });
-      } catch (error) {
-        console.error('自动生成会议纪要失败:', error);
-        localStorage.setItem(statusKey, 'failed');
-        Toast.show({ icon: 'fail', content: '会议纪要生成失败' });
-      }
+      })();
     }
 
     if (redirect) {
