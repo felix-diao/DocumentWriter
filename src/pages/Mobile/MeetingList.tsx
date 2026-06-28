@@ -25,6 +25,36 @@ interface MinutesStatusInfo {
   text: string;
 }
 
+const RECOVER_CHECK_LIMIT = 5;
+
+const recoverInterruptedRecording = async (
+  meeting: Meeting,
+  provider: string,
+  recordingSessionId: string,
+) => {
+  const recoverUrl =
+    provider === 'volc'
+      ? `/api/meetings/minutes/volc/${meeting.id}/recover-and-finalize`
+      : `/api/meetings/minutes/local/${meeting.id}/recover-and-finalize`;
+
+  const recoverKey = `meeting_recover_finalize_${meeting.id}_${recordingSessionId}`;
+  const lastRecoverAt = Number(localStorage.getItem(recoverKey) || '0');
+
+  // 避免列表轮询时对同一条异常录音频繁重复请求。
+  if (lastRecoverAt && Date.now() - lastRecoverAt < 30000) {
+    return;
+  }
+
+  localStorage.setItem(recoverKey, String(Date.now()));
+
+  await request(recoverUrl, {
+    method: 'POST',
+    data: {
+      recording_session_id: recordingSessionId,
+    },
+  });
+};
+
 const resolveMinutesStatus = (data: any): MinutesStatusInfo => {
   const hasSummary = !!(
     data?.summary?.paragraph ||
@@ -64,6 +94,7 @@ const isDefaultTitle = (title: string): boolean => {
 
 const fetchMinutesStatus = async (
   meeting: Meeting,
+  options?: { autoRecover?: boolean },
 ): Promise<{ status: MinutesStatusInfo; updatedTitle?: string }> => {
   const provider =
     meeting.provider || localStorage.getItem(`meeting_provider_${meeting.id}`) || 'local';
@@ -95,6 +126,33 @@ const fetchMinutesStatus = async (
         updatedTitle = aiTitle.trim();
       } catch {
         // 静默失败
+      }
+    }
+
+    const recoverableRecording = data?.recoverable_recording;
+    const recordingSessionId = recoverableRecording?.recording_session_id;
+
+    if (
+      options?.autoRecover &&
+      recordingSessionId &&
+      typeof recordingSessionId === 'string'
+    ) {
+      try {
+        await recoverInterruptedRecording(
+          meeting,
+          recoverableRecording?.provider || provider,
+          recordingSessionId,
+        );
+        localStorage.setItem(
+          `meeting_minutes_status_${meeting.id}`,
+          'processing',
+        );
+        return {
+          status: { status: 'processing', text: '生成中' },
+          updatedTitle,
+        };
+      } catch (recoverError) {
+        console.error('恢复异常录音失败:', recoverError);
       }
     }
 
@@ -147,8 +205,10 @@ const MeetingList: React.FC = () => {
         }
 
         const entries = await Promise.all(
-          list.map(async (meeting) => {
-            const result = await fetchMinutesStatus(meeting);
+          list.map(async (meeting, index) => {
+            const result = await fetchMinutesStatus(meeting, {
+              autoRecover: index < RECOVER_CHECK_LIMIT,
+            });
             return [meeting.id, result] as const;
           }),
         );
