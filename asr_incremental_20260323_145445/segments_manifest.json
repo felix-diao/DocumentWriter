@@ -1,0 +1,210 @@
+{
+  "chunk_sec": 6,
+  "overlap_sec": 1,
+  "duration_sec": 144.233313,
+  "segments": [
+    {
+      "idx": 0,
+      "start": 0.0,
+      "end": 6.0,
+      "file_name": "chunk_0000.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0000.wav"
+    },
+    {
+      "idx": 1,
+      "start": 5.0,
+      "end": 11.0,
+      "file_name": "chunk_0001.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0001.wav"
+    },
+    {
+      "idx": 2,
+      "start": 10.0,
+      "end": 16.0,
+      "file_name": "chunk_0002.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0002.wav"
+    },
+    {
+      "idx": 3,
+      "start": 15.0,
+      "end": 21.0,
+      "file_name": "chunk_0003.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0003.wav"
+    },
+    {
+      "idx": 4,
+      "start": 20.0,
+      "end": 26.0,
+      "file_name": "chunk_0004.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0004.wav"
+    },
+    {
+      "idx": 5,
+      "start": 25.0,
+      "end": 31.0,
+      "file_name": "chunk_0005.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0005.wav"
+    },
+    {
+      "idx": 6,
+      "start": 30.0,
+      "end": 36.0,
+      "file_name": "chunk_0006.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0006.wav"
+    },
+    {
+      "idx": 7,
+      "start": 35.0,
+      "end": 41.0,
+      "file_name": "chunk_0007.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0007.wav"
+    },
+    {
+      "idx": 8,
+      "start": 40.0,
+      "end": 46.0,
+      "file_name": "chunk_0008.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0008.wav"
+    },
+    {
+      "idx": 9,
+      "start": 45.0,
+      "end": 51.0,
+      "file_name": "chunk_0009.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0009.wav"
+    },
+    {
+      "idx": 10,
+      "start": 50.0,
+      "end": 56.0,
+      "file_name": "chunk_0010.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0010.wav"
+    },
+    {
+      "idx": 11,
+      "start": 55.0,
+      "end": 61.0,
+      "file_name": "chunk_0011.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0011.wav"
+    },
+    {
+      "idx": 12,
+      "start": 60.0,
+      "end": 66.0,
+      "file_name": "chunk_0012.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0012.wav"
+    },
+    {
+      "idx": 13,
+      "start": 65.0,
+      "end": 71.0,
+      "file_name": "chunk_0013.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0013.wav"
+    },
+    {
+      "idx": 14,
+      "start": 70.0,
+      "end": 76.0,
+      "file_name": "chunk_0014.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0014.wav"
+    },
+    {
+      "idx": 15,
+      "start": 75.0,
+      "end": 81.0,
+      "file_name": "chunk_0015.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0015.wav"
+    },
+    {
+      "idx": 16,
+      "start": 80.0,
+      "end": 86.0,
+      "file_name": "chunk_0016.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0016.wav"
+    },
+    {
+      "idx": 17,
+      "start": 85.0,
+      "end": 91.0,
+      "file_name": "chunk_0017.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0017.wav"
+    },
+    {
+      "idx": 18,
+      "start": 90.0,
+      "end": 96.0,
+      "file_name": "chunk_0018.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0018.wav"
+    },
+    {
+      "idx": 19,
+      "start": 95.0,
+      "end": 101.0,
+      "file_name": "chunk_0019.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0019.wav"
+    },
+    {
+      "idx": 20,
+      "start": 100.0,
+      "end": 106.0,
+      "file_name": "chunk_0020.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0020.wav"
+    },
+    {
+      "idx": 21,
+      "start": 105.0,
+      "end": 111.0,
+      "file_name": "chunk_0021.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0021.wav"
+    },
+    {
+      "idx": 22,
+      "start": 110.0,
+      "end": 116.0,
+      "file_name": "chunk_0022.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0022.wav"
+    },
+    {
+      "idx": 23,
+      "start": 115.0,
+      "end": 121.0,
+      "file_name": "chunk_0023.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0023.wav"
+    },
+    {
+      "idx": 24,
+      "start": 120.0,
+      "end": 126.0,
+      "file_name": "chunk_0024.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0024.wav"
+    },
+    {
+      "idx": 25,
+      "start": 125.0,
+      "end": 131.0,
+      "file_name": "chunk_0025.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0025.wav"
+    },
+    {
+      "idx": 26,
+      "start": 130.0,
+      "end": 136.0,
+      "file_name": "chunk_0026.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0026.wav"
+    },
+    {
+      "idx": 27,
+      "start": 135.0,
+      "end": 141.0,
+      "file_name": "chunk_0027.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0027.wav"
+    },
+    {
+      "idx": 28,
+      "start": 140.0,
+      "end": 144.233,
+      "file_name": "chunk_0028.wav",
+      "file_path": "asr_incremental_20260323_145445/chunks/chunk_0028.wav"
+    }
+  ]
+}

@@ -235,11 +235,7 @@ const RecordPage: React.FC = () => {
           !stoppingRef.current &&
           !interruptedRef.current
         ) {
-          if (provider === 'volc') {
-            void reconnectWebSocket();
-          } else {
-            autoPause('连接断开');
-          }
+          void reconnectWebSocket();
         }
       };
     });
@@ -433,7 +429,7 @@ const RecordPage: React.FC = () => {
       });
 
       const finalRes = await request(
-        `/api/meetings/minutes/volc/${meetingId}/finalize-and-generate`,
+        `/api/meetings/minutes/${provider}/${meetingId}/finalize-and-generate`,
         {
           method: 'POST',
           data: {
@@ -473,10 +469,6 @@ const RecordPage: React.FC = () => {
 
   const scheduleInterruptedFinalize = (reason: string) => {
     clearInterruptedFinalizeTimer();
-
-    if (provider !== 'volc') {
-      return;
-    }
 
     interruptedFinalizeTimerRef.current = window.setTimeout(() => {
       void finalizeInterruptedRecording(reason);
@@ -856,27 +848,20 @@ const RecordPage: React.FC = () => {
       // 后台发起生成请求，不阻塞跳转会议列表
       void (async () => {
         try {
-          if (provider === 'volc') {
-            const finalRes = await request(
-              `/api/meetings/minutes/volc/${meetingId}/finalize-and-generate`,
-              {
-                method: 'POST',
-                data: {
-                  recording_session_id: recordingSessionIdRef.current,
-                },
-              },
-            );
-
-            const resultStatus = finalRes?.data?.status;
-
-            if (resultStatus === 'failed_no_audio') {
-              throw new Error('没有可用录音，无法生成会议纪要');
-            }
-          } else {
-            // local provider：直接生成纪要
-            await request(`/api/meetings/minutes/local/${meetingId}/generate`, {
+          const finalRes = await request(
+            `/api/meetings/minutes/${provider}/${meetingId}/finalize-and-generate`,
+            {
               method: 'POST',
-            });
+              data: {
+                recording_session_id: recordingSessionIdRef.current,
+              },
+            },
+          );
+
+          const resultStatus = finalRes?.data?.status;
+
+          if (resultStatus === 'failed_no_audio') {
+            throw new Error('没有可用录音，无法生成会议纪要');
           }
           Toast.show({ icon: 'success', content: '会议纪要已开始生成' });
         } catch (error) {
@@ -907,7 +892,7 @@ const RecordPage: React.FC = () => {
     interruptedRef.current = false;
     pausedRef.current = false;
 
-    if (provider === 'volc' && recordingSessionIdRef.current) {
+    if (recordingSessionIdRef.current) {
       localStorage.setItem(
         `meeting_minutes_status_${meetingId}`,
         'processing',

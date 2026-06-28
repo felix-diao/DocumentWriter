@@ -87,6 +87,7 @@ const fetchMinutesStatus = async (
       isDefaultTitle(meeting.title)
     ) {
       try {
+        const safeTitle = aiTitle.trim().slice(0, 20);
         await request(`/api/meetings/${meeting.id}`, {
           method: 'PUT',
           data: { title: aiTitle.trim() },

@@ -4,6 +4,7 @@ import { useParams, history } from 'umi';
 import { withAppBase } from '@/utils/appPath';
 import { request } from '@umijs/max';
 import ReactMarkdown from 'react-markdown';
+const MEETING_TITLE_MAX_LEN = 20;
 
 interface Meeting {
   id: number;
@@ -135,6 +136,7 @@ const MeetingDetail: React.FC = () => {
 
     const applyTitle = async () => {
       try {
+        const safeTitle = aiTitle.trim().slice(0, MEETING_TITLE_MAX_LEN);
         await request(`/api/meetings/${meetingId}`, {
           method: 'PUT',
           data: { title: aiTitle.trim() },
@@ -179,19 +181,26 @@ const MeetingDetail: React.FC = () => {
 
   const handleTitleSave = async () => {
     const newTitle = editTitleValue.trim();
+    if (newTitle.length > MEETING_TITLE_MAX_LEN) {
+      Toast.show({
+        icon: "fail",
+        content: `会议名称不能超过 ${MEETING_TITLE_MAX_LEN} 个字符`,
+      });
+      return; // 不退出编辑态，让用户继续修改
+    }
     if (!newTitle || newTitle === meeting?.title) {
       setEditingTitle(false);
       return;
     }
     try {
       await request(`/api/meetings/${meetingId}`, {
-        method: 'PUT',
+        method: "PUT",
         data: { title: newTitle },
       });
       setMeeting((prev) => (prev ? { ...prev, title: newTitle } : prev));
       setEditingTitle(false);
     } catch {
-      Toast.show({ icon: 'fail', content: '标题修改失败' });
+      Toast.show({ icon: "fail", content: "标题修改失败" });
     }
   };
 
@@ -278,31 +287,52 @@ const MeetingDetail: React.FC = () => {
       <div style={{ background: '#fff', padding: 16, marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
           {editingTitle ? (
-            <input
-              value={editTitleValue}
-              onChange={(e) => setEditTitleValue(e.target.value)}
-              onBlur={handleTitleSave}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleTitleSave();
-                if (e.key === 'Escape') {
-                  setEditingTitle(false);
+            // 移动端会议名称限制 20 字符：maxLength + slice 双保险 + 右侧字符计数
+            <>
+              <input
+                value={editTitleValue}
+                maxLength={MEETING_TITLE_MAX_LEN}
+                onChange={(e) =>
+                  setEditTitleValue(
+                    e.target.value.slice(0, MEETING_TITLE_MAX_LEN),
+                  )
                 }
-              }}
-              autoFocus
-              style={{
-                fontSize: 20,
-                fontWeight: 'bold',
-                color: '#333',
-                border: '2px solid #1677ff',
-                borderRadius: 6,
-                padding: '4px 10px',
-                maxWidth: '100%',
-                width: 260,
-                outline: 'none',
-                background: '#fff',
-                boxSizing: 'border-box',
-              }}
-            />
+                onBlur={handleTitleSave}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleTitleSave();
+                  if (e.key === "Escape") {
+                    setEditingTitle(false);
+                  }
+                }}
+                autoFocus
+                style={{
+                  fontSize: 20,
+                  fontWeight: "bold",
+                  color: "#333",
+                  border: "2px solid #1677ff",
+                  borderRadius: 6,
+                  padding: "4px 10px",
+                  maxWidth: "100%",
+                  width: 260,
+                  outline: "none",
+                  background: "#fff",
+                  boxSizing: "border-box",
+                }}
+              />
+              {/* 字符计数，达到上限时变红提示 */}
+              <span
+                style={{
+                  fontSize: 12,
+                  color:
+                    editTitleValue.length >= MEETING_TITLE_MAX_LEN
+                      ? "#ff4d4f"
+                      : "#999",
+                  flexShrink: 0,
+                }}
+              >
+                {editTitleValue.length}/{MEETING_TITLE_MAX_LEN}
+              </span>
+            </>
           ) : (
             <>
               <div
