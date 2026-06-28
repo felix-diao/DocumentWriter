@@ -43,11 +43,38 @@ const MeetingDetail: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
   const autoTitleAppliedRef = useRef(false);
+  const recoverAttemptedRef = useRef<Record<string, boolean>>({});
   const [editingTitle, setEditingTitle] = useState(false);
   const [editTitleValue, setEditTitleValue] = useState('');
 
   const getProvider = () =>
     meeting?.provider || localStorage.getItem(`meeting_provider_${meetingId}`) || 'local';
+
+  const recoverInterruptedRecording = async (
+    provider: string,
+    recordingSessionId: string,
+  ) => {
+    const recoverKey = `${meetingId}_${recordingSessionId}`;
+    if (recoverAttemptedRef.current[recoverKey]) {
+      return false;
+    }
+
+    recoverAttemptedRef.current[recoverKey] = true;
+
+    const recoverPath =
+      provider === 'volc'
+        ? `/api/meetings/minutes/volc/${meetingId}/recover-and-finalize`
+        : `/api/meetings/minutes/local/${meetingId}/recover-and-finalize`;
+
+    await request(recoverPath, {
+      method: 'POST',
+      data: {
+        recording_session_id: recordingSessionId,
+      },
+    });
+
+    return true;
+  };
 
   useEffect(() => {
     loadMeeting();
@@ -95,7 +122,38 @@ const MeetingDetail: React.FC = () => {
         : `/api/meetings/minutes/local/${meetingId}`;
       const res = await request(path);
       if (res.success) {
-        setMinutesData(res.data);
+        const data = res.data;
+        const recoverableRecording = data?.recoverable_recording;
+        const recordingSessionId = recoverableRecording?.recording_session_id;
+
+        if (
+          recordingSessionId &&
+          typeof recordingSessionId === 'string'
+        ) {
+          try {
+            const recovered = await recoverInterruptedRecording(
+              recoverableRecording?.provider || getProvider(),
+              recordingSessionId,
+            );
+
+            if (recovered) {
+              localStorage.setItem(
+                `meeting_minutes_status_${meetingId}`,
+                'processing',
+              );
+              setMinutesData({
+                ...data,
+                processing_status: 'processing',
+                processing_stage: 'minutes',
+              });
+              return;
+            }
+          } catch (recoverError) {
+            console.error('恢复异常录音失败:', recoverError);
+          }
+        }
+
+        setMinutesData(data);
       }
     } catch {
       Toast.show({ icon: 'fail', content: '获取会议纪要失败' });
