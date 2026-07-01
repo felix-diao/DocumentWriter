@@ -52,6 +52,7 @@ const recoverInterruptedRecording = async (
     data: {
       recording_session_id: recordingSessionId,
     },
+    skipErrorHandler: true,
   });
 };
 
@@ -105,7 +106,9 @@ const fetchMinutesStatus = async (
       : `/api/meetings/minutes/local/${meeting.id}`;
 
   try {
-    const res = await request(url);
+    const res = await request(url, {
+      skipErrorHandler: true,
+    });
     const data = res?.data;
 
     // 自动标题替换：AI 总结生成后，用 summary.title 替换默认标题

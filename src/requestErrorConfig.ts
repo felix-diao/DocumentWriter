@@ -112,10 +112,21 @@ export const errorConfig: RequestConfig = {
         const friendly = getHttpErrorMessage(error);
         message.error(friendly);
       } else if (error.request) {
+        const isCanceledRequest =
+          error?.name === 'CanceledError' ||
+          error?.name === 'AbortError' ||
+          error?.code === 'ERR_CANCELED' ||
+          error?.message === 'canceled' ||
+          error?.message === 'Request aborted';
+
+        if (isCanceledRequest) {
+          return;
+        }
+
         // 请求已经成功发起，但没有收到响应
-        // \`error.request\` 在浏览器中是 XMLHttpRequest 的实例，
+        // `error.request` 在浏览器中是 XMLHttpRequest 的实例，
         // 而在node.js中是 http.ClientRequest 的实例
-        message.error('None response! Please retry.');
+        message.error('网络连接异常，请稍后重试');
       } else {
         // 发送请求时出了点问题
         message.error('Request error, please retry.');

@@ -71,6 +71,7 @@ const MeetingDetail: React.FC = () => {
       data: {
         recording_session_id: recordingSessionId,
       },
+      skipErrorHandler: true,
     });
 
     return true;
